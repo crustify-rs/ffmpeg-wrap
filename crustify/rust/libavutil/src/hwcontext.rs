@@ -339,15 +339,33 @@ mod scheduled_symbol_tests {
 
     #[test]
     fn device_type_names_round_trip_when_compiled_in() {
-        let first = av_hwdevice_iterate_types(AVHWDeviceType::NONE);
-        if first != AVHWDeviceType::NONE {
-            let name = av_hwdevice_get_type_name(first).expect("iterated type has a name");
-            assert_eq!(av_hwdevice_find_type_by_name(name), first);
+        // Walk the whole iteration rather than its first step: each compiled-in
+        // type must name itself and be found again under that name, and the
+        // walk must be strictly increasing so it terminates. This campaign
+        // configures every hardware backend off, so the loop covers nothing
+        // here; the two assertions after it are what hold in this build.
+        let mut previous = AVHWDeviceType::NONE;
+        let mut seen = 0;
+        loop {
+            let next = av_hwdevice_iterate_types(previous);
+            if next == AVHWDeviceType::NONE {
+                break;
+            }
+            assert!(next.as_raw() > previous.as_raw());
+            let name = av_hwdevice_get_type_name(next).expect("iterated type has a name");
+            assert_eq!(av_hwdevice_find_type_by_name(name), next);
+            previous = next;
+            seen += 1;
+            assert!(seen < 64, "iteration did not terminate");
         }
+
         assert_eq!(
             av_hwdevice_find_type_by_name(c"not-a-device"),
             AVHWDeviceType::NONE
         );
+        // `NONE` is the iteration sentinel, so C answers it with a null name
+        // rather than the zeroth table entry.
+        assert_eq!(av_hwdevice_get_type_name(AVHWDeviceType::NONE), None);
     }
 }
 

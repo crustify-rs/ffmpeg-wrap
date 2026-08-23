@@ -525,10 +525,26 @@ fn static_name(pointer: *const core::ffi::c_char) -> Option<&'static CStr> {
 }
 
 /// Wraps: av_alpha_mode_from_name
-#[must_use]
-pub fn av_alpha_mode_from_name(name: &CStr) -> crate::pixfmt::AVAlphaMode {
+///
+/// Returns the named alpha mode, or libavutil's negative error code when the
+/// name is unknown, exactly as [`av_chroma_location_from_name`] does for the
+/// sibling table. C declares the result `enum AVAlphaMode` but returns either a
+/// name-table index below `AVALPHA_MODE_NB` or `AVERROR(EINVAL)`; since the
+/// enumerators are all non-negative the compiler gives that enum an unsigned
+/// type, so the error arrives as a very large value. Handing it back as an
+/// [`AVAlphaMode`](crate::pixfmt::AVAlphaMode) would leave every caller to
+/// recognise that one bit pattern as failure.
+///
+/// Sign, not table membership, separates the two: a mode added by a newer
+/// libavutil is still a small index and comes back as `Ok`.
+pub fn av_alpha_mode_from_name(name: &CStr) -> Result<crate::pixfmt::AVAlphaMode, i32> {
     // SAFETY: `name` is a live NUL-terminated read-only string and is not retained.
-    crate::pixfmt::AVAlphaMode::from_raw(unsafe { ffi::av_alpha_mode_from_name(name.as_ptr()) })
+    let value = unsafe { ffi::av_alpha_mode_from_name(name.as_ptr()) };
+    let status = value as i32;
+    if status < 0 {
+        return Err(status);
+    }
+    Ok(crate::pixfmt::AVAlphaMode::from_raw(value))
 }
 
 /// Wraps: av_alpha_mode_name
@@ -612,14 +628,20 @@ pub fn av_get_pix_fmt_name(format: crate::pixfmt::AVPixelFormat) -> Option<&'sta
 #[cfg(test)]
 mod scheduled_symbol_tests {
     use super::*;
-    use crate::pixfmt::{AVAlphaMode, AVChromaLocation, AVColorPrimaries, AVPixelFormat};
+    use crate::pixfmt::{
+        AVAlphaMode, AVChromaLocation, AVColorPrimaries, AVColorRange, AVColorSpace,
+        AVColorTransferCharacteristic, AVPixelFormat,
+    };
 
     #[test]
     fn names_and_reverse_lookups_round_trip() {
         assert_eq!(
             av_alpha_mode_from_name(c"premultiplied"),
-            AVAlphaMode::PREMULTIPLIED
+            Ok(AVAlphaMode::PREMULTIPLIED)
         );
+        // The unknown-name path is an error rather than an alpha mode holding
+        // `AVERROR(EINVAL)` reinterpreted through an unsigned enum.
+        assert_eq!(av_alpha_mode_from_name(c"not-an-alpha-mode"), Err(-22));
         assert_eq!(av_alpha_mode_name(AVAlphaMode::STRAIGHT), Some(c"straight"));
         assert_eq!(
             av_chroma_location_name(AVChromaLocation::LEFT),
@@ -638,10 +660,81 @@ mod scheduled_symbol_tests {
 
     #[test]
     fn chroma_positions_convert_in_both_directions() {
-        let position = av_chroma_location_enum_to_pos(AVChromaLocation::LEFT).unwrap();
+        // Every location C assigns a position to must survive the round trip,
+        // and each must occupy a distinct one — otherwise `pos_to_enum` would
+        // answer with whichever came first and the pairing above would still
+        // pass for the one location it checked.
+        let locations = [
+            AVChromaLocation::LEFT,
+            AVChromaLocation::CENTER,
+            AVChromaLocation::TOP_LEFT,
+            AVChromaLocation::TOP,
+            AVChromaLocation::BOTTOM_LEFT,
+            AVChromaLocation::BOTTOM,
+        ];
+        let mut positions = [(0_i32, 0_i32); 6];
+        for (slot, location) in positions.iter_mut().zip(locations) {
+            let (x, y) = av_chroma_location_enum_to_pos(location).unwrap();
+            assert_eq!(av_chroma_location_pos_to_enum(x, y), location);
+            *slot = (x, y);
+        }
+        for (index, position) in positions.iter().enumerate() {
+            assert!(!positions[..index].contains(position));
+        }
+
+        // The sentinel has no position, and an unmatched position falls back
+        // to it instead of naming a location.
         assert_eq!(
-            av_chroma_location_pos_to_enum(position.0, position.1),
-            AVChromaLocation::LEFT
+            av_chroma_location_enum_to_pos(AVChromaLocation::UNSPECIFIED),
+            Err(-22)
+        );
+        assert_eq!(
+            av_chroma_location_pos_to_enum(1, 1),
+            AVChromaLocation::UNSPECIFIED
+        );
+    }
+
+    #[test]
+    fn each_colour_property_table_names_its_own_constants() {
+        // The four `*_name` wrappers read four different static tables. Each
+        // pairing is the string libavutil stores at that index, so a constant
+        // bound to the wrong enumerator fails here.
+        assert_eq!(av_color_range_name(AVColorRange::MPEG), Some(c"tv"));
+        assert_eq!(av_color_range_name(AVColorRange::JPEG), Some(c"pc"));
+        assert_eq!(av_color_space_name(AVColorSpace::BT709), Some(c"bt709"));
+        assert_eq!(av_color_space_name(AVColorSpace::RGB), Some(c"gbr"));
+        assert_eq!(
+            av_color_transfer_name(AVColorTransferCharacteristic::LINEAR),
+            Some(c"linear")
+        );
+        assert_eq!(
+            av_color_primaries_name(AVColorPrimaries::BT470BG),
+            Some(c"bt470bg")
+        );
+
+        // Each table is bounds-checked rather than indexed blindly, so a value
+        // past its end has no name.
+        assert_eq!(
+            av_color_range_name(AVColorRange::from_raw(ffi::AVColorRange::MAX)),
+            None
+        );
+        assert_eq!(
+            av_color_space_name(AVColorSpace::from_raw(ffi::AVColorSpace::MAX)),
+            None
+        );
+        assert_eq!(
+            av_color_transfer_name(AVColorTransferCharacteristic::from_raw(
+                ffi::AVColorTransferCharacteristic::MAX
+            )),
+            None
+        );
+        assert_eq!(
+            av_color_primaries_name(AVColorPrimaries::from_raw(ffi::AVColorPrimaries::MAX)),
+            None
+        );
+        assert_eq!(
+            av_get_pix_fmt_name(AVPixelFormat::from_raw(ffi::AVPixelFormat::MAX)),
+            None
         );
     }
 }

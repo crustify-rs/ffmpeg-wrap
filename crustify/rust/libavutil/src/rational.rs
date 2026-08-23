@@ -306,10 +306,29 @@ mod scheduled_tests {
 }
 
 /// Wraps: av_add_q
-#[must_use]
-pub fn av_add_q(left: AVRationalRef<'_>, right: AVRationalRef<'_>) -> CVal<AVRational> {
-    // SAFETY: both by-value arguments were copied from live rational handles.
-    AVRational::from_ffi(unsafe { ffi::av_add_q(left.copy_ffi(), right.copy_ffi()) })
+///
+/// Refuses the single operand pair whose sum leaves C's `int64_t` accumulator.
+/// C forms `b.num * (int64_t) c.den + c.num * (int64_t) b.den`; an `i32` cross
+/// product reaches `1 << 62` only for `i32::MIN * i32::MIN`, so the sum
+/// overflows exactly when both operands are `i32::MIN / i32::MIN` and is in
+/// range for every other `AVRational` pair. This campaign's UBSan build reports
+/// that case against `rational.c` twice — once for the addition and once for
+/// the `FFABS(i64::MIN)` negation it hands to [`av_reduce`], which is the same
+/// unnegatable input that function rejects directly.
+pub fn av_add_q(
+    left: AVRationalRef<'_>,
+    right: AVRationalRef<'_>,
+) -> Result<CVal<AVRational>, RationalError> {
+    let extreme = (i32::MIN, i32::MIN);
+    if (left.num(), left.den()) == extreme && (right.num(), right.den()) == extreme {
+        return Err(RationalError::AdditionOverflow);
+    }
+    // SAFETY: both by-value arguments were copied from live rational handles,
+    // and the rejected pair above is the only one whose widened numerator sum
+    // overflows the `int64_t` C accumulates it in.
+    Ok(AVRational::from_ffi(unsafe {
+        ffi::av_add_q(left.copy_ffi(), right.copy_ffi())
+    }))
 }
 
 /// Replaces: av_cmp_q
@@ -349,6 +368,9 @@ pub enum RationalError {
     BothDenominatorsZero,
     /// `i64::MIN` was passed where C takes `FFABS` of the value.
     UnnegatableInput,
+    /// Both operands of [`av_add_q`] were `i32::MIN / i32::MIN`, the only pair
+    /// whose widened numerator sum overflows C's `int64_t`.
+    AdditionOverflow,
 }
 
 /// Wraps: av_d2q
@@ -401,7 +423,7 @@ mod scheduled_symbol_tests {
     fn arithmetic_wrappers_return_owned_values() {
         let half = AVRational::new(1, 2);
         let third = AVRational::new(1, 3);
-        let sum = av_add_q(half.as_ref(), third.as_ref());
+        let sum = av_add_q(half.as_ref(), third.as_ref()).unwrap();
         assert_eq!((sum.as_ref().num(), sum.as_ref().den()), (5, 6));
 
         let quotient = av_div_q(half.as_ref(), third.as_ref());
@@ -415,6 +437,40 @@ mod scheduled_symbol_tests {
         let fallback = AVRational::new(0, 1);
         let gcd = av_gcd_q(half.as_ref(), third.as_ref(), 100, fallback.as_ref()).unwrap();
         assert_eq!((gcd.as_ref().num(), gcd.as_ref().den()), (1, 6));
+    }
+
+    #[test]
+    fn addition_refuses_only_the_pair_that_overflows_c() {
+        let extreme = AVRational::new(i32::MIN, i32::MIN);
+        assert_eq!(
+            av_add_q(extreme.as_ref(), extreme.as_ref()).unwrap_err(),
+            RationalError::AdditionOverflow
+        );
+
+        // The neighbours of that pair keep both cross products inside `i64`,
+        // so they still reach C. Each one differs from the rejected pair in a
+        // single field, which is what makes the guard's shape falsifiable
+        // rather than a blanket refusal of extreme values.
+        for (left, right) in [
+            (
+                AVRational::new(i32::MIN, i32::MIN),
+                AVRational::new(i32::MIN + 1, i32::MIN),
+            ),
+            (
+                AVRational::new(i32::MIN, i32::MIN),
+                AVRational::new(i32::MIN, i32::MIN + 1),
+            ),
+            (
+                AVRational::new(i32::MIN, i32::MAX),
+                AVRational::new(i32::MIN, i32::MAX),
+            ),
+            (
+                AVRational::new(i32::MAX, i32::MAX),
+                AVRational::new(i32::MAX, i32::MAX),
+            ),
+        ] {
+            assert!(av_add_q(left.as_ref(), right.as_ref()).is_ok());
+        }
     }
 
     #[test]

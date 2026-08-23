@@ -300,6 +300,11 @@ use ffibox::CVec;
 /// A single av_malloc-owned image allocation and the plane metadata that
 /// points within it. Pixel bytes remain `MaybeUninit<u8>` because
 /// `av_image_alloc` allocates storage but does not initialize ordinary pixels.
+///
+/// [`storage`](Self::storage) spans the sum of the plane sizes, which is what
+/// `av_image_alloc` returns and where its last plane ends. C over-allocates
+/// that by `align` bytes of slack, so the view is shorter than the allocation
+/// and never longer: every plane offset it reports is addressable within it.
 pub struct AllocatedImage {
     storage: CVec<MaybeUninit<u8>, AvFree>,
     plane_offsets: [Option<usize>; 4],
@@ -333,6 +338,14 @@ impl AllocatedImage {
 }
 
 /// Wraps: av_image_alloc
+///
+/// `align` must be a positive power of two. C aligns every line size with
+/// `FFALIGN`, whose mask arithmetic assumes that, and seeds the allocation with
+/// `align` itself; anything else yields line sizes and a total size that agree
+/// with each other but describe no image — zero everywhere for `align == 0`,
+/// and a `size_t` overflow rejected as an allocation failure for a negative
+/// one. It is refused here with `AVERROR(EINVAL)` (-22) rather than passed on
+/// as a size question.
 pub fn av_image_alloc(
     width: i32,
     height: i32,
@@ -398,5 +411,31 @@ mod scheduled_alloc_tests {
     #[test]
     fn invalid_dimensions_return_the_c_error() {
         assert!(av_image_alloc(-1, 16, AVPixelFormat::YUV420P, 32).is_err());
+    }
+
+    #[test]
+    fn every_plane_offset_lies_inside_the_owned_storage() {
+        // The claim `storage` rests on: C returns the summed plane sizes, so
+        // each plane's first line is addressable through the returned view.
+        let image = av_image_alloc(16, 16, AVPixelFormat::YUV420P, 32).unwrap();
+        let length = image.storage().len();
+        for plane in 0..3 {
+            let offset = image.plane_offset(plane).expect("a planar YUV plane");
+            let linesize = image.linesizes()[plane] as usize;
+            assert!(offset + linesize <= length);
+        }
+        assert_eq!(image.plane_offset(3), None);
+        assert_eq!(image.plane_offset(4), None);
+    }
+
+    #[test]
+    fn a_non_power_of_two_alignment_is_refused() {
+        for align in [0, -32, 3, 12] {
+            assert_eq!(
+                av_image_alloc(16, 16, AVPixelFormat::YUV420P, align).err(),
+                Some(-22)
+            );
+        }
+        assert!(av_image_alloc(16, 16, AVPixelFormat::YUV420P, 1).is_ok());
     }
 }

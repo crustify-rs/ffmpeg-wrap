@@ -345,9 +345,12 @@ impl From<AVColorTransferCharacteristic> for ffi::AVColorTransferCharacteristic 
 ///
 /// The C enum's trailing `AVALPHA_MODE_NB` is a count, documented as not part
 /// of the ABI, so it is deliberately not exposed here. Values outside the three
-/// named modes — including `NB` itself and the negative `AVERROR` that
-/// `av_alpha_mode_from_name` returns for an unrecognized name — are
-/// representable and round-trip, but name no alpha mode.
+/// named modes — including `NB` itself and the negative `AVERROR` that C's
+/// `av_alpha_mode_from_name` returns through this unsigned enum for an
+/// unrecognized name — are representable and round-trip, but name no alpha
+/// mode. The safe
+/// [`av_alpha_mode_from_name`](crate::pixdesc::av_alpha_mode_from_name)
+/// reports that failure as an error instead of producing such a value.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AVAlphaMode(ffi::AVAlphaMode);
@@ -445,7 +448,7 @@ mod tests {
             (AVAlphaMode::STRAIGHT, c"straight"),
         ] {
             assert_eq!(av_alpha_mode_name(mode), Some(name));
-            assert_eq!(av_alpha_mode_from_name(name), mode);
+            assert_eq!(av_alpha_mode_from_name(name), Ok(mode));
         }
     }
 

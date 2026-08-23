@@ -157,8 +157,13 @@ pub struct AudioFifo {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AudioFifoError {
+    /// A sample count, or the byte extent it implies, does not fit the `int`
+    /// C computes it in.
     CountOverflow,
+    /// The sample-buffer table has the wrong cardinality, or one of its
+    /// buffers is shorter than the requested sample count needs.
     BufferLayout,
+    /// libavutil returned a negative `AVERROR` code.
     Ffmpeg(i32),
 }
 
@@ -175,10 +180,21 @@ fn result_count(status: i32) -> Result<usize, AudioFifoError> {
 }
 
 impl AudioFifo {
+    /// Bytes one sample-buffer must hold for `samples` samples.
+    ///
+    /// Bounded by [`i32::MAX`] because C recomputes exactly this product as
+    /// `nb_samples * af->sample_size` in an `int`: `sample_size` is the same
+    /// per-sample stride recorded here, so a result C could not represent is
+    /// refused before the call rather than wrapping inside it.
     fn required_bytes(&self, samples: usize) -> Result<usize, AudioFifoError> {
-        self.bytes_per_buffer_sample
+        let bytes = self
+            .bytes_per_buffer_sample
             .checked_mul(samples)
-            .ok_or(AudioFifoError::CountOverflow)
+            .ok_or(AudioFifoError::CountOverflow)?;
+        if bytes > i32::MAX as usize {
+            return Err(AudioFifoError::CountOverflow);
+        }
+        Ok(bytes)
     }
 
     fn validate_input(&self, data: &[&[u8]], samples: usize) -> Result<(), AudioFifoError> {
@@ -327,6 +343,11 @@ pub fn av_audio_fifo_reset(fifo: &mut AudioFifo) {
 }
 
 /// Wraps: av_audio_fifo_size
+///
+/// A count rather than a signed difference: C returns `af->nb_samples`, which
+/// starts at zero, only grows by a write's own non-negative sample count and
+/// only shrinks by a read or drain already clamped to it. No sequence of the
+/// operations below can drive it negative.
 #[must_use]
 pub fn av_audio_fifo_size(fifo: &AudioFifo) -> usize {
     // SAFETY: source inspection establishes that this nominally mutable C
@@ -336,12 +357,23 @@ pub fn av_audio_fifo_size(fifo: &AudioFifo) -> usize {
 }
 
 /// Wraps: av_audio_fifo_space
+///
+/// Signed, because C returns the plain `int` difference
+/// `allocated_samples - nb_samples` and that difference genuinely goes
+/// negative: [`av_audio_fifo_realloc`] overwrites `allocated_samples` with the
+/// requested count without shrinking the buffers, so requesting fewer samples
+/// than the FIFO currently holds leaves it over-subscribed. Reporting that as
+/// an `isize` keeps the wrapper total; converting it to a count would panic on
+/// a state safe code can reach.
+///
+/// A negative result still describes the FIFO correctly: there is no room, and
+/// [`av_audio_fifo_write`] grows the buffers itself rather than failing.
 #[must_use]
-pub fn av_audio_fifo_space(fifo: &AudioFifo) -> usize {
+pub fn av_audio_fifo_space(fifo: &AudioFifo) -> isize {
     // SAFETY: source inspection establishes that this nominally mutable C
     // parameter is only read. The shared handle stays live for the call.
     let space = unsafe { ffi::av_audio_fifo_space(fifo.inner.as_ref().as_ptr().cast_mut()) };
-    usize::try_from(space).expect("libavutil returned negative FIFO space")
+    space as isize
 }
 
 /// Wraps: av_audio_fifo_write
@@ -393,6 +425,39 @@ mod scheduled_symbol_tests {
         assert!(av_audio_fifo_space(&fifo) >= 8);
         av_audio_fifo_reset(&mut fifo);
         av_audio_fifo_drain(&mut fifo, 0).unwrap();
+    }
+
+    #[test]
+    fn shrinking_the_allocation_below_the_fill_reports_negative_space() {
+        // The state the signed return exists for. Nothing here is unsafe: C
+        // keeps the samples and the buffers, and only its `allocated_samples`
+        // bookkeeping drops below the fill.
+        let mut fifo = av_audio_fifo_alloc(AVSampleFormat::S16, 2, 8).expect("allocate FIFO");
+        let packed = [0_u8; 32];
+        assert_eq!(av_audio_fifo_write(&mut fifo, &[&packed], 8), Ok(8));
+        assert_eq!(av_audio_fifo_space(&fifo), 0);
+
+        av_audio_fifo_realloc(&mut fifo, 1).unwrap();
+        assert_eq!(av_audio_fifo_size(&fifo), 8);
+        assert_eq!(av_audio_fifo_space(&fifo), -7);
+
+        // The samples are still there, and a write still succeeds from here.
+        let mut read = [0_u8; 32];
+        assert_eq!(av_audio_fifo_read(&mut fifo, &mut [&mut read], 8), Ok(8));
+        assert_eq!(av_audio_fifo_write(&mut fifo, &[&packed], 8), Ok(8));
+    }
+
+    #[test]
+    fn a_sample_count_c_cannot_size_is_refused_before_the_call() {
+        // C recomputes the per-buffer extent as `nb_samples * sample_size` in
+        // an `int`. This count fits `i32`, so `sample_count` alone would pass
+        // it; the byte product does not, and that is what is checked.
+        let fifo = av_audio_fifo_alloc(AVSampleFormat::S16, 2, 2).expect("allocate FIFO");
+        let samples = (i32::MAX as usize / 4) + 1;
+        assert_eq!(
+            av_audio_fifo_peek(&fifo, &mut [&mut []], samples),
+            Err(AudioFifoError::CountOverflow)
+        );
     }
 
     #[test]

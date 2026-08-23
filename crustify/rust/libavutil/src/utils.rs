@@ -23,7 +23,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn known_media_type_has_a_name() {
-        assert_eq!(av_get_media_type_string(AVMediaType::VIDEO), Some(c"video"));
+    fn every_named_media_type_gets_the_string_c_switches_on() {
+        // One pairing per arm of `av_get_media_type_string`'s switch. Checking
+        // the constants against the library rather than against the same
+        // generated binding is what catches one bound to the wrong enumerator.
+        for (media_type, name) in [
+            (AVMediaType::VIDEO, c"video"),
+            (AVMediaType::AUDIO, c"audio"),
+            (AVMediaType::DATA, c"data"),
+            (AVMediaType::SUBTITLE, c"subtitle"),
+            (AVMediaType::ATTACHMENT, c"attachment"),
+        ] {
+            assert_eq!(av_get_media_type_string(media_type), Some(name));
+        }
+    }
+
+    #[test]
+    fn types_outside_the_switch_have_no_name() {
+        // `UNKNOWN`, the `NB` count and a value from a newer library all reach
+        // the same `default` arm: C switches on the type rather than indexing
+        // a table, so none of them can produce a string.
+        assert_eq!(av_get_media_type_string(AVMediaType::UNKNOWN), None);
+        assert_eq!(av_get_media_type_string(AVMediaType::NB), None);
+        assert_eq!(
+            av_get_media_type_string(AVMediaType::from_raw(ffi::AVMediaType::MAX)),
+            None
+        );
     }
 }
