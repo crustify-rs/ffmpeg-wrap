@@ -374,10 +374,11 @@ impl AVChannelCustomMut<'_> {
     /// The 16th byte is not usable: libavutil reads the field as a C string —
     /// `strcmp` in `av_channel_layout_index_from_string`, `%s` in
     /// `av_channel_layout_describe_bprint`, `av_strlcpy` in
-    /// `av_channel_layout_retype` — so a full 16 bytes would run off the end
-    /// of the element. An empty `name` clears the field, which is the state
-    /// C's own `av_channel_layout_custom_init` leaves and the one it treats as
-    /// "unnamed".
+    /// `av_channel_layout_from_string`, whose source-side scan is bounded by
+    /// the terminator and not by the destination size — so a full 16 bytes
+    /// would run off the end of the element. An empty `name` clears the field,
+    /// which is the state C's own `av_channel_layout_custom_init` leaves and
+    /// the one it treats as "unnamed".
     pub fn set_name(&mut self, name: &[u8]) -> bool {
         if name.len() >= 16 || name.contains(&0) {
             return false;
@@ -603,19 +604,73 @@ mod scheduled_symbol_tests {
 define_ctype!(
     /// Wraps: AVChannelLayout
     ///
-    /// A public, by-value channel layout. Owned inline values use
-    /// `CVal<AVChannelLayout>` so a custom channel map is always released with
-    /// `av_channel_layout_uninit`; borrowed values use the generated handles.
+    /// A public, by-value channel layout. `channel_layout.h` makes
+    /// `sizeof(AVChannelLayout)` part of the public ABI so callers may place
+    /// one on the stack or inside their own structs, which is what
+    /// `CVal<AVChannelLayout>` models: Rust owns the header inline and
+    /// `av_channel_layout_uninit` releases the one resource hanging off it, the
+    /// `AV_CHANNEL_ORDER_CUSTOM` map. Borrowed layouts — a frame's
+    /// `ch_layout`, an entry of libavutil's standard table — use the generated
+    /// handles.
+    ///
+    /// # Invariant
+    ///
+    /// `AVChannelLayoutRef::from_ptr` and `AVChannelLayoutMut::from_ptr`
+    /// promise only that the header itself is live and initialized, which says
+    /// nothing about an untagged union or an owned pointer inside it. Every
+    /// wrapped layout additionally satisfies, and every unsafe constructor of
+    /// one owes:
+    ///
+    /// - `order` discriminates `u`, exactly as `channel_layout.h` specifies.
+    ///   `AV_CHANNEL_ORDER_NATIVE` and `AV_CHANNEL_ORDER_AMBISONIC` make
+    ///   `u.mask` the live member; `AV_CHANNEL_ORDER_CUSTOM` makes `u.map` the
+    ///   live member; `AV_CHANNEL_ORDER_UNSPEC`, and any order this crate does
+    ///   not name, leave `u` undefined and unread;
+    /// - under `AV_CHANNEL_ORDER_CUSTOM`, `u.map` is null or addresses
+    ///   `nb_channels` initialized [`AVChannelCustom`] entries which this
+    ///   layout **exclusively** owns: they came from libavutil's allocator and
+    ///   `av_channel_layout_uninit` frees them, so a second layout holding the
+    ///   same address would make disposal a double free. `nb_channels` is then
+    ///   non-negative and is the element count, not a capacity;
+    /// - `opaque` is application state that libavutil copies by address and
+    ///   never dereferences or frees.
+    ///
+    /// [`mask`](AVChannelLayoutRef::mask), [`custom_map`](AVChannelLayoutRef::custom_map),
+    /// [`channels`](AVChannelLayoutRef::channels) and
+    /// [`custom_map_mut`](AVChannelLayoutMut::custom_map_mut) are safe and rest
+    /// on it, as does the `CValued` disposal below.
+    ///
+    /// Every producer in this crate discharges it: `zeroed()` is an `UNSPEC`
+    /// layout with no map, and [`av_channel_layout_default`],
+    /// [`av_channel_layout_from_mask`], [`av_channel_layout_from_string`],
+    /// [`av_channel_layout_copy`] and [`av_channel_layout_retype`] each hand
+    /// the layout to C, which maintains it on both its success and its failure
+    /// paths — see [`av_channel_layout_copy`] for the one that is not obvious.
+    /// The only safe writers are
+    /// [`set_opaque`](AVChannelLayoutMut::set_opaque),
+    /// [`clear_opaque`](AVChannelLayoutMut::clear_opaque) and the element
+    /// setters reached through `custom_map_mut`; none of them changes `order`,
+    /// `nb_channels` or `u`, so the enumeration is closed.
     AVChannelLayout,
     AVChannelLayoutRef,
     AVChannelLayoutMut,
     ffi::AVChannelLayout
 );
 
-// SAFETY: `av_channel_layout_uninit` releases only resources owned by the
-// by-value layout (the CUSTOM map), retains the header storage, and resets the
-// complete header. `CVal` invokes it exactly once before releasing its inline
-// Rust storage.
+// SAFETY: this impl ADDS an obligation the trait does not state. `CValued`
+// asks only for a live, valid `Self`, while `av_channel_layout_uninit` frees
+// `u.map` whenever `order` is CUSTOM — so what it actually needs is the union
+// discriminator and exclusive map ownership recorded in `AVChannelLayout`'s
+// `# Invariant`. Every constructor of an owner owes that: `CVal::new` is safe
+// but its argument can only come from `zeroed()` (an UNSPEC layout with no
+// map) since no other safe path produces an `AVChannelLayout` value, and the
+// constructor wrappers below hand C a zeroed slot it then fills itself.
+//
+// Given a layout meeting that obligation, `av_channel_layout_uninit` frees the
+// map it owns, zeroes the complete header — leaving it disposable again and
+// exposing no dangling field — and touches no storage of its own, which is
+// what makes it a disposer rather than a destructor. `CVal` invokes it exactly
+// once before releasing its inline Rust storage.
 unsafe impl CValued for AVChannelLayout {
     unsafe fn c_dispose(this: NonNull<Self>) {
         // SAFETY: the trait contract supplies one live initialized layout; the
@@ -627,10 +682,29 @@ unsafe impl CValued for AVChannelLayout {
 /// A lifetime-bound identity token for an application-managed layout cookie.
 ///
 /// Libavutil preserves the address but neither dereferences nor frees it.
+///
+/// `'a` is the borrow of the *layout* the address was read out of, not of the
+/// pointee — nothing in the layout records how long the cookie stays valid,
+/// which is why [`AVChannelLayoutMut::set_opaque`] is unsafe and states that
+/// obligation on its caller.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AVChannelLayoutOpaque<'a> {
     pointer: NonNull<c_void>,
     _borrow: PhantomData<&'a c_void>,
+}
+
+impl AVChannelLayoutOpaque<'_> {
+    /// The erased address exactly as [`AVChannelLayoutMut::set_opaque`]
+    /// received it.
+    ///
+    /// Handing the address back forms no reference and performs no access, so
+    /// it is safe; making any use of it is the caller's own unsafe act under
+    /// the contract that setter states. Without it the cookie would be
+    /// write-only, which would defeat the only purpose the field has.
+    #[must_use]
+    pub fn as_ptr(self) -> NonNull<c_void> {
+        self.pointer
+    }
 }
 
 /// The union member selected by an `AVChannelLayout`'s channel order.
@@ -687,8 +761,9 @@ impl<'a> AVChannelLayoutRef<'a> {
         if order != AVChannelOrder::NATIVE && order != AVChannelOrder::AMBISONIC {
             return None;
         }
-        // SAFETY: NATIVE and AMBISONIC layouts define the mask union member;
-        // copying it through a raw projection forms no C-memory reference.
+        // SAFETY: by this type's invariant, NATIVE and AMBISONIC — checked
+        // just above — make `u.mask` the live, initialized union member.
+        // Copying it through a raw projection forms no C-memory reference.
         Some(unsafe { addr_of!((*self.as_ptr()).u.mask).read() })
     }
 
@@ -702,12 +777,14 @@ impl<'a> AVChannelLayoutRef<'a> {
             return None;
         }
         let len = usize::try_from(self.nb_channels()).ok()?;
-        // SAFETY: CUSTOM selects the map union member. The layout owns a live
-        // `nb_channels`-element allocation for the duration of this borrow.
+        // SAFETY: by this type's invariant, CUSTOM — checked just above —
+        // makes `u.map` the live union member. Copying the pointer value
+        // through a raw projection forms no C-memory reference.
         let map = unsafe { addr_of!((*self.as_ptr()).u.map).read() };
         NonNull::new(map.cast::<AVChannelCustom>()).map(|map| {
-            // SAFETY: the CUSTOM layout invariant establishes `len`
-            // contiguous initialized entries kept alive by this layout.
+            // SAFETY: the same invariant gives a non-null map `nb_channels`
+            // contiguous initialized entries, owned by the layout and so kept
+            // alive for `'a` by the borrow this handle carries.
             unsafe { CSlice::from_raw_parts(map, len) }
         })
     }
@@ -746,12 +823,15 @@ impl AVChannelLayoutMut<'_> {
             return None;
         }
         let len = usize::try_from(shared.nb_channels()).ok()?;
-        // SAFETY: the exclusive layout handle licenses reading the active map
-        // pointer and grants exclusive access to its owned entry array.
+        // SAFETY: by this type's invariant, CUSTOM — checked just above —
+        // makes `u.map` the live union member; the pointer value is copied
+        // through a raw projection from the live exclusive handle.
         let map = unsafe { addr_of!((*self.as_mut_ptr()).u.map).read() };
         NonNull::new(map.cast::<AVChannelCustom>()).map(|map| {
-            // SAFETY: CUSTOM guarantees `len` initialized entries and the view
-            // is bound to the exclusive borrow of this layout handle.
+            // SAFETY: the same invariant gives a non-null map `len` initialized
+            // entries which this layout owns exclusively, and the view is bound
+            // to the exclusive borrow of this handle, so it is the only path to
+            // them for its duration.
             unsafe { CSliceMut::from_raw_parts(map, len) }
         })
     }
@@ -855,6 +935,41 @@ mod channel_layout_type_tests {
         assert_eq!(layout.as_ref().nb_channels(), 0);
         drop(layout);
     }
+
+    #[test]
+    fn the_layout_cookie_round_trips_by_address() {
+        let mut layout = av_channel_layout_default(2);
+        assert!(layout.as_ref().opaque().is_none());
+
+        let cookie = NonNull::<u8>::dangling().cast::<c_void>();
+        // SAFETY: the non-null identity is never dereferenced, and is cleared
+        // before the temporary backing contract ends.
+        unsafe { layout.as_mut().set_opaque(Some(cookie)) };
+        // The cookie is an identity, so the round trip has to reproduce the
+        // exact address rather than merely something non-null.
+        assert_eq!(
+            layout.as_ref().opaque().map(AVChannelLayoutOpaque::as_ptr),
+            Some(cookie)
+        );
+
+        // `av_channel_layout_retype` saves and restores `opaque` around the
+        // `av_channel_layout_uninit` it runs internally, so a conversion that
+        // replaces the whole union still preserves the address.
+        av_channel_layout_retype(
+            &mut layout.as_mut(),
+            AVChannelOrder::CUSTOM,
+            AVChannelLayoutRetypeFlags::LOSSLESS,
+        )
+        .expect("a two-channel default is representable as a custom map");
+        assert_eq!(layout.as_ref().order(), AVChannelOrder::CUSTOM);
+        assert_eq!(
+            layout.as_ref().opaque().map(AVChannelLayoutOpaque::as_ptr),
+            Some(cookie)
+        );
+
+        layout.as_mut().clear_opaque();
+        assert!(layout.as_ref().opaque().is_none());
+    }
 }
 
 /// Wraps: av_channel_layout_channel_from_index
@@ -914,13 +1029,25 @@ pub fn av_channel_layout_compare(
 /// Wraps: av_channel_layout_copy
 ///
 /// Makes an independently disposable deep copy of `source`.
+///
+/// The dropped destination of a failed copy is the interesting case, because C
+/// assigns `*dst = *src` — map pointer included — before it allocates. Its one
+/// failure path stores the refused `av_malloc_array` result *into* `dst->u.map`
+/// and only then tests it, so a failed destination is a CUSTOM header with a
+/// **null** map rather than one aliasing the source's, and disposing it frees
+/// nothing. `a_failed_copy_leaves_a_disposable_destination` pins that ordering:
+/// with the store and the test the other way round, dropping the destination
+/// would free a map the source still owns.
 pub fn av_channel_layout_copy(
     source: AVChannelLayoutRef<'_>,
 ) -> Result<CVal<AVChannelLayout>, i32> {
     let mut destination = CVal::new(AVChannelLayout::zeroed());
     // SAFETY: `destination` is an initialized, exclusively borrowed zero
-    // layout suitable for replacement, while `source` is shared and live. C
-    // retains neither address and leaves the destination disposable on error.
+    // layout suitable for replacement, while `source` is shared, live and — by
+    // the type invariant — carries a CUSTOM map of exactly `nb_channels`
+    // entries for C to read. C retains neither address, and leaves the
+    // destination exclusively owning its own map or none at all, which is what
+    // `AVChannelLayout`'s invariant asks of the returned owner.
     let status =
         unsafe { ffi::av_channel_layout_copy(destination.as_mut().as_mut_ptr(), source.as_ptr()) };
     if status < 0 {
@@ -1128,6 +1255,98 @@ mod channel_layout_symbol_tests {
         assert_eq!(described.text, Some(c"stereo"));
         assert_eq!(av_channel_layout_subset(copy.as_ref(), 3), 3);
         av_channel_layout_uninit(copy);
+    }
+
+    /// Builds the six-channel layout as a CUSTOM map, which is the only shape
+    /// whose copy allocates and whose disposal frees.
+    fn custom_six_channel_layout() -> CVal<AVChannelLayout> {
+        let mut layout = av_channel_layout_default(6);
+        let lossy = av_channel_layout_retype(
+            &mut layout.as_mut(),
+            AVChannelOrder::CUSTOM,
+            AVChannelLayoutRetypeFlags::LOSSLESS,
+        )
+        .expect("a six-channel default is representable as a custom map");
+        assert!(!lossy);
+        layout
+    }
+
+    #[test]
+    fn a_custom_copy_owns_a_separate_map() {
+        let mut source = custom_six_channel_layout();
+        let copy = av_channel_layout_copy(source.as_ref()).expect("deep copy");
+
+        let source_first = source.as_ref().custom_map().unwrap().get(0).unwrap();
+        let copy_first = copy.as_ref().custom_map().unwrap().get(0).unwrap();
+        assert_eq!(source_first.id(), copy_first.id());
+        // `av_channel_layout_copy` allocates a second array rather than
+        // sharing the source's, which is what lets both owners dispose.
+        assert_ne!(source_first.as_ptr(), copy_first.as_ptr());
+
+        {
+            let mut exclusive = source.as_mut();
+            let mut map = exclusive.custom_map_mut().expect("custom order map");
+            map.get_mut(0).unwrap().set_id(AVChannel::UNUSED);
+        }
+        assert_eq!(
+            source.as_ref().custom_map().unwrap().get(0).unwrap().id(),
+            AVChannel::UNUSED
+        );
+        assert_eq!(
+            copy.as_ref().custom_map().unwrap().get(0).unwrap().id(),
+            AVChannel::FRONT_LEFT
+        );
+    }
+
+    #[test]
+    fn a_failed_copy_leaves_a_disposable_destination() {
+        let source = custom_six_channel_layout();
+        // SAFETY: `source` is CUSTOM, so `u.map` is its live union member;
+        // only the pointer value is copied out through a raw projection.
+        let owned_map = unsafe { addr_of!((*source.as_ref().as_ptr()).u.map).read() };
+        assert!(!owned_map.is_null());
+
+        // A header claiming more entries than libavutil's allocator will ever
+        // hand out drives `av_channel_layout_copy` down its single failure
+        // path: `av_malloc_array(i32::MAX, sizeof(AVChannelCustom))` asks for
+        // more than `av_malloc`'s INT_MAX ceiling and is refused without
+        // allocating, after C has already run `*dst = *src`.
+        let forged = ffi::AVChannelLayout {
+            order: ffi::AVChannelOrder_AV_CHANNEL_ORDER_CUSTOM,
+            nb_channels: i32::MAX,
+            u: ffi::AVChannelLayout__bindgen_ty_1 { map: owned_map },
+            opaque: core::ptr::null_mut(),
+        };
+        let mut destination = CVal::new(AVChannelLayout::zeroed());
+        // SAFETY: `destination` is a live, exclusively borrowed zeroed layout
+        // and `forged` is a live initialized C header. On this path C reads
+        // only `order` and `nb_channels`, copies the header, is refused the
+        // allocation and returns; it never dereferences `u.map`. `forged` is
+        // deliberately not wrapped in a handle — it breaks AVChannelLayout's
+        // invariant, which is exactly what makes the failure deterministic.
+        let status = unsafe {
+            ffi::av_channel_layout_copy(destination.as_mut().as_mut_ptr(), addr_of!(forged))
+        };
+        assert!(status < 0);
+
+        // What makes the failed destination disposable is the order of two
+        // statements in C: the refused allocation is stored into `dst->u.map`
+        // and only then tested, so the map pointer `*dst = *src` copied out of
+        // the source is overwritten with null before the return. Reverse them
+        // and this owner would hold the source's map.
+        // SAFETY: as above, only the pointer value is read.
+        let inherited = unsafe { addr_of!((*destination.as_ref().as_ptr()).u.map).read() };
+        assert!(inherited.is_null());
+        assert_ne!(inherited, owned_map);
+        assert_eq!(destination.as_ref().order(), AVChannelOrder::CUSTOM);
+        assert!(destination.as_ref().custom_map().is_none());
+
+        // So this drop frees nothing, and `source` still owns its map: were it
+        // otherwise, this would be a double free and every read below a read of
+        // freed memory — both of which the campaign's ASan build reports.
+        drop(destination);
+        assert!(av_channel_layout_check(source.as_ref()));
+        assert_eq!(source.as_ref().custom_map().unwrap().len(), 6);
     }
 
     #[test]

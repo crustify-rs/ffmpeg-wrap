@@ -157,7 +157,7 @@
   {
    "name": "AVChannelLayout",
    "defined_in": "libavutil/channel_layout.h",
-   "_comment_agent": "The order field discriminates u. NATIVE and AMBISONIC use the mask; CUSTOM owns the map; UNSPEC leaves u undefined. The opaque cookie is external application state and survives libavutil layout copies by address only.",
+   "_comment_agent": "The order field discriminates u. NATIVE and AMBISONIC use the mask; CUSTOM owns the map; UNSPEC leaves u undefined. The opaque cookie is external application state and survives libavutil layout copies by address only. sizeof(AVChannelLayout) is public ABI, so a by-value owner is the correct Rust representation and av_channel_layout_uninit is its disposer.",
    "fields": [
     {
      "name": "opaque",
@@ -188,7 +188,7 @@
       "borrowed": null,
       "nullable": true,
       "mutable": true,
-      "note": "When order is CUSTOM, the layout owns an nb_channels-element AVChannelCustom array allocated by libavutil and released by av_channel_layout_uninit. Other union variants do not carry a live map."
+      "note": "When order is CUSTOM, the layout owns an nb_channels-element AVChannelCustom array allocated by libavutil and released by av_channel_layout_uninit. Other union variants do not carry a live map. Ownership is EXCLUSIVE: two layouts must never hold the same map, since uninit frees it. C keeps that true even when it fails: av_channel_layout_copy assigns *dst = *src (map pointer included) but stores the refused av_malloc_array result into dst->u.map before testing it, so a failed destination is CUSTOM with a NULL map, not one aliasing the source; the same holds for the av_calloc failure in av_channel_layout_from_string's ambisonic branch."
      }
     }
    ]
@@ -441,7 +441,7 @@
   {
    "name": "AVFrameSideData",
    "defined_in": "libavutil/frame.h",
-   "_comment_agent": "AVFrameSideData headers are owned by a frame/side-data array rather than independently by public callers. The buf owner keeps the data window alive; metadata is a separate nullable owner.",
+   "_comment_agent": "AVFrameSideData headers are owned by a frame/side-data array rather than independently by public callers: av_mallocz allocates the entry in add_side_data_from_buf_ext and only free_side_data_entry, reached through the array entry points, releases buf, metadata and the header together. The buf owner keeps the data window alive; metadata is a separate nullable owner.",
    "fields": [
     {
      "name": "buf",
@@ -472,7 +472,7 @@
       },
       "nullable": true,
       "mutable": true,
-      "note": "A size-byte window into storage kept alive by buf, potentially at an interior offset. It is not independently freed; mutable access requires the backing AVBufferRef to be writable."
+      "note": "A size-byte window into storage kept alive by buf, potentially at an interior offset. It is not independently freed; mutable access requires the backing AVBufferRef to be writable. The window is ALLOCATED, NOT WRITTEN: av_frame_new_side_data (frame.c) and av_frame_side_data_new (side_data.c) both size it with av_buffer_alloc, i.e. raw av_malloc storage, so a consumer may not present these bytes as initialised until a producer (memcpy in frame_copy_props, av_frame_side_data_clone, or the caller itself) has filled them."
      }
     },
     {

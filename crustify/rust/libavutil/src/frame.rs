@@ -1,5 +1,6 @@
 //! Wrappers for libavutil frames.
 
+use core::mem::MaybeUninit;
 use core::ptr::{NonNull, addr_of};
 
 use ffibox::{CSlice, CSliceMut, define_ctype};
@@ -134,8 +135,53 @@ define_ctype!(
     /// Wraps: AVFrameSideData
     ///
     /// A side-data header borrowed from an owning frame or side-data array.
-    /// The header is not independently owned: its buffer reference and optional
-    /// dictionary are released by the enclosing collection's lifecycle.
+    /// The header is not independently owned: `av_mallocz` allocates it inside
+    /// `add_side_data_from_buf_ext`, and `free_side_data_entry` — reached only
+    /// through the array entry points `av_frame_side_data_free`,
+    /// `av_frame_side_data_remove` and `av_frame_side_data_remove_by_props` —
+    /// releases its buffer reference, its dictionary and the header together.
+    /// libavutil publishes no way to release one entry on its own, so this type
+    /// has no `CDropped` and no owning wrapper: it is reached through handles
+    /// borrowed from the collection.
+    ///
+    /// # Invariant
+    ///
+    /// `AVFrameSideDataRef::from_ptr` and `AVFrameSideDataMut::from_ptr`
+    /// promise only that the header itself is live and initialized. Every
+    /// wrapped header additionally satisfies, and every unsafe constructor of
+    /// one owes:
+    ///
+    /// - `buf` is null, or one live [`AVBufferReference`] owned by this entry
+    ///   and satisfying that type's own invariant, kept alive for at least the
+    ///   borrow. `ff_frame_side_data_add_from_buf` refuses a null `buf`, so a
+    ///   header libavutil built has one; the field is nullable here only
+    ///   because a hand-built C entry may leave it unset;
+    /// - `data` is null, or addresses `size` **allocated** bytes kept alive by
+    ///   that `buf`. Allocated is all that is claimed — see
+    ///   [`data`](AVFrameSideDataRef::data) for why the contents are not;
+    /// - `metadata` is null, or one live dictionary owned by this entry.
+    ///
+    /// [`kind`](AVFrameSideDataRef::kind) and [`size`](AVFrameSideDataRef::size)
+    /// read the header itself and need nothing beyond `from_ptr`. The safe
+    /// getters that rest on the list above are
+    /// [`buffer`](AVFrameSideDataRef::buffer), [`data`](AVFrameSideDataRef::data),
+    /// [`metadata`](AVFrameSideDataRef::metadata),
+    /// [`data_mut`](AVFrameSideDataMut::data_mut),
+    /// [`write_all`](AVFrameSideDataMut::write_all) and
+    /// [`metadata_mut`](AVFrameSideDataMut::metadata_mut).
+    ///
+    /// Every producer discharges it: `add_side_data_from_buf_ext`
+    /// (`libavutil/side_data.c`) is the only routine that fills a new entry,
+    /// and it writes `buf`, `data` and `size` from one reference header it has
+    /// just taken over, while `replace_side_data_from_buf` rewrites the same
+    /// three together. So the wrappers over `av_frame_new_side_data` and
+    /// `av_frame_get_side_data`, and [`AVFrameRef::side_data`] /
+    /// [`AVFrameMut::side_data_mut`] reading the owning frame's table, all
+    /// hold. [`write_all`](AVFrameSideDataMut::write_all) is the only safe
+    /// writer in this crate and writes inside the window without touching any
+    /// of the three fields.
+    ///
+    /// [`AVBufferReference`]: crate::buffer::AVBufferReference
     AVFrameSideData,
     AVFrameSideDataRef,
     AVFrameSideDataMut,
@@ -156,11 +202,31 @@ impl<'a> AVFrameSideDataRef<'a> {
     /// Borrows the reference header that owns the backing byte allocation.
     #[must_use]
     pub fn buffer(&self) -> Option<AVBufferReferenceRef<'a>> {
-        // SAFETY: the field value is copied from the live side-data header. A
-        // non-null reference header remains alive for this header's lifetime.
+        // SAFETY: the pointer value is copied through a raw projection from the
+        // live header; no reference to C storage is formed.
         let buffer = unsafe { addr_of!((*self.as_ptr()).buf).read() };
-        // SAFETY: the side-data owner keeps the referenced header live for 'a.
+        // SAFETY: by this type's invariant a non-null `buf` is one live
+        // reference header owned by the entry, satisfying `AVBufferReference`'s
+        // own invariant and kept alive for `'a` by the collection that owns the
+        // entry.
         unsafe { AVBufferReferenceRef::from_ptr(buffer) }
+    }
+
+    /// Wraps: AVFrameSideData.buf
+    ///
+    /// Clones an owned reference to the same underlying buffer, leaving the
+    /// entry's own field valid. This is how a caller keeps the bytes alive past
+    /// the entry, and it is also what makes the entry's window read-only again:
+    /// [`data_mut`](AVFrameSideDataMut::data_mut) and
+    /// [`write_all`](AVFrameSideDataMut::write_all) both refuse a buffer with
+    /// more than one reference.
+    #[must_use]
+    pub fn owned_buffer(&self) -> Option<ffibox::CBox<crate::buffer::AVBufferReference>> {
+        let source = self.buffer()?;
+        // SAFETY: the borrowed source header is live for this call; a non-null
+        // result is a new, independently releasable reference header holding a
+        // count of its own on the same underlying buffer.
+        unsafe { ffibox::CBox::from_raw(ffi::av_buffer_ref(source.as_ptr().cast_mut())) }
     }
 
     /// Wraps: AVFrameSideData.size
@@ -174,22 +240,82 @@ impl<'a> AVFrameSideDataRef<'a> {
     /// Wraps: AVFrameSideData.data
     ///
     /// Views the `size`-byte window kept alive by `buf`, without materializing
-    /// a Rust slice over memory that C may mutate.
+    /// a Rust slice over memory that C may mutate, and without claiming its
+    /// bytes have been written. `av_frame_new_side_data` (`frame.c`) and
+    /// `av_frame_side_data_new` (`side_data.c`) both size the entry with
+    /// `av_buffer_alloc`, which hands back raw `av_malloc` storage, so an
+    /// initialized `CSlice<u8>` here would break
+    /// [`CSlice::from_raw_parts`](ffibox::CSlice::from_raw_parts)'s
+    /// precondition and let entirely safe code read an uninitialised `u8`.
+    /// `None` represents a null `data` slot.
+    ///
+    /// Fill a window from safe code with
+    /// [`write_all`](AVFrameSideDataMut::write_all), then read it through
+    /// [`data_assume_init`](Self::data_assume_init).
     #[must_use]
-    pub fn data(&self) -> Option<CSlice<'a, u8>> {
-        // SAFETY: both fields are copied from the live header. Its buffer owner
-        // keeps the complete window alive for 'a.
+    pub fn data(&self) -> Option<CSlice<'a, MaybeUninit<u8>>> {
+        // SAFETY: both fields are copied through raw projections from the live
+        // header; no reference to C storage is formed.
         let (data, size) = unsafe {
             (
                 addr_of!((*self.as_ptr()).data).read(),
                 addr_of!((*self.as_ptr()).size).read(),
             )
         };
-        NonNull::new(data).map(|data| {
-            // SAFETY: side-data invariants establish `size` initialized bytes
-            // at this (possibly interior) pointer, kept alive by `buf`.
+        NonNull::new(data.cast::<MaybeUninit<u8>>()).map(|data| {
+            // SAFETY: the type invariant gives `size` allocated bytes at a
+            // non-null `data`, kept alive for `'a` by the entry's `buf`. Every
+            // byte pattern — and the absence of one — is a valid
+            // `MaybeUninit<u8>`, which is exactly what "allocated" licenses.
             unsafe { CSlice::from_raw_parts(data, size) }
         })
+    }
+
+    /// Wraps: AVFrameSideData.data
+    ///
+    /// The same window, viewed as initialized bytes.
+    ///
+    /// # Safety
+    ///
+    /// All `size` bytes of the window must already have been written: by
+    /// [`write_all`](AVFrameSideDataMut::write_all), by the producer that
+    /// filled the entry (`frame_copy_props` memcpys the whole window,
+    /// `av_frame_side_data_clone` hands over a buffer it copied), or by C code
+    /// outside this crate. A window `av_frame_new_side_data` or
+    /// `av_frame_side_data_new` has just sized does not satisfy this.
+    #[must_use]
+    pub unsafe fn data_assume_init(&self) -> Option<CSlice<'a, u8>> {
+        let window = self.data()?;
+        let data = NonNull::new(window.as_elem_ptr().cast::<u8>())?;
+        // SAFETY: the caller asserts every byte of the window is initialized,
+        // and `data` has already established `window.len()` allocated bytes at
+        // this address for `'a`. `MaybeUninit<u8>` and `u8` share size and
+        // alignment, so both views describe the same run.
+        Some(unsafe { CSlice::from_raw_parts(data, window.len()) })
+    }
+
+    /// Wraps: AVFrameSideData.buf
+    ///
+    /// Whether this entry's window may be written through: `buf` must be
+    /// present and be the only reference to a buffer that is not read-only.
+    ///
+    /// Two entries never share one `AVBufferRef` header — `av_buffer_ref`
+    /// allocates a fresh header per reference — so a second holder of the
+    /// underlying buffer always shows up in the count this predicate reads.
+    /// It answers about the buffer, not about the handle: holding a shared
+    /// side-data handle and a `true` here still licenses no write.
+    #[must_use]
+    pub fn is_writable(&self) -> bool {
+        // SAFETY: the pointer value is copied through a raw projection from the
+        // live header; no reference to C storage is formed.
+        let buffer = unsafe { addr_of!((*self.as_ptr()).buf).read() };
+        if buffer.is_null() {
+            return false;
+        }
+        // SAFETY: by this type's invariant a non-null `buf` is one live
+        // reference header owned by the entry. The C predicate reads the
+        // underlying count and read-only flag and retains nothing.
+        unsafe { ffi::av_buffer_is_writable(buffer) != 0 }
     }
 
     /// Wraps: AVFrameSideData.metadata
@@ -197,53 +323,117 @@ impl<'a> AVFrameSideDataRef<'a> {
     /// Borrows the optional dictionary owned by this side-data entry.
     #[must_use]
     pub fn metadata(&self) -> Option<AVDictionaryRef<'a>> {
-        // SAFETY: the pointer value is copied from the live header; a non-null
-        // dictionary remains owned and live for this header's lifetime.
+        // SAFETY: the pointer value is copied through a raw projection from the
+        // live header; no reference to C storage is formed.
         let metadata = unsafe { addr_of!((*self.as_ptr()).metadata).read() };
-        // SAFETY: the entry's owner keeps a non-null dictionary live for 'a.
+        // SAFETY: by this type's invariant a non-null `metadata` is one live
+        // dictionary owned by the entry, kept alive for `'a` by the collection
+        // that owns the entry.
         unsafe { AVDictionaryRef::from_ptr(metadata) }
     }
 }
 
 impl AVFrameSideDataMut<'_> {
+    /// Wraps: AVFrameSideData.data
+    ///
     /// Exclusively views the byte window when its backing buffer is writable.
+    /// As with [`AVFrameSideDataRef::data`], the elements are `MaybeUninit<u8>`
+    /// because the type invariant claims the window is allocated, not written.
     #[must_use]
-    pub fn data_mut(&mut self) -> Option<CSliceMut<'_, u8>> {
-        let header = self.as_mut_ptr();
-        // SAFETY: the field is copied through the exclusive live header. A
-        // null buffer cannot license mutable data access.
-        let buffer = unsafe { addr_of!((*header).buf).read() };
-        if buffer.is_null() {
+    pub fn data_mut(&mut self) -> Option<CSliceMut<'_, MaybeUninit<u8>>> {
+        if !self.as_ref().is_writable() {
             return None;
         }
-        // SAFETY: `buffer` is owned by the live header. The C predicate retains
-        // nothing and verifies the underlying reference is uniquely writable.
-        if unsafe { ffi::av_buffer_is_writable(buffer) } == 0 {
-            return None;
-        }
-        // SAFETY: the positive writability result licenses mutation of the
-        // header's complete initialized byte window.
+        // SAFETY: the fields are copied through raw projections from the live
+        // exclusive header; no reference to C storage is formed.
         let (data, size) = unsafe {
+            let header = self.as_mut_ptr();
             (
                 addr_of!((*header).data).read(),
                 addr_of!((*header).size).read(),
             )
         };
-        NonNull::new(data).map(|data| {
-            // SAFETY: the buffer predicate established unique writable access,
-            // and the view is bound to this exclusive handle reborrow.
+        NonNull::new(data.cast::<MaybeUninit<u8>>()).map(|data| {
+            // SAFETY: the type invariant gives `size` allocated bytes at a
+            // non-null `data`, every byte of which is a valid
+            // `MaybeUninit<u8>`. The writability check proves nothing else
+            // shares the underlying buffer, and the view is bound to
+            // `&mut self`, so this is the only path to those bytes.
             unsafe { CSliceMut::from_raw_parts(data, size) }
         })
     }
 
+    /// Wraps: AVFrameSideData.data
+    ///
+    /// The same exclusive window, viewed as initialized bytes, for
+    /// read-modify-write access.
+    ///
+    /// # Safety
+    ///
+    /// As [`AVFrameSideDataRef::data_assume_init`]: every byte of the window
+    /// must already have been written.
+    #[must_use]
+    pub unsafe fn data_assume_init_mut(&mut self) -> Option<CSliceMut<'_, u8>> {
+        let mut window = self.data_mut()?;
+        let len = window.len();
+        let data = NonNull::new(window.as_mut_elem_ptr().cast::<u8>())?;
+        // SAFETY: the caller asserts the window is initialized, and `data_mut`
+        // has already proved exclusive access to `len` allocated bytes at
+        // `data`. `MaybeUninit<u8>` and `u8` share size and alignment, so both
+        // views describe the same run.
+        Some(unsafe { CSliceMut::from_raw_parts(data, len) })
+    }
+
+    /// Wraps: AVFrameSideData.data
+    ///
+    /// Writes `src` over the whole window, which is the safe way to make
+    /// [`AVFrameSideDataRef::data_assume_init`] dischargeable for an entry
+    /// libavutil only sized. Returns `false` without writing anything when
+    /// `src` does not cover the window exactly, or when the entry's buffer is
+    /// shared or read-only.
+    pub fn write_all(&mut self, src: &[u8]) -> bool {
+        if src.len() != self.as_ref().size() {
+            return false;
+        }
+        let Some(mut window) = self.data_mut() else {
+            // A null `data` slot has no bytes to write, so an empty `src`
+            // leaves the window vacuously initialized; any other `None` means
+            // the buffer is shared, read-only or absent.
+            return src.is_empty() && self.as_ref().is_writable();
+        };
+        // SAFETY: `window` exclusively covers exactly `src.len()` allocated
+        // bytes of C storage, and `src` is a live Rust slice, which therefore
+        // cannot overlap storage a C object owns. The copy initializes every
+        // byte of the window.
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                window.as_mut_elem_ptr().cast::<u8>(),
+                src.len(),
+            );
+        }
+        true
+    }
+
+    /// Wraps: AVFrameSideData.metadata
+    ///
     /// Exclusively borrows the optional dictionary owned by this entry.
+    ///
+    /// `AVDictionaryMut` deliberately carries no operations of its own: every
+    /// mutating libavutil entry point takes an `AVDictionary **` owner slot,
+    /// because it may reallocate or release the header. Replacing this entry's
+    /// dictionary would therefore have to go through the field, which no safe
+    /// wrapper offers; this handle exists so an exclusive borrow of the entry
+    /// still reaches the dictionary's shared surface through
+    /// [`as_ref`](crate::dict::AVDictionaryMut::as_ref).
     #[must_use]
     pub fn metadata_mut(&mut self) -> Option<AVDictionaryMut<'_>> {
-        // SAFETY: the pointer is copied through the exclusive header; the
-        // side-data contract gives the entry unique ownership of the dictionary.
+        // SAFETY: the pointer value is copied through a raw projection from the
+        // live exclusive header; no reference to C storage is formed.
         let metadata = unsafe { addr_of!((*self.as_mut_ptr()).metadata).read() };
-        // SAFETY: a non-null dictionary is live and exclusively reached through
-        // this mutable side-data handle for the returned lifetime.
+        // SAFETY: by this type's invariant a non-null `metadata` is one live
+        // dictionary owned by the entry; the exclusive side-data handle is the
+        // only path to it for the returned lifetime.
         unsafe { AVDictionaryMut::from_ptr(metadata) }
     }
 }
@@ -289,10 +479,26 @@ mod side_data_type_tests {
             backing.as_ptr().cast_const()
         );
         assert!(side_data.as_ref().metadata().is_none());
-        assert_eq!(side_data.as_ref().data().unwrap().elems().sum::<u8>(), 0);
+        assert_eq!(side_data.as_ref().data().unwrap().len(), 4);
+        // `av_buffer_allocz` wrote this window, unlike the `av_buffer_alloc`
+        // one every new entry gets, so the initialized view is dischargeable.
+        // SAFETY: `allocz` memset all four bytes and nothing has replaced them.
+        let window = unsafe { side_data.as_ref().data_assume_init() }.unwrap();
+        assert_eq!(window.elems().sum::<u8>(), 0);
 
-        assert!(side_data.data_mut().unwrap().copy_from_slice(&[1, 2, 3, 4]));
-        assert_eq!(side_data.as_ref().data().unwrap().elem(2), Some(3));
+        assert!(side_data.write_all(&[1, 2, 3, 4]));
+        // SAFETY: `write_all` covered the whole window.
+        let window = unsafe { side_data.as_ref().data_assume_init() }.unwrap();
+        assert_eq!(window.elem(2), Some(3));
+        // A read-modify-write goes through the same discharged obligation.
+        {
+            // SAFETY: every byte of the window was written above.
+            let mut window = unsafe { side_data.data_assume_init_mut() }.unwrap();
+            assert!(window.set_elem(0, 9));
+        }
+        // SAFETY: still fully written; one byte changed value.
+        let window = unsafe { side_data.as_ref().data_assume_init() }.unwrap();
+        assert_eq!(window.elem(0), Some(9));
         assert_eq!(
             size_of::<AVFrameSideData>(),
             size_of::<ffi::AVFrameSideData>()
@@ -301,6 +507,38 @@ mod side_data_type_tests {
             align_of::<AVFrameSideData>(),
             align_of::<ffi::AVFrameSideData>()
         );
+    }
+
+    #[test]
+    fn a_new_entry_owns_an_unwritten_window() {
+        let mut frame = AVFrame::new().expect("frame header");
+        let mut frame_mut = frame.as_mut();
+        let mut entry =
+            av_frame_new_side_data(&mut frame_mut, AVFrameSideDataType::SEI_UNREGISTERED, 4)
+                .expect("four-byte side-data entry");
+
+        // `av_frame_new_side_data` sizes the window with `av_buffer_alloc`,
+        // which is raw `av_malloc` storage: `data` may only hand out
+        // `MaybeUninit` bytes here, and calling `data_assume_init` before the
+        // write below would be a read of uninitialised memory from safe code.
+        assert_eq!(entry.as_ref().size(), 4);
+        assert_eq!(entry.as_ref().data().unwrap().len(), 4);
+        assert!(entry.as_ref().is_writable());
+        // A partial write is refused rather than leaving the window ragged.
+        assert!(!entry.write_all(&[7, 7]));
+        assert!(entry.write_all(&[7, 7, 7, 7]));
+        // SAFETY: `write_all` covered every byte of the window.
+        let window = unsafe { entry.as_ref().data_assume_init() }.unwrap();
+        assert_eq!(window.elems().map(u32::from).sum::<u32>(), 28);
+
+        // A second reference to the same underlying buffer closes the exclusive
+        // window: the entry no longer uniquely owns the bytes it points at.
+        let held = entry.as_ref().owned_buffer().expect("entry buffer");
+        assert!(!entry.as_ref().is_writable());
+        assert!(entry.data_mut().is_none());
+        assert!(!entry.write_all(&[1, 2, 3, 4]));
+        drop(held);
+        assert!(entry.as_ref().is_writable());
     }
 }
 
@@ -1051,8 +1289,11 @@ pub fn av_frame_make_writable(frame: &mut AVFrameMut<'_>) -> Result<(), i32> {
 
 /// Wraps: av_frame_new_side_data
 ///
-/// Adds an owned, zero-initialized side-data buffer and exclusively borrows its
-/// header for the duration of the frame reborrow.
+/// Adds an owned side-data buffer and exclusively borrows its header for the
+/// duration of the frame reborrow. C sizes the window with `av_buffer_alloc`
+/// and writes none of it, so the new entry reads back only through
+/// [`AVFrameSideDataRef::data`]; use [`AVFrameSideDataMut::write_all`] first if
+/// you need the initialized view.
 #[must_use]
 pub fn av_frame_new_side_data<'a>(
     frame: &'a mut AVFrameMut<'_>,
