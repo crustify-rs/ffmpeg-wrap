@@ -853,6 +853,140 @@
    ]
   },
   {
+   "name": "av_buffer_alloc",
+   "defined_in": "libavutil/buffer.c",
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns NULL on allocation failure or a fresh AVBufferRef header owning one independently releasable reference and its data window."
+    }
+   }
+  },
+  {
+   "name": "av_buffer_allocz",
+   "defined_in": "libavutil/buffer.c",
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns NULL on allocation failure or a fresh AVBufferRef header owning one independently releasable reference and its data window."
+    }
+   }
+  },
+  {
+   "name": "av_buffer_get_ref_count",
+   "defined_in": "libavutil/buffer.c",
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of a live AVBufferRef; not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_buffer_is_writable",
+   "defined_in": "libavutil/buffer.c",
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of a live AVBufferRef; not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_buffer_make_writable",
+   "defined_in": "libavutil/buffer.c",
+   "ptr_args": [
+    {
+     "name": "pbuf",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:pbuf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Required non-null mutable owner slot containing one owned reference. On success C may consume and replace it with a writable owner; on failure it remains unchanged."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_buffer_realloc",
+   "defined_in": "libavutil/buffer.c",
+   "ptr_args": [
+    {
+     "name": "pbuf",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:pbuf"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Required mutable owner slot containing a nullable owned reference. On success C may consume and replace it; on failure it remains unchanged."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_buffer_ref",
    "defined_in": "libavutil/buffer.c",
    "lifetime": {
@@ -1948,6 +2082,29 @@
    "defined_in": "libavutil/rational.c"
   },
   {
+   "name": "av_get_bits_per_pixel",
+   "defined_in": "libavutil/pixdesc.c",
+   "ptr_args": [
+    {
+     "name": "pixdesc",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:pixdesc"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only descriptor borrow; not retained."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_get_bytes_per_sample",
    "defined_in": "libavutil/samplefmt.c"
   },
@@ -2078,6 +2235,210 @@
    "defined_in": "libavutil/time.c"
   },
   {
+   "name": "av_hwdevice_ctx_alloc",
+   "defined_in": "libavutil/hwcontext.c",
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns NULL for unsupported type or allocation failure, otherwise a fresh owned AVBufferRef whose data is an uninitialized/configurable AVHWDeviceContext."
+    }
+   }
+  },
+  {
+   "name": "av_hwdevice_ctx_create",
+   "defined_in": "libavutil/hwcontext.c",
+   "ptr_args": [
+    {
+     "name": "device",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:device"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional type-specific NUL-terminated device identifier, borrowed only during creation."
+     }
+    },
+    {
+     "name": "opts",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:opts"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional caller-owned dictionary borrowed during creation and not retained."
+     }
+    },
+    {
+     "name": "pdevice_ref",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:pdevice_ref"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Required output owner slot; receives a fresh initialized owned device-context reference on success and NULL on failure."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_hwdevice_ctx_create_derived",
+   "defined_in": "libavutil/hwcontext.c",
+   "ptr_args": [
+    {
+     "name": "dst_ref_ptr",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst_ref_ptr"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Required output owner slot; receives an independently releasable initialized device-context reference on success and NULL on failure."
+     }
+    },
+    {
+     "name": "src_ref",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src_ref"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed live initialized source device-context reference; traversed but not consumed or modified."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_hwdevice_ctx_create_derived_opts",
+   "defined_in": "libavutil/hwcontext.c",
+   "ptr_args": [
+    {
+     "name": "dst_ref_ptr",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst_ref_ptr"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Required output owner slot; receives an independently releasable initialized device-context reference on success and NULL on failure."
+     }
+    },
+    {
+     "name": "options",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:options"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional caller-owned dictionary borrowed during derivation and not retained."
+     }
+    },
+    {
+     "name": "src_ref",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src_ref"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed live initialized source device-context reference; traversed but not consumed or modified."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_hwdevice_ctx_init",
+   "defined_in": "libavutil/hwcontext.c",
+   "ptr_args": [
+    {
+     "name": "ref",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ref"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Exclusive construction-phase borrow of a device-context reference and the context in its data window; not retained."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_hwdevice_find_type_by_name",
    "defined_in": "libavutil/hwcontext.c",
    "ptr_args": [
@@ -2123,6 +2484,109 @@
   {
    "name": "av_hwdevice_iterate_types",
    "defined_in": "libavutil/hwcontext.c"
+  },
+  {
+   "name": "av_hwframe_ctx_alloc",
+   "defined_in": "libavutil/hwcontext.c",
+   "ptr_args": [
+    {
+     "name": "device_ref_in",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:device_ref_in"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed initialized device-context reference; the new frame context takes its own cloned reference and does not consume this one."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns NULL on allocation failure or a fresh owned AVBufferRef whose data is a configurable AVHWFramesContext."
+    }
+   }
+  },
+  {
+   "name": "av_hwframe_ctx_init",
+   "defined_in": "libavutil/hwcontext.c",
+   "ptr_args": [
+    {
+     "name": "ref",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ref"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Exclusive construction-phase borrow of a frame-context reference and context; initializes hardware state without retaining the header pointer."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_hwframe_transfer_get_formats",
+   "defined_in": "libavutil/hwcontext.c",
+   "ptr_args": [
+    {
+     "name": "formats",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:formats"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Required output slot. On success receives an owned av_malloc-family AVPixelFormat array terminated by AV_PIX_FMT_NONE; unspecified on failure."
+     }
+    },
+    {
+     "name": "hwframe_ref",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:hwframe_ref"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed initialized frame-context reference used only during the query."
+     }
+    }
+   ]
   },
   {
    "name": "av_image_alloc",
@@ -2570,6 +3034,101 @@
   {
    "name": "av_nearer_q",
    "defined_in": "libavutil/rational.c"
+  },
+  {
+   "name": "av_opt_find2",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required NUL-terminated option name read transiently and not retained."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Nullable borrowed AVClass-bearing object, or fake-object class pointer under the matching flag; searched but not retained."
+     }
+    },
+    {
+     "name": "target_obj",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": false,
+        "borrowed": {
+         "lifetime": "arg:obj"
+        }
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:target_obj"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Optional output slot; on a normal-object match receives a non-owning pointer into the object/child hierarchy whose lifetime is bounded by obj."
+     }
+    },
+    {
+     "name": "unit",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:unit"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional NUL-terminated constant unit read transiently and not retained."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:obj"
+     },
+     "nullable": true,
+     "mutable": false,
+     "note": "Returns NULL when absent or a borrowed immutable AVOption entry associated with the searched object/class metadata."
+    }
+   }
   },
   {
    "name": "av_opt_set",
@@ -3066,6 +3625,88 @@
      }
     }
    ]
+  },
+  {
+   "name": "av_pix_fmt_desc_get",
+   "defined_in": "libavutil/pixdesc.c",
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "static"
+     },
+     "nullable": true,
+     "mutable": false,
+     "note": "Returns NULL for an invalid format or a borrowed immutable process-lifetime descriptor table entry."
+    }
+   }
+  },
+  {
+   "name": "av_pix_fmt_desc_get_id",
+   "defined_in": "libavutil/pixdesc.c",
+   "ptr_args": [
+    {
+     "name": "desc",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:desc"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Read-only descriptor pointer used only for the table identity lookup and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_pix_fmt_desc_next",
+   "defined_in": "libavutil/pixdesc.c",
+   "ptr_args": [
+    {
+     "name": "prev",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "NULL starts iteration; otherwise this is a borrowed immutable entry in the process-lifetime descriptor table."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "static"
+     },
+     "nullable": true,
+     "mutable": false,
+     "note": "Returns the next immutable process-lifetime descriptor table entry or NULL at the end."
+    }
+   }
   },
   {
    "name": "av_q2d",

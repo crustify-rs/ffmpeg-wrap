@@ -31,6 +31,7 @@ fn main() {
         .allowlist_type("^(AVDictionaryEntry|AVFrameSideDataType)$")
         .allowlist_type("^AV(AlphaMode|AudioFifo)$")
         .allowlist_type("^AVOption(ArrayDef|Type)?$")
+        .allowlist_var("^AV_OPT_SEARCH_FAKE_OBJ$")
         .allowlist_function(
             "^(av_chroma_location_from_name|av_dynarray_add|av_file_map|av_file_unmap|av_free|av_freep|av_gettime|av_gettime_relative|av_gettime_relative_is_monotonic|av_log_get_flags|av_log_get_level|av_log_set_callback|av_log_set_flags|av_log_set_level|av_malloc|av_malloc_array|av_mallocz|av_match_name|av_md5_sum|av_memdup|av_opt_set|av_opt_set_bin|av_opt_set_double|av_opt_set_image_size|av_opt_set_int|av_realloc|av_reduce|av_strdup|av_strerror|av_strndup|av_usleep|av_version_info|avutil_configuration|avutil_license|avutil_version)$",
         )
@@ -39,8 +40,16 @@ fn main() {
         .allowlist_type(
             "^(AVBuffer|AVBufferRef|AVChannel|AVChannelCustom|AVChannelLayout|AVFrameSideData)$",
         )
-        .allowlist_function("^av_buffer_(allocz|is_writable|ref|unref)$")
         .allowlist_function("^av_channel_layout_uninit$")
+        .allowlist_function(
+            "^av_buffer_(alloc|allocz|get_ref_count|is_writable|make_writable|realloc|ref|unref)$",
+        )
+        .allowlist_function(
+            "^av_(get_bits_per_pixel|pix_fmt_desc_(get|get_id|next)|opt_find2)$",
+        )
+        .allowlist_function(
+            "^av_hw(device_ctx_(alloc|create|create_derived|create_derived_opts|init)|frame_ctx_(alloc|init)|frame_transfer_get_formats)$",
+        )
         .allowlist_function(
             "^(av_add_q|av_alpha_mode_from_name|av_alpha_mode_name|av_audio_fifo_(drain|peek|peek_at|read|realloc|reset|size|space|write)|av_channel_(description|from_string|name)|av_chroma_location_(enum_to_pos|name|pos_to_enum)|av_color_(primaries|range|space|transfer)_name|av_d2q|av_dict_(copy|count|get|get_string|iterate|parse_string|set|set_int)|av_div_q|av_frame_side_data_name|av_gcd_q|av_get_bytes_per_sample|av_get_media_type_string|av_get_packed_sample_fmt|av_get_pix_fmt|av_get_pix_fmt_name|av_get_planar_sample_fmt|av_get_sample_fmt|av_get_sample_fmt_name|av_hwdevice_(find_type_by_name|get_type_name|iterate_types)|av_image_alloc)$",
         )

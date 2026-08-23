@@ -521,3 +521,81 @@ mod scheduled_symbol_tests {
         );
     }
 }
+
+/// Wraps: av_get_bits_per_pixel
+#[must_use]
+pub fn av_get_bits_per_pixel(descriptor: AVPixFmtDescriptorRef<'_>) -> i32 {
+    // SAFETY: the handle supplies a live immutable descriptor for this
+    // read-only call and C does not retain it.
+    unsafe { ffi::av_get_bits_per_pixel(descriptor.as_ptr()) }
+}
+
+/// An immutable entry in libavutil's process-lifetime pixel-format table.
+#[derive(Clone, Copy)]
+pub struct AVPixFmtDescriptorEntry(AVPixFmtDescriptorRef<'static>);
+
+impl AVPixFmtDescriptorEntry {
+    /// Borrows the immutable descriptor metadata in this table entry.
+    #[must_use]
+    pub fn as_ref(&self) -> AVPixFmtDescriptorRef<'_> {
+        self.0
+    }
+}
+
+/// Wraps: av_pix_fmt_desc_get
+///
+/// Returns an immutable descriptor from libavutil's process-lifetime table.
+#[must_use]
+pub fn av_pix_fmt_desc_get(
+    format: crate::pixfmt::AVPixelFormat,
+) -> Option<AVPixFmtDescriptorEntry> {
+    // SAFETY: C returns null or a pointer into its immutable static descriptor
+    // table; the handle never forms a Rust reference to those bytes.
+    unsafe { AVPixFmtDescriptorRef::from_ptr(ffi::av_pix_fmt_desc_get(format.as_raw()).cast_mut()) }
+        .map(AVPixFmtDescriptorEntry)
+}
+
+/// Wraps: av_pix_fmt_desc_get_id
+#[must_use]
+pub fn av_pix_fmt_desc_get_id(descriptor: AVPixFmtDescriptorEntry) -> crate::pixfmt::AVPixelFormat {
+    // SAFETY: the entry type can only be produced by the table lookup or
+    // iterator, so C's pointer-range operation stays within its static array.
+    crate::pixfmt::AVPixelFormat::from_raw(unsafe {
+        ffi::av_pix_fmt_desc_get_id(descriptor.0.as_ptr())
+    })
+}
+
+/// Wraps: av_pix_fmt_desc_next
+///
+/// Pass `None` to start iteration. Both the input and returned handles refer
+/// to libavutil's immutable process-lifetime descriptor table.
+#[must_use]
+pub fn av_pix_fmt_desc_next(
+    previous: Option<AVPixFmtDescriptorEntry>,
+) -> Option<AVPixFmtDescriptorEntry> {
+    let previous = previous.map_or(core::ptr::null(), |descriptor| descriptor.0.as_ptr());
+    // SAFETY: `previous` is null or came from this static table. C returns null
+    // or another static table entry and retains nothing.
+    unsafe { AVPixFmtDescriptorRef::from_ptr(ffi::av_pix_fmt_desc_next(previous).cast_mut()) }
+        .map(AVPixFmtDescriptorEntry)
+}
+
+#[cfg(test)]
+mod scheduled_descriptor_tests {
+    use super::*;
+    use crate::pixfmt::AVPixelFormat;
+
+    #[test]
+    fn descriptor_lookup_identity_and_bit_count_round_trip() {
+        let descriptor = av_pix_fmt_desc_get(AVPixelFormat::YUV420P).expect("known format");
+        assert_eq!(av_pix_fmt_desc_get_id(descriptor), AVPixelFormat::YUV420P);
+        assert_eq!(av_get_bits_per_pixel(descriptor.as_ref()), 12);
+    }
+
+    #[test]
+    fn descriptor_iteration_starts_at_a_named_entry() {
+        let first = av_pix_fmt_desc_next(None).expect("descriptor table is nonempty");
+        assert!(first.as_ref().name().is_some());
+        assert!(av_pix_fmt_desc_next(Some(first)).is_some());
+    }
+}

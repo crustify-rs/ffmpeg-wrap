@@ -2,7 +2,7 @@
 
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::{CCloned, CDropped, CSlice, CSliceMut, define_ctype};
+use ffibox::{CBox, CCloned, CDropped, CSlice, CSliceMut, define_ctype};
 
 use crate::ffi;
 
@@ -256,5 +256,144 @@ impl AVBufferReferenceMut<'_> {
             // the initialized window, and the view is bound to `&mut self`.
             unsafe { CSliceMut::from_raw_parts(data, size) }
         })
+    }
+}
+
+/// Wraps: av_buffer_alloc
+///
+/// Allocates an uninitialized byte buffer and adopts its independently
+/// releasable reference header.
+#[must_use]
+pub fn av_buffer_alloc(size: usize) -> Option<CBox<AVBufferReference>> {
+    // SAFETY: a non-null return is a fully constructed AVBufferRef carrying
+    // one ownership count, released by AVBufferReference's CDropped impl.
+    unsafe { CBox::from_raw(ffi::av_buffer_alloc(size)) }
+}
+
+/// Wraps: av_buffer_allocz
+///
+/// Allocates a zero-filled byte buffer.
+#[must_use]
+pub fn av_buffer_allocz(size: usize) -> Option<CBox<AVBufferReference>> {
+    // SAFETY: the ownership contract is identical to `av_buffer_alloc`.
+    unsafe { CBox::from_raw(ffi::av_buffer_allocz(size)) }
+}
+
+/// Wraps: av_buffer_get_ref_count
+#[must_use]
+pub fn av_buffer_get_ref_count(buffer: AVBufferReferenceRef<'_>) -> usize {
+    // SAFETY: the borrowed handle supplies a live reference header for this
+    // read-only call and C does not retain it.
+    unsafe { ffi::av_buffer_get_ref_count(buffer.as_ptr()) as usize }
+}
+
+/// Wraps: av_buffer_is_writable
+#[must_use]
+pub fn av_buffer_is_writable(buffer: AVBufferReferenceRef<'_>) -> bool {
+    // SAFETY: the borrowed handle supplies a live reference header for this
+    // read-only call and C does not retain it.
+    unsafe { ffi::av_buffer_is_writable(buffer.as_ptr()) != 0 }
+}
+
+/// Wraps: av_buffer_make_writable
+///
+/// Consumes a reference and returns a writable reference, which may identify
+/// a copied buffer. On allocation failure the original owner is returned with
+/// the negative libavutil error code.
+pub fn av_buffer_make_writable(
+    buffer: CBox<AVBufferReference>,
+) -> Result<CBox<AVBufferReference>, (i32, CBox<AVBufferReference>)> {
+    let mut raw = buffer.into_raw();
+    // SAFETY: `raw` is a writable local owner slot containing one live
+    // reference. C either leaves it unchanged or consumes and replaces it with
+    // another independently owned live reference.
+    let status = unsafe { ffi::av_buffer_make_writable(addr_of_mut!(raw)) };
+    // SAFETY: both success and failure contracts leave the slot non-null and
+    // owning exactly one fully constructed reference.
+    let buffer = unsafe { CBox::from_raw(raw) }.expect("av_buffer_make_writable kept an owner");
+    if status < 0 {
+        Err((status, buffer))
+    } else {
+        Ok(buffer)
+    }
+}
+
+/// Wraps: av_buffer_realloc
+///
+/// Resizes an owned reference, or allocates one when `buffer` is `None`. On
+/// failure the original nullable owner is returned unchanged.
+pub fn av_buffer_realloc(
+    buffer: Option<CBox<AVBufferReference>>,
+    size: usize,
+) -> Result<CBox<AVBufferReference>, (i32, Option<CBox<AVBufferReference>>)> {
+    let mut raw = buffer.map_or(core::ptr::null_mut(), CBox::into_raw);
+    // SAFETY: `raw` is a writable nullable owner slot. C adopts no ownership on
+    // failure and leaves one newly allocated or resized owner on success.
+    let status = unsafe { ffi::av_buffer_realloc(addr_of_mut!(raw), size) };
+    // SAFETY: the call leaves either null or one fully constructed owned
+    // reference in the local slot, whose ownership is transferred here.
+    let buffer = unsafe { CBox::from_raw(raw) };
+    if status < 0 {
+        Err((status, buffer))
+    } else {
+        Ok(buffer.expect("successful av_buffer_realloc returned an owner"))
+    }
+}
+
+/// Wraps: av_buffer_ref
+///
+/// Creates another independently releasable header for the same underlying
+/// byte buffer.
+#[must_use]
+pub fn av_buffer_ref(buffer: AVBufferReferenceRef<'_>) -> Option<CBox<AVBufferReference>> {
+    // SAFETY: the source handle is live and read-only for the call. A non-null
+    // result transfers a newly allocated header and one count to Rust.
+    unsafe { CBox::from_raw(ffi::av_buffer_ref(buffer.as_ptr())) }
+}
+
+/// Wraps: av_buffer_unref
+///
+/// Releases a nullable owned reference. This consumes the Rust owner so no
+/// usable handle remains after C decrements the count.
+pub fn av_buffer_unref(buffer: Option<CBox<AVBufferReference>>) {
+    drop(buffer);
+}
+
+#[cfg(test)]
+mod scheduled_function_tests {
+    use super::*;
+
+    #[test]
+    fn allocation_clone_writability_and_release_are_owned() {
+        let mut buffer = av_buffer_allocz(8).expect("buffer allocation");
+        assert_eq!(av_buffer_get_ref_count(buffer.as_ref()), 1);
+        assert!(av_buffer_is_writable(buffer.as_ref()));
+
+        let clone = av_buffer_ref(buffer.as_ref()).expect("reference clone");
+        assert_eq!(av_buffer_get_ref_count(buffer.as_ref()), 2);
+        assert!(!av_buffer_is_writable(buffer.as_ref()));
+        av_buffer_unref(Some(clone));
+
+        buffer = av_buffer_make_writable(buffer).expect("already writable");
+        assert!(buffer.as_mut().data_mut().is_some());
+    }
+
+    #[test]
+    fn realloc_allocates_and_preserves_the_prefix() {
+        let mut buffer = av_buffer_alloc(2).expect("buffer allocation");
+        assert!(
+            buffer
+                .as_mut()
+                .data_mut()
+                .expect("sole reference")
+                .copy_from_slice(&[7, 9])
+        );
+        let buffer = av_buffer_realloc(Some(buffer), 4).expect("buffer growth");
+        assert_eq!(buffer.as_ref().size(), 4);
+        assert_eq!(buffer.as_ref().data().unwrap().elem(0), Some(7));
+        assert_eq!(buffer.as_ref().data().unwrap().elem(1), Some(9));
+
+        let allocated = av_buffer_realloc(None, 3).expect("null-slot allocation");
+        assert_eq!(allocated.as_ref().size(), 3);
     }
 }

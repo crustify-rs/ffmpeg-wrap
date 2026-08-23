@@ -40,6 +40,60 @@ impl<'a> OptionObjectMut<'a> {
     }
 }
 
+/// Shared handle to the alternate fake-object shape accepted by option lookup:
+/// a live pointer slot containing an AVClass pointer.
+#[derive(Clone, Copy)]
+pub struct FakeOptionObjectRef<'a> {
+    pointer: NonNull<c_void>,
+    _borrow: PhantomData<&'a c_void>,
+}
+
+impl<'a> FakeOptionObjectRef<'a> {
+    /// Constructs a borrowed fake-object handle.
+    ///
+    /// # Safety
+    ///
+    /// `pointer` must address a live `const AVClass *` slot whose class and
+    /// immutable option metadata remain live for `'a`.
+    pub unsafe fn from_raw(pointer: NonNull<c_void>) -> Self {
+        Self {
+            pointer,
+            _borrow: PhantomData,
+        }
+    }
+
+    fn as_ptr(self) -> *mut c_void {
+        self.pointer.as_ptr()
+    }
+}
+
+/// A successful option lookup together with the object that owns the option.
+/// The exclusive target handle is tied to the lookup's borrow of the root
+/// object, so callers may safely pass it to the option setters.
+pub struct AVOptionMatch<'a> {
+    option: AVOptionRef<'a>,
+    target: OptionObjectMut<'a>,
+}
+
+impl<'a> AVOptionMatch<'a> {
+    #[must_use]
+    pub fn option(&self) -> AVOptionRef<'a> {
+        self.option
+    }
+
+    #[must_use]
+    pub fn target_mut(&mut self) -> &mut OptionObjectMut<'a> {
+        &mut self.target
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OptFindError {
+    /// Fake-object searches have a different pointer shape and cannot safely
+    /// produce an exclusive target-object handle.
+    FakeObjectSearch,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OptSetError {
     LengthOverflow,
@@ -842,4 +896,102 @@ pub fn av_opt_set_video_rate(
             search_flags,
         )
     })
+}
+
+/// Wraps: av_opt_find2
+///
+/// Searches a normal AVClass-bearing object. On success the returned option
+/// metadata and exclusive target-object handle remain tied to the exclusive
+/// borrow of `object`. Fake-object searches are rejected because their input
+/// is a pointer to an AVClass pointer rather than an object.
+pub fn av_opt_find2<'a>(
+    object: &'a mut OptionObjectMut<'_>,
+    name: &CStr,
+    unit: Option<&CStr>,
+    option_flags: i32,
+    search_flags: i32,
+) -> Result<Option<AVOptionMatch<'a>>, OptFindError> {
+    if search_flags & ffi::AV_OPT_SEARCH_FAKE_OBJ as i32 != 0 {
+        return Err(OptFindError::FakeObjectSearch);
+    }
+
+    let mut target = core::ptr::null_mut();
+    // SAFETY: the exclusive handle supplies a live normal AVClass-bearing
+    // object for the call; both strings are readable and NUL-terminated, and
+    // the target slot is writable. C retains none of those temporary inputs.
+    let option = unsafe {
+        ffi::av_opt_find2(
+            object.as_mut_ptr(),
+            name.as_ptr(),
+            unit.map_or(core::ptr::null(), CStr::as_ptr),
+            option_flags,
+            search_flags,
+            addr_of_mut!(target),
+        )
+    };
+    let Some(option) = NonNull::new(option.cast_mut()) else {
+        return Ok(None);
+    };
+    let target = NonNull::new(target).expect("normal av_opt_find2 match has a target object");
+    // SAFETY: a successful search returns immutable option metadata bounded by
+    // the exclusively borrowed root hierarchy.
+    let option = unsafe { AVOptionRef::from_ptr(option.as_ptr()) }.expect("nonnull option pointer");
+    // SAFETY: a successful normal-object search returns a target within the
+    // exclusively borrowed root hierarchy, and this handle is bounded by that
+    // borrow so no raw pointer escapes.
+    let target = unsafe { OptionObjectMut::from_raw(target) };
+    Ok(Some(AVOptionMatch { option, target }))
+}
+
+/// Wraps: av_opt_find2
+///
+/// Searches the function's alternate fake-object input shape. This variant
+/// always supplies the required fake-object flag and omits the target object,
+/// which the C contract ignores for such searches.
+pub fn av_opt_find2_fake<'a>(
+    object: FakeOptionObjectRef<'a>,
+    name: &CStr,
+    unit: Option<&CStr>,
+    option_flags: i32,
+    search_flags: i32,
+) -> Option<AVOptionRef<'a>> {
+    // SAFETY: the handle carries the live class-pointer slot and metadata
+    // lifetime; strings are readable for the call, and C retains no input.
+    let option = unsafe {
+        ffi::av_opt_find2(
+            object.as_ptr(),
+            name.as_ptr(),
+            unit.map_or(core::ptr::null(), CStr::as_ptr),
+            option_flags,
+            search_flags | ffi::AV_OPT_SEARCH_FAKE_OBJ as i32,
+            core::ptr::null_mut(),
+        )
+    };
+    // SAFETY: null means no match; a non-null result is immutable option
+    // metadata whose lifetime is bounded by the fake-object handle.
+    unsafe { AVOptionRef::from_ptr(option.cast_mut()) }
+}
+
+#[cfg(test)]
+mod scheduled_find_tests {
+    use super::*;
+
+    #[test]
+    fn fake_object_flag_is_rejected_before_ffi() {
+        let mut class_pointer: *const c_void = core::ptr::null();
+        let pointer = NonNull::from(&mut class_pointer).cast::<c_void>();
+        // SAFETY: `class_pointer` is live and exclusively borrowed and models
+        // the required first AVClass-pointer field for this rejection test.
+        let mut object = unsafe { OptionObjectMut::from_raw(pointer) };
+        assert!(matches!(
+            av_opt_find2(
+                &mut object,
+                c"name",
+                None,
+                0,
+                ffi::AV_OPT_SEARCH_FAKE_OBJ as i32,
+            ),
+            Err(OptFindError::FakeObjectSearch)
+        ));
+    }
 }
