@@ -15,6 +15,8 @@ fn main() {
         .use_core()
         .allowlist_type("^(AVColorPrimaries|AVColorRange)$")
         .allowlist_type("^(AVChannelOrder|AVChromaLocation)$")
+        .allowlist_type("^AVRational$")
+        .allowlist_type("^AVRounding$")
         .allowlist_function("^av_(free|malloc|md5_alloc|memdup|strdup|strndup)$")
         .allowlist_type("^AVHW(DeviceType|FrameTransferDirection)$")
         .allowlist_type("^(AVPictureType|AVPixelFormat)$")
