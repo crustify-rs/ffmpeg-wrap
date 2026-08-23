@@ -130,8 +130,8 @@
       "owned": true,
       "borrowed": null,
       "nullable": true,
-      "mutable": false,
-      "note": "free consumes a malloc-family allocation; the allocation may hold a singleton, a counted byte/element buffer, or a NUL-terminated string, and NULL is accepted."
+      "mutable": null,
+      "note": "free consumes a malloc-family allocation; the allocation may hold a singleton, a counted byte/element buffer, or a NUL-terminated string, and NULL is accepted. mutable is null, not false: free is an external symbol with no definition in this extraction, so no body inspection can decide it -- and it is not observably read-only either, since a real allocator writes its own bookkeeping into the released block. Sole caller in scope is av_free, which forwards ptr unchanged and inherits the same shape."
      }
     }
    ]
@@ -157,8 +157,8 @@
       "owned": true,
       "borrowed": null,
       "nullable": false,
-      "mutable": false,
-      "note": "munmap consumes a non-null mapped byte range; its separate size argument supplies the allocation extent."
+      "mutable": null,
+      "note": "munmap consumes a whole mapped byte range; its separate size argument supplies the extent, so the pointer is array-shaped only and never a singleton or a string. Sole caller in scope is av_file_unmap, which returns early unless bufptr is non-null AND size is non-zero, so the range handed over is always a complete, non-empty MAP_PRIVATE mapping produced by av_file_map's mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0); the release is page-granular, covering ceil(size/pagesize) bytes. mutable is null, not false: munmap is an external symbol with no definition in this extraction, so no body inspection can decide it."
      }
     }
    ]

@@ -9,8 +9,25 @@ use crate::ffi;
 
 /// Wraps: free
 ///
-/// Releases scalar allocations, buffers, and strings produced by the C
-/// standard allocation family.
+/// Releases an allocation from the C standard allocation family. The recorded
+/// contract covers all three byte-level shapes the pointer may hold, and each
+/// reaches `free` through the owner that matches it:
+///
+/// | shape | owner |
+/// |---|---|
+/// | single value | [`CVoidBox<LibcFree>`](ffibox::CVoidBox) |
+/// | counted buffer | [`CVec<T, LibcFree>`](ffibox::CVec) |
+/// | NUL-terminated string | [`CrustifyStr<LibcFree>`](ffibox::CrustifyStr) |
+///
+/// `free` never needs the extent, so one strategy serves all three: the
+/// [`CDropped`] impl carries the pointer-only owners and the [`CLenDropped`]
+/// impl the counted one.
+///
+/// This is deliberately distinct from libavutil's `AvFree`. The two allocation
+/// families are not interchangeable — `av_free` resolves to `_aligned_free`
+/// wherever `HAVE_ALIGNED_MALLOC` holds, and to a prefixed allocator under
+/// `MALLOC_PREFIX` — so an `av_malloc` allocation must never reach this
+/// strategy, nor a `malloc` allocation reach that one.
 pub struct LibcFree;
 
 // SAFETY: `c_drop` delegates exactly once to the allocator-matched `free`.
@@ -34,7 +51,7 @@ unsafe impl CLenDropped for LibcFree {
 
 #[cfg(test)]
 mod tests {
-    use ffibox::{CVec, CVoidBox};
+    use ffibox::{CVec, CVoidBox, CrustifyStr};
 
     use super::*;
 
@@ -50,5 +67,26 @@ mod tests {
                 .expect("malloc failed");
             drop(buffer);
         }
+    }
+
+    #[test]
+    fn drops_terminated_string() {
+        const TEXT: &[u8] = b"crustify\0";
+
+        // SAFETY: the checked `malloc` result is a fresh allocation of exactly
+        // `TEXT.len()` bytes owned by nobody else, and `TEXT` is a distinct,
+        // fully initialised source of that many bytes, so the copy leaves a
+        // uniquely owned NUL-terminated `malloc` string — which is what
+        // `CrustifyStr` adopts, with `LibcFree` as its matching destructor.
+        let string = unsafe {
+            let raw = ffi::malloc(TEXT.len() as _).cast::<u8>();
+            assert!(!raw.is_null(), "malloc failed");
+            core::ptr::copy_nonoverlapping(TEXT.as_ptr(), raw, TEXT.len());
+            CrustifyStr::<LibcFree>::from_raw(raw.cast()).expect("malloc failed")
+        };
+
+        assert_eq!(string.as_bytes(), b"crustify");
+        assert_eq!(string.len(), 8);
+        drop(string);
     }
 }
