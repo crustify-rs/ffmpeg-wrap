@@ -93,26 +93,41 @@ pub struct ReducedRational {
 /// Wraps: av_reduce
 ///
 /// Returns both C out-parameters as one initialized Rust value.
-#[must_use]
-pub fn av_reduce(numerator: i64, denominator: i64, max: i64) -> ReducedRational {
+///
+/// `max` bounds two `int` out-parameters, so it is taken as [`i32`] rather than
+/// C's `int64_t`. C reduces into `int64_t` accumulators and only truncates on
+/// the final stores, so a wider `max` makes it report an exact reduction while
+/// writing a wrapped value: `av_reduce(1 << 40, 1, i64::MAX)` stores `0/1` and
+/// returns 1. A non-positive `max` is rejected for the same reason — it is
+/// below every reachable denominator, so C's own
+/// `av_assert2(a1.num <= max && a1.den <= max)` cannot hold.
+pub fn av_reduce(
+    numerator: i64,
+    denominator: i64,
+    max: i32,
+) -> Result<ReducedRational, RationalError> {
+    if max <= 0 {
+        return Err(RationalError::NonPositiveMaximum);
+    }
     let mut reduced_num = 0;
     let mut reduced_den = 0;
     // SAFETY: both out-pointers address distinct live `i32` slots and remain
-    // valid for the call; the remaining arguments are values.
+    // valid for the call; the remaining arguments are values, and a `max` in
+    // `1..=i32::MAX` keeps both results inside the `int` slots C writes.
     let exact = unsafe {
         ffi::av_reduce(
             &raw mut reduced_num,
             &raw mut reduced_den,
             numerator,
             denominator,
-            max,
+            i64::from(max),
         ) != 0
     };
-    ReducedRational {
+    Ok(ReducedRational {
         numerator: reduced_num,
         denominator: reduced_den,
         exact,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -149,16 +164,28 @@ mod tests {
     #[test]
     fn reduces_exactly_and_approximately() {
         assert_eq!(
-            av_reduce(10, 20, 100),
+            av_reduce(10, 20, 100).unwrap(),
             ReducedRational {
                 numerator: 1,
                 denominator: 2,
                 exact: true
             }
         );
-        let approximate = av_reduce(1, 3, 2);
+        let approximate = av_reduce(1, 3, 2).unwrap();
         assert!(!approximate.exact);
         assert!(approximate.numerator.abs() <= 2 && approximate.denominator <= 2);
+    }
+
+    #[test]
+    fn reduction_bound_is_clamped_to_the_int_out_parameters() {
+        assert_eq!(av_reduce(1, 3, 0), Err(RationalError::NonPositiveMaximum));
+        assert_eq!(av_reduce(1, 3, -1), Err(RationalError::NonPositiveMaximum));
+
+        // The widest accepted bound still lands inside the `int` slots.
+        let wide = av_reduce(1 << 40, 1, i32::MAX).unwrap();
+        assert_eq!(wide.denominator, 1);
+        assert_eq!(wide.numerator, i32::MAX);
+        assert!(!wide.exact);
     }
 }
 
@@ -229,24 +256,22 @@ mod scheduled_tests {
     }
 }
 
-fn rational_value(value: AVRationalRef<'_>) -> ffi::AVRational {
-    ffi::AVRational {
-        num: value.num(),
-        den: value.den(),
-    }
-}
-
 /// Wraps: av_add_q
 #[must_use]
 pub fn av_add_q(left: AVRationalRef<'_>, right: AVRationalRef<'_>) -> CVal<AVRational> {
     // SAFETY: both by-value arguments were copied from live rational handles.
-    AVRational::from_ffi(unsafe { ffi::av_add_q(rational_value(left), rational_value(right)) })
+    AVRational::from_ffi(unsafe { ffi::av_add_q(left.copy_ffi(), right.copy_ffi()) })
 }
 
-/// Wraps: av_cmp_q
+/// Replaces: av_cmp_q
 ///
 /// This header-inline operation is evaluated directly with the same widened
 /// arithmetic and special handling for infinities and undefined rationals.
+///
+/// The widened arithmetic cannot overflow, so this stays total for every
+/// `AVRational` pair: an `i32` cross product lies in
+/// `-((1 << 62) - (1 << 31))..=(1 << 62)`, and the widest difference of two
+/// such products is `(1 << 63) - (1 << 31)`, still inside `i64`.
 #[must_use]
 pub fn av_cmp_q(left: AVRationalRef<'_>, right: AVRationalRef<'_>) -> i32 {
     let a_num = left.num();
@@ -265,13 +290,20 @@ pub fn av_cmp_q(left: AVRationalRef<'_>, right: AVRationalRef<'_>) -> i32 {
     }
 }
 
+/// Argument rejected by a fallible rational wrapper.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RationalError {
+    /// A reduction bound was not at least 1.
     NonPositiveMaximum,
+    /// Both operands of [`av_gcd_q`] had a zero denominator, which would make
+    /// C divide by `av_gcd(0, 0) == 0`.
     BothDenominatorsZero,
 }
 
 /// Wraps: av_d2q
+///
+/// `max` bounds the reduction C performs internally, so it is rejected on the
+/// same terms as [`av_reduce`]; the `int` parameter already caps it.
 pub fn av_d2q(value: f64, max: i32) -> Result<CVal<AVRational>, RationalError> {
     if max <= 0 {
         return Err(RationalError::NonPositiveMaximum);
@@ -285,9 +317,7 @@ pub fn av_d2q(value: f64, max: i32) -> Result<CVal<AVRational>, RationalError> {
 #[must_use]
 pub fn av_div_q(dividend: AVRationalRef<'_>, divisor: AVRationalRef<'_>) -> CVal<AVRational> {
     // SAFETY: both by-value arguments were copied from live rational handles.
-    AVRational::from_ffi(unsafe {
-        ffi::av_div_q(rational_value(dividend), rational_value(divisor))
-    })
+    AVRational::from_ffi(unsafe { ffi::av_div_q(dividend.copy_ffi(), divisor.copy_ffi()) })
 }
 
 /// Wraps: av_gcd_q
@@ -304,10 +334,10 @@ pub fn av_gcd_q(
     // one denominator is nonzero, so C's `a.den / gcd` cannot divide by zero.
     Ok(AVRational::from_ffi(unsafe {
         ffi::av_gcd_q(
-            rational_value(left),
-            rational_value(right),
+            left.copy_ffi(),
+            right.copy_ffi(),
             max_denominator,
-            rational_value(default),
+            default.copy_ffi(),
         )
     }))
 }
@@ -334,5 +364,28 @@ mod scheduled_symbol_tests {
         let fallback = AVRational::new(0, 1);
         let gcd = av_gcd_q(half.as_ref(), third.as_ref(), 100, fallback.as_ref()).unwrap();
         assert_eq!((gcd.as_ref().num(), gcd.as_ref().den()), (1, 6));
+    }
+
+    #[test]
+    fn comparison_is_total_over_the_whole_int_range() {
+        // Widest cross-product difference reachable from `i32` fields; the
+        // values match a two's-complement C build of the inline `av_cmp_q`.
+        let a = AVRational::new(i32::MIN, i32::MAX);
+        let b = AVRational::new(i32::MIN, i32::MIN);
+        assert_eq!(av_cmp_q(a.as_ref(), b.as_ref()), -1);
+
+        let c = AVRational::new(i32::MAX, i32::MIN);
+        let d = AVRational::new(i32::MIN, i32::MAX);
+        assert_eq!(av_cmp_q(c.as_ref(), d.as_ref()), 1);
+
+        // `0 / 0` on either side is the documented `INT_MIN` sentinel.
+        let undefined = AVRational::new(0, 0);
+        assert_eq!(av_cmp_q(undefined.as_ref(), undefined.as_ref()), i32::MIN);
+
+        // Two infinities of opposite sign compare by numerator sign alone.
+        let plus_inf = AVRational::new(1, 0);
+        let minus_inf = AVRational::new(-1, 0);
+        assert_eq!(av_cmp_q(plus_inf.as_ref(), minus_inf.as_ref()), 1);
+        assert_eq!(av_cmp_q(minus_inf.as_ref(), plus_inf.as_ref()), -1);
     }
 }
