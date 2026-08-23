@@ -9,12 +9,20 @@ use crate::ffi;
 
 /// Wraps: av_chroma_location_from_name
 ///
-/// Returns the non-negative `AVChromaLocation` value, or libavutil's negative
-/// error code when the name is unknown.
-pub fn av_chroma_location_from_name(name: &CStr) -> Result<i32, i32> {
+/// Returns the named chroma location, or libavutil's negative error code when
+/// the name is unknown. C returns the index into its name table, which is the
+/// `AVChromaLocation` value itself, or `AVERROR(EINVAL)`.
+pub fn av_chroma_location_from_name(name: &CStr) -> Result<crate::pixfmt::AVChromaLocation, i32> {
     // SAFETY: `name` is NUL-terminated and remains live for the read-only call.
     let value = unsafe { ffi::av_chroma_location_from_name(name.as_ptr()) };
-    if value < 0 { Err(value) } else { Ok(value) }
+    if value < 0 {
+        return Err(value);
+    }
+    // The non-negative branch is a name-table index below `AVCHROMA_LOC_NB`,
+    // so the cast to the unsigned ABI representation preserves it.
+    Ok(crate::pixfmt::AVChromaLocation::from_raw(
+        value as ffi::AVChromaLocation,
+    ))
 }
 
 define_ctype!(
@@ -110,7 +118,14 @@ mod tests {
 
     #[test]
     fn recognizes_chroma_locations() {
-        assert!(av_chroma_location_from_name(c"left").is_ok());
+        assert_eq!(
+            av_chroma_location_from_name(c"left"),
+            Ok(crate::pixfmt::AVChromaLocation::LEFT)
+        );
+        assert_eq!(
+            av_chroma_location_from_name(c"bottomleft"),
+            Ok(crate::pixfmt::AVChromaLocation::BOTTOM_LEFT)
+        );
         assert!(av_chroma_location_from_name(c"not-a-location").is_err());
     }
 

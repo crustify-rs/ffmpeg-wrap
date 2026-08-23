@@ -8,6 +8,12 @@ use crate::ffi;
 /// The transparent integer representation preserves values introduced by
 /// newer libavutil versions instead of turning an unfamiliar C value into an
 /// invalid Rust enum discriminant.
+///
+/// `AVCHROMA_LOC_NB` is deliberately not exposed: C documents it as not part
+/// of the ABI, so a Rust constant for it would promise stability libavutil
+/// does not offer. Values at or above it are exactly the ones for which
+/// [`av_chroma_location_name`](crate::pixdesc::av_chroma_location_name)
+/// returns `None`.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AVChromaLocation(ffi::AVChromaLocation);
@@ -839,12 +845,49 @@ mod chroma_location_tests {
             align_of::<AVChromaLocation>(),
             align_of::<ffi::AVChromaLocation>()
         );
-        assert_eq!(
-            AVChromaLocation::BOTTOM_LEFT.as_raw(),
-            ffi::AVChromaLocation_AVCHROMA_LOC_BOTTOMLEFT
-        );
 
         let future = ffi::AVChromaLocation::MAX;
         assert_eq!(AVChromaLocation::from_raw(future).as_raw(), future);
+        assert_eq!(
+            ffi::AVChromaLocation::from(AVChromaLocation::from(future)),
+            future
+        );
+    }
+
+    #[test]
+    fn named_locations_match_the_bindings() {
+        for (named, raw) in [
+            (
+                AVChromaLocation::UNSPECIFIED,
+                ffi::AVChromaLocation_AVCHROMA_LOC_UNSPECIFIED,
+            ),
+            (
+                AVChromaLocation::LEFT,
+                ffi::AVChromaLocation_AVCHROMA_LOC_LEFT,
+            ),
+            (
+                AVChromaLocation::CENTER,
+                ffi::AVChromaLocation_AVCHROMA_LOC_CENTER,
+            ),
+            (
+                AVChromaLocation::TOP_LEFT,
+                ffi::AVChromaLocation_AVCHROMA_LOC_TOPLEFT,
+            ),
+            (
+                AVChromaLocation::TOP,
+                ffi::AVChromaLocation_AVCHROMA_LOC_TOP,
+            ),
+            (
+                AVChromaLocation::BOTTOM_LEFT,
+                ffi::AVChromaLocation_AVCHROMA_LOC_BOTTOMLEFT,
+            ),
+            (
+                AVChromaLocation::BOTTOM,
+                ffi::AVChromaLocation_AVCHROMA_LOC_BOTTOM,
+            ),
+        ] {
+            assert_eq!(named.as_raw(), raw);
+            assert_eq!(AVChromaLocation::from_raw(raw), named);
+        }
     }
 }

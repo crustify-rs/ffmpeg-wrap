@@ -14,6 +14,10 @@ use crate::ffi;
 /// integer representation preserves values introduced by newer libavutil
 /// versions instead of turning an unfamiliar C value into an invalid Rust
 /// enum discriminant.
+///
+/// `FF_CHANNEL_ORDER_NB` is deliberately not exposed: C documents it as a
+/// count that is not part of the ABI or API, so a Rust constant for it would
+/// promise stability libavutil does not offer.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AVChannelOrder(ffi::AVChannelOrder);
@@ -70,13 +74,38 @@ mod tests {
             align_of::<AVChannelOrder>(),
             align_of::<ffi::AVChannelOrder>()
         );
-        assert_eq!(
-            AVChannelOrder::AMBISONIC.as_raw(),
-            ffi::AVChannelOrder_AV_CHANNEL_ORDER_AMBISONIC
-        );
 
         let future = ffi::AVChannelOrder::MAX;
         assert_eq!(AVChannelOrder::from_raw(future).as_raw(), future);
+        assert_eq!(
+            ffi::AVChannelOrder::from(AVChannelOrder::from(future)),
+            future
+        );
+    }
+
+    #[test]
+    fn named_orders_match_the_bindings() {
+        for (named, raw) in [
+            (
+                AVChannelOrder::UNSPECIFIED,
+                ffi::AVChannelOrder_AV_CHANNEL_ORDER_UNSPEC,
+            ),
+            (
+                AVChannelOrder::NATIVE,
+                ffi::AVChannelOrder_AV_CHANNEL_ORDER_NATIVE,
+            ),
+            (
+                AVChannelOrder::CUSTOM,
+                ffi::AVChannelOrder_AV_CHANNEL_ORDER_CUSTOM,
+            ),
+            (
+                AVChannelOrder::AMBISONIC,
+                ffi::AVChannelOrder_AV_CHANNEL_ORDER_AMBISONIC,
+            ),
+        ] {
+            assert_eq!(named.as_raw(), raw);
+            assert_eq!(AVChannelOrder::from_raw(raw), named);
+        }
     }
 }
 /// Wraps: AVChannel
