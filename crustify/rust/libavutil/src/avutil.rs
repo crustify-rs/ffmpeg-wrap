@@ -172,8 +172,30 @@ mod tests {
     fn media_type_named_values_match_the_bindings() {
         assert_eq!(AVMediaType::UNKNOWN.as_raw(), -1);
         assert_eq!(AVMediaType::VIDEO.as_raw(), 0);
+        assert_eq!(AVMediaType::AUDIO.as_raw(), 1);
+        assert_eq!(AVMediaType::DATA.as_raw(), 2);
+        assert_eq!(AVMediaType::SUBTITLE.as_raw(), 3);
         assert_eq!(AVMediaType::ATTACHMENT.as_raw(), 4);
         assert_eq!(AVMediaType::NB.as_raw(), 5);
+    }
+
+    #[test]
+    fn media_type_nb_is_a_sentinel_rather_than_a_media_type() {
+        // `AVMEDIA_TYPE_NB` counts the ordinary values; C's own
+        // `av_get_media_type_string` falls through to its NULL default for it,
+        // exactly as it does for `AVMEDIA_TYPE_UNKNOWN`.
+        assert_eq!(
+            AVMediaType::NB.as_raw(),
+            AVMediaType::ATTACHMENT.as_raw() + 1
+        );
+        assert_eq!(
+            crate::utils::av_get_media_type_string(AVMediaType::NB),
+            None
+        );
+        assert_eq!(
+            crate::utils::av_get_media_type_string(AVMediaType::UNKNOWN),
+            None
+        );
     }
 
     #[test]

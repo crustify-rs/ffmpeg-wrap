@@ -3950,7 +3950,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Borrowed only for the call and not retained."
+      "note": "Borrowed output buffer with a fixed cardinality the signature does not state: the trailing loop performs AV_WL32(dst + 4 * i, ...) for i in 0..4, so av_md5_final writes exactly 16 bytes and reads none. There is no length argument and no short form, so the caller must supply 16 writable bytes; av_md5_sum records the same 16-byte contract for its own dst. Not retained past the call."
      }
     }
    ]

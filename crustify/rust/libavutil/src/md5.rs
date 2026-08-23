@@ -13,11 +13,20 @@ use crate::ffi;
 /// deliberately withholds the layout, so this wrapper cannot be constructed
 /// inline; an allocation is instead owned as [`ffibox::CBox<AVMD5>`]. Its drop
 /// uses [`ffi::av_free`], matching every in-tree owner of an allocated MD5
-/// context.
+/// context: `av_hash_freep`, `av_hmac_free` and `doc/examples/filter_audio.c`
+/// all release theirs with `av_freep`.
 ///
 /// Access is carried by [`AVMD5Ref`] and [`AVMD5Mut`]. They hold a pointer and
 /// a borrow lifetime without ever forming a Rust reference over storage that C
 /// may mutate.
+///
+/// The triple is spelled out rather than emitted by
+/// [`ffibox::define_ctype!`] because the macro also emits `zeroed`, a safe
+/// constructor for a value of the wrapped type. `md5.h` declares only
+/// `struct AVMD5;`, so the binding is an incomplete type and such a value
+/// would be zero bytes wide rather than an MD5 context. Nothing else the macro
+/// emits is needed here: no libavutil entry point takes an MD5 context as
+/// `const` or as `void *`. Keep the surface at what `md5.h` publishes.
 #[repr(transparent)]
 pub struct AVMD5(CType<ffi::AVMD5>);
 
@@ -117,8 +126,63 @@ unsafe impl CDropped for AVMD5 {
     }
 }
 
+/// Wraps: av_md5_alloc
+///
+/// Allocates and initializes an MD5 context, returning `None` when libavutil
+/// cannot allocate. `av_md5_alloc` itself only zero-fills, and zeroed storage
+/// is not the algorithm's initial state; initializing before returning
+/// prevents safe code from observing that intermediate state and hashing
+/// against it.
+#[must_use]
+pub fn av_md5_alloc() -> Option<CBox<AVMD5>> {
+    // SAFETY: a non-null result is a fresh av_malloc-family allocation whose
+    // ownership transfers to the matching AVMD5 destructor.
+    let mut context = unsafe { CBox::<AVMD5>::from_raw(ffi::av_md5_alloc()) }?;
+    av_md5_init(&mut context.as_mut());
+    Some(context)
+}
+
+/// Wraps: av_md5_init
+///
+/// Resets the context to the algorithm's initial state, discarding whatever
+/// was accumulated. [`av_md5_alloc`] already returns an initialized context,
+/// so this is only needed to reuse one after [`av_md5_final`].
+pub fn av_md5_init(context: &mut AVMD5Mut<'_>) {
+    // SAFETY: the exclusive handle identifies writable storage of av_md5_size.
+    unsafe { ffi::av_md5_init(context.as_mut_ptr()) }
+}
+
+/// Wraps: av_md5_update
+///
+/// Absorbs `source` into the running digest. Any number of calls hash the
+/// concatenation of their inputs; an empty slice contributes nothing.
+pub fn av_md5_update(context: &mut AVMD5Mut<'_>, source: &[u8]) {
+    // SAFETY: the exclusive handle is live and `source` provides exactly the
+    // readable byte count passed to C; the input is not retained.
+    unsafe { ffi::av_md5_update(context.as_mut_ptr(), source.as_ptr(), source.len()) }
+}
+
+/// Wraps: av_md5_final
+///
+/// Pads the accumulated message and returns the 16-byte digest. C writes the
+/// digest through a caller-supplied pointer with no length argument, always
+/// exactly sixteen bytes; returning an array states that cardinality in the
+/// type instead.
+///
+/// This consumes the accumulated state: `context` is left holding the padded
+/// message, not a fresh one, so reuse requires [`av_md5_init`] first.
+#[must_use]
+pub fn av_md5_final(context: &mut AVMD5Mut<'_>) -> [u8; 16] {
+    let mut digest = [0_u8; 16];
+    // SAFETY: the exclusive handle identifies a live context and `digest`
+    // supplies the required sixteen writable bytes; C retains neither.
+    unsafe { ffi::av_md5_final(context.as_mut_ptr(), digest.as_mut_ptr()) };
+    digest
+}
+
 /// Wraps: av_md5_sum
 ///
+/// Hashes `source` in one call, using a context C keeps on its own stack.
 /// Computes the digest without exposing the C output pointer.
 #[must_use]
 pub fn av_md5_sum(source: &[u8]) -> [u8; 16] {
@@ -131,17 +195,29 @@ pub fn av_md5_sum(source: &[u8]) -> [u8; 16] {
 
 #[cfg(test)]
 mod tests {
-    use ffibox::CBox;
-
     use super::*;
+
+    /// RFC 1321 test vector: the digest of the empty message.
+    const EMPTY_DIGEST: [u8; 16] = [
+        0xd4, 0x1d, 0x8c, 0xd9, 0x8f, 0x00, 0xb2, 0x04, 0xe9, 0x80, 0x09, 0x98, 0xec, 0xf8, 0x42,
+        0x7e,
+    ];
+
+    /// RFC 1321 test vector: the digest of `"abc"`.
+    const ABC_DIGEST: [u8; 16] = [
+        0x90, 0x01, 0x50, 0x98, 0x3c, 0xd2, 0x4f, 0xb0, 0xd6, 0x96, 0x3f, 0x7d, 0x28, 0xe1, 0x7f,
+        0x72,
+    ];
+
+    #[test]
+    fn hashes_known_inputs() {
+        assert_eq!(av_md5_sum(b""), EMPTY_DIGEST);
+        assert_eq!(av_md5_sum(b"abc"), ABC_DIGEST);
+    }
 
     #[test]
     fn allocated_context_supports_shared_and_exclusive_borrows() {
-        // SAFETY: `av_md5_alloc` returns null or a fresh initialized allocation
-        // whose unique ownership transfers to the CBox; AVMD5's drop matches
-        // its allocator.
-        let mut context = unsafe { CBox::<AVMD5>::from_raw(ffi::av_md5_alloc()) }
-            .expect("allocate AVMD5 context");
+        let mut context = av_md5_alloc().expect("allocate AVMD5 context");
         let ptr = context.as_ptr();
 
         assert_eq!(context.as_ref().as_ptr().cast_mut(), ptr);
@@ -155,62 +231,49 @@ mod tests {
     }
 
     #[test]
-    fn hashes_known_input() {
-        assert_eq!(
-            av_md5_sum(b"abc"),
-            [
-                0x90, 0x01, 0x50, 0x98, 0x3c, 0xd2, 0x4f, 0xb0, 0xd6, 0x96, 0x3f, 0x7d, 0x28, 0xe1,
-                0x7f, 0x72
-            ]
-        );
+    fn allocated_context_is_already_initialized() {
+        // `ffi::av_md5_alloc` only zero-fills; finalizing straight away would
+        // not produce the empty-message digest unless the wrapper initialized.
+        let mut context = av_md5_alloc().expect("allocate AVMD5 context");
+        assert_eq!(av_md5_final(&mut context.as_mut()), EMPTY_DIGEST);
     }
-}
-
-/// Wraps: av_md5_alloc
-///
-/// Allocates and initializes an MD5 context. Initializing before returning
-/// prevents safe code from observing libavutil's merely zero-filled state.
-#[must_use]
-pub fn av_md5_alloc() -> Option<CBox<AVMD5>> {
-    // SAFETY: a non-null result is a fresh av_malloc-family allocation whose
-    // ownership transfers to the matching AVMD5 destructor.
-    let mut context = unsafe { CBox::<AVMD5>::from_raw(ffi::av_md5_alloc()) }?;
-    av_md5_init(&mut context.as_mut());
-    Some(context)
-}
-
-/// Wraps: av_md5_final
-#[must_use]
-pub fn av_md5_final(context: &mut AVMD5Mut<'_>) -> [u8; 16] {
-    let mut digest = [0_u8; 16];
-    // SAFETY: the exclusive handle identifies a live context and `digest`
-    // supplies the required sixteen writable bytes; C retains neither.
-    unsafe { ffi::av_md5_final(context.as_mut_ptr(), digest.as_mut_ptr()) };
-    digest
-}
-
-/// Wraps: av_md5_init
-pub fn av_md5_init(context: &mut AVMD5Mut<'_>) {
-    // SAFETY: the exclusive handle identifies writable storage of av_md5_size.
-    unsafe { ffi::av_md5_init(context.as_mut_ptr()) }
-}
-
-/// Wraps: av_md5_update
-pub fn av_md5_update(context: &mut AVMD5Mut<'_>, source: &[u8]) {
-    // SAFETY: the exclusive handle is live and `source` provides exactly the
-    // readable byte count passed to C; the input is not retained.
-    unsafe { ffi::av_md5_update(context.as_mut_ptr(), source.as_ptr(), source.len()) }
-}
-
-#[cfg(test)]
-mod scheduled_tests {
-    use super::*;
 
     #[test]
     fn incremental_hash_matches_one_shot_hash() {
         let mut context = av_md5_alloc().unwrap();
         av_md5_update(&mut context.as_mut(), b"a");
         av_md5_update(&mut context.as_mut(), b"bc");
-        assert_eq!(av_md5_final(&mut context.as_mut()), av_md5_sum(b"abc"));
+        assert_eq!(av_md5_final(&mut context.as_mut()), ABC_DIGEST);
+    }
+
+    #[test]
+    fn empty_updates_contribute_nothing() {
+        let mut context = av_md5_alloc().unwrap();
+        av_md5_update(&mut context.as_mut(), b"");
+        av_md5_update(&mut context.as_mut(), b"abc");
+        av_md5_update(&mut context.as_mut(), &[]);
+        assert_eq!(av_md5_final(&mut context.as_mut()), ABC_DIGEST);
+    }
+
+    #[test]
+    fn reinitializing_restarts_the_digest() {
+        let mut context = av_md5_alloc().unwrap();
+        av_md5_update(&mut context.as_mut(), b"discarded");
+        assert_ne!(av_md5_final(&mut context.as_mut()), ABC_DIGEST);
+
+        av_md5_init(&mut context.as_mut());
+        av_md5_update(&mut context.as_mut(), b"abc");
+        assert_eq!(av_md5_final(&mut context.as_mut()), ABC_DIGEST);
+    }
+
+    #[test]
+    fn hashes_inputs_spanning_several_blocks() {
+        // Exercises the 64-byte block loop and a partial trailing block.
+        let source = [0x5a_u8; 200];
+        let mut context = av_md5_alloc().unwrap();
+        for chunk in source.chunks(7) {
+            av_md5_update(&mut context.as_mut(), chunk);
+        }
+        assert_eq!(av_md5_final(&mut context.as_mut()), av_md5_sum(&source));
     }
 }
