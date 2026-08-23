@@ -4,7 +4,7 @@ use core::ffi::{c_char, c_void};
 use core::marker::PhantomData;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::{CSlice, CSliceMut, CValued, define_ctype};
+use ffibox::{CSlice, CSliceMut, CVal, CValued, define_ctype};
 
 use crate::ffi;
 
@@ -697,5 +697,300 @@ mod channel_layout_type_tests {
         assert_eq!(layout.as_ref().order(), AVChannelOrder::UNSPECIFIED);
         assert_eq!(layout.as_ref().nb_channels(), 0);
         drop(layout);
+    }
+}
+
+/// Wraps: av_channel_layout_channel_from_index
+#[must_use]
+pub fn av_channel_layout_channel_from_index(
+    layout: AVChannelLayoutRef<'_>,
+    index: usize,
+) -> Option<AVChannel> {
+    let index = u32::try_from(index).ok()?;
+    // SAFETY: `layout` carries a shared borrow of one initialized layout and C
+    // only reads it for the duration of the call.
+    let channel = AVChannel::from_raw(unsafe {
+        ffi::av_channel_layout_channel_from_index(layout.as_ptr(), index)
+    });
+    (channel != AVChannel::NONE).then_some(channel)
+}
+
+/// Wraps: av_channel_layout_channel_from_string
+#[must_use]
+pub fn av_channel_layout_channel_from_string(
+    layout: AVChannelLayoutRef<'_>,
+    name: &CStr,
+) -> Option<AVChannel> {
+    // SAFETY: the layout is shared for the call and `name` is a live,
+    // NUL-terminated string which C does not retain.
+    let channel = AVChannel::from_raw(unsafe {
+        ffi::av_channel_layout_channel_from_string(layout.as_ptr(), name.as_ptr())
+    });
+    (channel != AVChannel::NONE).then_some(channel)
+}
+
+/// Wraps: av_channel_layout_check
+#[must_use]
+pub fn av_channel_layout_check(layout: AVChannelLayoutRef<'_>) -> bool {
+    // SAFETY: the handle carries a shared borrow of an initialized layout for
+    // the read-only duration of the call.
+    unsafe { ffi::av_channel_layout_check(layout.as_ptr()) != 0 }
+}
+
+/// Wraps: av_channel_layout_compare
+///
+/// Returns `Ok(true)` when the layouts are semantically equal.
+pub fn av_channel_layout_compare(
+    first: AVChannelLayoutRef<'_>,
+    second: AVChannelLayoutRef<'_>,
+) -> Result<bool, i32> {
+    // SAFETY: both handles carry shared borrows of initialized layouts and C
+    // retains neither pointer.
+    let status = unsafe { ffi::av_channel_layout_compare(first.as_ptr(), second.as_ptr()) };
+    if status < 0 {
+        Err(status)
+    } else {
+        Ok(status == 0)
+    }
+}
+
+/// Wraps: av_channel_layout_copy
+///
+/// Makes an independently disposable deep copy of `source`.
+pub fn av_channel_layout_copy(
+    source: AVChannelLayoutRef<'_>,
+) -> Result<CVal<AVChannelLayout>, i32> {
+    let mut destination = CVal::new(AVChannelLayout::zeroed());
+    // SAFETY: `destination` is an initialized, exclusively borrowed zero
+    // layout suitable for replacement, while `source` is shared and live. C
+    // retains neither address and leaves the destination disposable on error.
+    let status =
+        unsafe { ffi::av_channel_layout_copy(destination.as_mut().as_mut_ptr(), source.as_ptr()) };
+    if status < 0 {
+        Err(status)
+    } else {
+        Ok(destination)
+    }
+}
+
+/// Wraps: av_channel_layout_default
+#[must_use]
+pub fn av_channel_layout_default(channel_count: i32) -> CVal<AVChannelLayout> {
+    let mut layout = CVal::new(AVChannelLayout::zeroed());
+    // SAFETY: the exclusive handle addresses a zero-initialized result slot;
+    // C initializes it without retaining the pointer.
+    unsafe { ffi::av_channel_layout_default(layout.as_mut().as_mut_ptr(), channel_count) }
+    layout
+}
+
+/// Wraps: av_channel_layout_describe
+pub fn av_channel_layout_describe<'a>(
+    layout: AVChannelLayoutRef<'_>,
+    buffer: &'a mut [u8],
+) -> Result<ChannelText<'a>, i32> {
+    let pointer = if buffer.is_empty() {
+        core::ptr::null_mut()
+    } else {
+        buffer.as_mut_ptr().cast::<c_char>()
+    };
+    // SAFETY: `layout` is shared and live, and `pointer` is either null for a
+    // zero capacity or addresses exactly `buffer.len()` writable bytes. C
+    // retains neither pointer.
+    let status = unsafe { ffi::av_channel_layout_describe(layout.as_ptr(), pointer, buffer.len()) };
+    if status < 0 {
+        return Err(status);
+    }
+    Ok(ChannelText {
+        required: status as usize,
+        text: CStr::from_bytes_until_nul(buffer).ok(),
+    })
+}
+
+/// Wraps: av_channel_layout_from_mask
+pub fn av_channel_layout_from_mask(mask: u64) -> Result<CVal<AVChannelLayout>, i32> {
+    let mut layout = CVal::new(AVChannelLayout::zeroed());
+    // SAFETY: the exclusive handle addresses a zero-initialized result slot
+    // which remains safely disposable on every return path.
+    let status = unsafe { ffi::av_channel_layout_from_mask(layout.as_mut().as_mut_ptr(), mask) };
+    if status < 0 { Err(status) } else { Ok(layout) }
+}
+
+/// Wraps: av_channel_layout_from_string
+pub fn av_channel_layout_from_string(description: &CStr) -> Result<CVal<AVChannelLayout>, i32> {
+    let mut layout = CVal::new(AVChannelLayout::zeroed());
+    // SAFETY: the destination is a zero-initialized exclusive result slot and
+    // `description` is NUL-terminated and live for the call. C retains neither
+    // pointer and leaves the destination safely disposable after failure.
+    let status = unsafe {
+        ffi::av_channel_layout_from_string(layout.as_mut().as_mut_ptr(), description.as_ptr())
+    };
+    if status < 0 { Err(status) } else { Ok(layout) }
+}
+
+/// Wraps: av_channel_layout_index_from_channel
+pub fn av_channel_layout_index_from_channel(
+    layout: AVChannelLayoutRef<'_>,
+    channel: AVChannel,
+) -> Result<usize, i32> {
+    // SAFETY: `layout` is shared and live for this read-only call.
+    let index =
+        unsafe { ffi::av_channel_layout_index_from_channel(layout.as_ptr(), channel.as_raw()) };
+    if index < 0 {
+        Err(index)
+    } else {
+        Ok(index as usize)
+    }
+}
+
+/// Wraps: av_channel_layout_index_from_string
+pub fn av_channel_layout_index_from_string(
+    layout: AVChannelLayoutRef<'_>,
+    name: &CStr,
+) -> Result<usize, i32> {
+    // SAFETY: `layout` is shared and `name` is a live NUL-terminated string;
+    // C reads both only during the call.
+    let index = unsafe { ffi::av_channel_layout_index_from_string(layout.as_ptr(), name.as_ptr()) };
+    if index < 0 {
+        Err(index)
+    } else {
+        Ok(index as usize)
+    }
+}
+
+/// Flags controlling [`av_channel_layout_retype`].
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct AVChannelLayoutRetypeFlags(i32);
+
+impl AVChannelLayoutRetypeFlags {
+    pub const LOSSLESS: Self = Self(ffi::AV_CHANNEL_LAYOUT_RETYPE_FLAG_LOSSLESS as i32);
+    pub const CANONICAL: Self = Self(ffi::AV_CHANNEL_LAYOUT_RETYPE_FLAG_CANONICAL as i32);
+}
+
+impl core::ops::BitOr for AVChannelLayoutRetypeFlags {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
+/// Wraps: av_channel_layout_retype
+///
+/// Returns whether the successful conversion was lossy.
+pub fn av_channel_layout_retype(
+    layout: &mut AVChannelLayoutMut<'_>,
+    order: AVChannelOrder,
+    flags: AVChannelLayoutRetypeFlags,
+) -> Result<bool, i32> {
+    // SAFETY: the exclusive handle permits in-place conversion of the live
+    // layout. C retains no pointer and documents that errors leave it intact.
+    let status =
+        unsafe { ffi::av_channel_layout_retype(layout.as_mut_ptr(), order.as_raw(), flags.0) };
+    if status < 0 {
+        Err(status)
+    } else {
+        Ok(status > 0)
+    }
+}
+
+/// Iterator returned by [`av_channel_layout_standard`].
+pub struct AVChannelLayoutStandards {
+    state: *mut c_void,
+}
+
+impl Iterator for AVChannelLayoutStandards {
+    type Item = AVChannelLayoutRef<'static>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // SAFETY: `state` is the private iterator token last written by this C
+        // function (or null initially). The returned table entry has static,
+        // immutable storage and is converted only to a shared handle.
+        let layout = unsafe { ffi::av_channel_layout_standard(addr_of_mut!(self.state)) };
+        // SAFETY: a non-null result refers to libavutil's immutable
+        // process-lifetime standard-layout table.
+        unsafe { AVChannelLayoutRef::from_ptr(layout.cast_mut()) }
+    }
+}
+
+/// Wraps: av_channel_layout_standard
+#[must_use]
+pub fn av_channel_layout_standard() -> AVChannelLayoutStandards {
+    AVChannelLayoutStandards {
+        state: core::ptr::null_mut(),
+    }
+}
+
+/// Wraps: av_channel_layout_subset
+#[must_use]
+pub fn av_channel_layout_subset(layout: AVChannelLayoutRef<'_>, mask: u64) -> u64 {
+    // SAFETY: `layout` is shared and live for the read-only call.
+    unsafe { ffi::av_channel_layout_subset(layout.as_ptr(), mask) }
+}
+
+/// Wraps: av_channel_layout_uninit
+///
+/// Consumes and disposes an owned by-value layout immediately. Dropping the
+/// owner directly has the same effect.
+pub fn av_channel_layout_uninit(layout: CVal<AVChannelLayout>) {
+    drop(layout);
+}
+
+#[cfg(test)]
+mod channel_layout_symbol_tests {
+    use super::*;
+
+    #[test]
+    fn constructors_queries_copy_and_description_are_typed() {
+        let stereo = av_channel_layout_from_string(c"stereo").unwrap();
+        assert!(av_channel_layout_check(stereo.as_ref()));
+        assert_eq!(
+            av_channel_layout_channel_from_index(stereo.as_ref(), 0),
+            Some(AVChannel::FRONT_LEFT)
+        );
+        assert_eq!(
+            av_channel_layout_index_from_channel(stereo.as_ref(), AVChannel::FRONT_RIGHT),
+            Ok(1)
+        );
+        assert_eq!(
+            av_channel_layout_channel_from_string(stereo.as_ref(), c"FR"),
+            Some(AVChannel::FRONT_RIGHT)
+        );
+        assert_eq!(
+            av_channel_layout_index_from_string(stereo.as_ref(), c"FL"),
+            Ok(0)
+        );
+
+        let copy = av_channel_layout_copy(stereo.as_ref()).unwrap();
+        assert_eq!(
+            av_channel_layout_compare(stereo.as_ref(), copy.as_ref()),
+            Ok(true)
+        );
+        let mut text = [0_u8; 32];
+        let described = av_channel_layout_describe(copy.as_ref(), &mut text).unwrap();
+        assert_eq!(described.text, Some(c"stereo"));
+        assert_eq!(av_channel_layout_subset(copy.as_ref(), 3), 3);
+        av_channel_layout_uninit(copy);
+    }
+
+    #[test]
+    fn mutation_and_standard_iteration_preserve_safe_borrows() {
+        let mut layout = av_channel_layout_default(2);
+        assert_eq!(layout.as_ref().order(), AVChannelOrder::NATIVE);
+        let lossy = av_channel_layout_retype(
+            &mut layout.as_mut(),
+            AVChannelOrder::CUSTOM,
+            AVChannelLayoutRetypeFlags::LOSSLESS,
+        )
+        .unwrap();
+        assert!(!lossy);
+        assert_eq!(layout.as_ref().order(), AVChannelOrder::CUSTOM);
+
+        let first = av_channel_layout_standard().next().unwrap();
+        assert!(av_channel_layout_check(first));
+        assert!(first.nb_channels() > 0);
+
+        assert!(av_channel_layout_from_mask(0).is_err());
+        assert!(av_channel_layout_channel_from_index(layout.as_ref(), usize::MAX).is_none());
     }
 }

@@ -1111,6 +1111,132 @@
    ]
   },
   {
+   "name": "av_channel_layout_channel_from_index",
+   "defined_in": "libavutil/channel_layout.c",
+   "ptr_args": [
+    {
+     "name": "channel_layout",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:channel_layout"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_channel_layout_channel_from_string",
+   "defined_in": "libavutil/channel_layout.c",
+   "ptr_args": [
+    {
+     "name": "channel_layout",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:channel_layout"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+     }
+    },
+    {
+     "name": "str",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:str"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required NUL-terminated string read only during the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_channel_layout_check",
+   "defined_in": "libavutil/channel_layout.c",
+   "ptr_args": [
+    {
+     "name": "channel_layout",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:channel_layout"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_channel_layout_compare",
+   "defined_in": "libavutil/channel_layout.c",
+   "ptr_args": [
+    {
+     "name": "chl",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:chl"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+     }
+    },
+    {
+     "name": "chl1",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:chl1"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_channel_layout_copy",
    "defined_in": "libavutil/channel_layout.c",
    "lifetime": {
@@ -1155,6 +1281,285 @@
       "nullable": false,
       "mutable": false,
       "note": "Transient shared source borrow; a CUSTOM map is deep-copied while the application opaque pointer is copied by address."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_channel_layout_default",
+   "defined_in": "libavutil/channel_layout.c",
+   "ptr_args": [
+    {
+     "name": "ch_layout",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ch_layout"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Exclusive borrow of an uninitialized channel-layout result slot initialized in place; not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_channel_layout_describe",
+   "defined_in": "libavutil/channel_layout.c",
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Caller-owned output buffer of buf_size bytes; C writes a truncated NUL-terminated description when capacity permits and does not retain it."
+     }
+    },
+    {
+     "name": "channel_layout",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:channel_layout"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_channel_layout_from_mask",
+   "defined_in": "libavutil/channel_layout.c",
+   "ptr_args": [
+    {
+     "name": "channel_layout",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:channel_layout"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Exclusive borrow of an uninitialized channel-layout result slot initialized in place; not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_channel_layout_from_string",
+   "defined_in": "libavutil/channel_layout.c",
+   "ptr_args": [
+    {
+     "name": "channel_layout",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:channel_layout"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Exclusive borrow of an uninitialized channel-layout result slot; it is initialized on success and remains safely disposable after failure."
+     }
+    },
+    {
+     "name": "str",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:str"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required NUL-terminated string read only during the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_channel_layout_index_from_channel",
+   "defined_in": "libavutil/channel_layout.c",
+   "ptr_args": [
+    {
+     "name": "channel_layout",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:channel_layout"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_channel_layout_index_from_string",
+   "defined_in": "libavutil/channel_layout.c",
+   "ptr_args": [
+    {
+     "name": "channel_layout",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:channel_layout"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+     }
+    },
+    {
+     "name": "str",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:str"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required NUL-terminated string read only during the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_channel_layout_retype",
+   "defined_in": "libavutil/channel_layout.c",
+   "ptr_args": [
+    {
+     "name": "channel_layout",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:channel_layout"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Exclusive borrow of an initialized channel layout mutated in place on successful conversion and left untouched on error; not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_channel_layout_standard",
+   "defined_in": "libavutil/channel_layout.c",
+   "ptr_args": [
+    {
+     "name": "opaque",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": false,
+        "borrowed": {
+         "lifetime": "arg:opaque"
+        }
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:opaque"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Required mutable iterator-state slot. Its nullable inner void pointer is an opaque integer-like token written by libavutil and never dereferenced by the caller."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "static"
+     },
+     "nullable": true,
+     "mutable": false,
+     "note": "Nullable shared pointer to immutable process-lifetime standard-layout table storage."
+    }
+   }
+  },
+  {
+   "name": "av_channel_layout_subset",
+   "defined_in": "libavutil/channel_layout.c",
+   "ptr_args": [
+    {
+     "name": "channel_layout",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:channel_layout"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
      }
     }
    ]
@@ -3297,6 +3702,63 @@
       "nullable": false,
       "mutable": false,
       "note": "Input byte array of len bytes copied into a fresh allocation; not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_set_chlayout",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "channel_layout",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:channel_layout"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+     }
+    },
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required NUL-terminated string read only during the call and not retained."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Exclusive borrow of a type-erased AVClass-bearing option object; selected option storage may be replaced but the object is not retained."
      }
     }
    ]

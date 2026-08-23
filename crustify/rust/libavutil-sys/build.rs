@@ -40,7 +40,11 @@ fn main() {
         .allowlist_type(
             "^(AVBuffer|AVBufferRef|AVChannel|AVChannelCustom|AVChannelLayout|AVFrameSideData)$",
         )
-        .allowlist_function("^av_channel_layout_uninit$")
+        .allowlist_function(
+            "^av_channel_layout_(channel_from_(index|string)|check|compare|copy|default|describe|from_(mask|string)|index_from_(channel|string)|retype|standard|subset|uninit)$",
+        )
+        .allowlist_function("^av_opt_set_chlayout$")
+        .allowlist_var("^AV_CHANNEL_LAYOUT_RETYPE_FLAG_(LOSSLESS|CANONICAL)$")
         .allowlist_function(
             "^av_buffer_(alloc|allocz|get_ref_count|is_writable|make_writable|realloc|ref|unref)$",
         )

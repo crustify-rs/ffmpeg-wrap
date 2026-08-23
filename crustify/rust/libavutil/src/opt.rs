@@ -6,6 +6,7 @@ use core::ptr::{NonNull, addr_of, addr_of_mut};
 
 use ffibox::CBox;
 
+use crate::channel_layout::AVChannelLayoutRef;
 use crate::dict::AVDictionary;
 use crate::ffi;
 use crate::pixfmt::AVPixelFormat;
@@ -994,4 +995,24 @@ mod scheduled_find_tests {
             Err(OptFindError::FakeObjectSearch)
         ));
     }
+}
+
+/// Wraps: av_opt_set_chlayout
+pub fn av_opt_set_chlayout(
+    object: &mut OptionObjectMut<'_>,
+    name: &CStr,
+    layout: AVChannelLayoutRef<'_>,
+    search_flags: i32,
+) -> Result<(), OptSetError> {
+    // SAFETY: the object is exclusively borrowed, the layout is shared, and
+    // `name` is NUL-terminated. C retains none of the pointers and deep-copies
+    // the layout into the selected option storage.
+    result(unsafe {
+        ffi::av_opt_set_chlayout(
+            object.as_mut_ptr(),
+            name.as_ptr(),
+            layout.as_ptr(),
+            search_flags,
+        )
+    })
 }
