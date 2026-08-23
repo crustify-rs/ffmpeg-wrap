@@ -408,6 +408,70 @@ mod tests {
             future
         );
     }
+
+    #[test]
+    fn color_space_identifiers_are_the_ones_libavutil_resolves() {
+        use crate::pixdesc::av_color_space_name;
+
+        assert_eq!(av_color_space_name(AVColorSpace::RGB), Some(c"gbr"));
+        assert_eq!(av_color_space_name(AVColorSpace::BT709), Some(c"bt709"));
+        assert_eq!(
+            av_color_space_name(AVColorSpace::CHROMA_DERIVED_CL),
+            Some(c"chroma-derived-c")
+        );
+        assert_eq!(
+            av_color_space_name(AVColorSpace::YCGCO_RO),
+            Some(c"ycgco-ro")
+        );
+        // `YCOCG` is an alternate spelling of `YCGCO`, not a separate value.
+        assert_eq!(av_color_space_name(AVColorSpace::YCOCG), Some(c"ycgco"));
+
+        // `NB` is a count, so libavutil names it no more than it names a
+        // reserved or future identifier.
+        assert_eq!(av_color_space_name(AVColorSpace::NB), None);
+        assert_eq!(
+            av_color_space_name(AVColorSpace::from_raw(ffi::AVColorSpace::MAX)),
+            None
+        );
+    }
+
+    #[test]
+    fn transfer_characteristic_identifiers_are_the_ones_libavutil_resolves() {
+        use crate::pixdesc::av_color_transfer_name;
+
+        assert_eq!(
+            av_color_transfer_name(AVColorTransferCharacteristic::BT709),
+            Some(c"bt709")
+        );
+        assert_eq!(
+            av_color_transfer_name(AVColorTransferCharacteristic::IEC61966_2_1),
+            Some(c"iec61966-2-1")
+        );
+        assert_eq!(
+            av_color_transfer_name(AVColorTransferCharacteristic::ARIB_STD_B67),
+            Some(c"arib-std-b67")
+        );
+        // The custom extensions sit far above the standard identifiers, so the
+        // constant carries the offset rather than a table index.
+        assert_eq!(
+            av_color_transfer_name(AVColorTransferCharacteristic::V_LOG),
+            Some(c"vlog")
+        );
+
+        // Both sentinels bound a range rather than naming a value, and the gap
+        // between them holds identifiers libavutil does not name either.
+        assert_eq!(
+            av_color_transfer_name(AVColorTransferCharacteristic::NB),
+            None
+        );
+        assert_eq!(
+            av_color_transfer_name(AVColorTransferCharacteristic::EXT_NB),
+            None
+        );
+        let between = AVColorTransferCharacteristic::from_raw(100);
+        assert_eq!(av_color_transfer_name(between), None);
+        assert_eq!(between.as_raw(), 100);
+    }
 }
 
 /// Wraps: AVPixelFormat
