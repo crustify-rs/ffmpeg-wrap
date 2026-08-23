@@ -4,9 +4,11 @@ fn main() {
     println!("cargo:rerun-if-changed=wrapper.h");
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
-        .allowlist_item("^__crustify_allow_nothing__$")
+        .use_core()
+        .allowlist_function("^(free|malloc|mmap|munmap)$")
+        .allowlist_var("^(MAP_ANONYMOUS|MAP_PRIVATE|PROT_READ|PROT_WRITE)$")
         .generate()
-        .expect("generate empty libc bindings");
+        .expect("generate libc bindings");
     bindings
         .write_to_file(PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("bindings.rs"))
         .expect("write libc bindings");

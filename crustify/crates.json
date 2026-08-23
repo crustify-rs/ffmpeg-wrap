@@ -6,7 +6,24 @@
       "crate_path": "crustify/rust/libavutil",
       "sys_crate": "crustify/rust/libavutil-sys",
       "depends_on": ["libm", "libatomic", "libpthread", "libc"],
-      "modules": {}
+      "modules": {
+        "mem": {
+          "rust_path": "src",
+          "rs": {
+            "src/mem.rs": {
+              "tu": "libavutil/mem.c",
+              "headers": ["libavutil/mem.h"],
+              "members": {
+                "functions": ["av_free", "av_memdup"],
+                "globals": [],
+                "types": [],
+                "callbacks": [],
+                "macros": []
+              }
+            }
+          }
+        }
+      }
     },
     "libm": {
       "kind": "library",
@@ -38,7 +55,40 @@
       "crate_path": "crustify/rust/libc",
       "sys_crate": "crustify/rust/libc-sys",
       "depends_on": [],
-      "modules": {}
+      "modules": {
+        "stdlib": {
+          "rust_path": "src",
+          "rs": {
+            "src/stdlib.rs": {
+              "tu": null,
+              "headers": ["/usr/include/malloc.h", "/usr/include/stdlib.h"],
+              "members": {
+                "functions": ["free"],
+                "globals": [],
+                "types": [],
+                "callbacks": [],
+                "macros": []
+              }
+            }
+          }
+        },
+        "mman": {
+          "rust_path": "src",
+          "rs": {
+            "src/mman.rs": {
+              "tu": null,
+              "headers": ["/usr/include/x86_64-linux-gnu/sys/mman.h"],
+              "members": {
+                "functions": ["munmap"],
+                "globals": [],
+                "types": [],
+                "callbacks": [],
+                "macros": []
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

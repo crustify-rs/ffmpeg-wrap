@@ -1,0 +1,167 @@
+{
+ "_comment": "Authored analysis: ownership, lifecycle, refcount and locking judgements that no composer can derive, keyed to the C entities they describe. The structural half of each record (field layout, signatures, footprints, casts) is composed from the CodeQL tables on demand and merged in at read time, so a re-extract rewrites nothing here. Written only by `crustify-oracle <target> query {types,symbols} --update`; read through crustify.manifests. Hand-edit at your own risk: `--update` validates a submission against the composed skeleton (unknown field, wrong kind, ptr-invariant violation) and this file does not.",
+ "types": [],
+ "symbols": [
+  {
+   "name": "av_free",
+   "defined_in": "libavutil/mem.c",
+   "lifetime": {
+    "for": "ptr",
+    "is_dropper": true,
+    "is_disposer": false,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "ptr",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": {
+       "by_val": true
+      },
+      "string": true,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": false,
+      "note": "av_free consumes an av_malloc-family allocation of any byte-level shape, including allocations used as strings; NULL is explicitly accepted."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_freep",
+   "defined_in": "libavutil/mem.c",
+   "ptr_args": [
+    {
+     "name": "arg",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:arg"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "arg is a borrowed pointer slot; av_freep moves out and frees its owned inner allocation, then writes NULL to the slot. It is not a disposer of an object's fields and has no direct ffibox lifecycle-strategy shape."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_memdup",
+   "defined_in": "libavutil/mem.c",
+   "lifetime": {
+    "for": "p",
+    "is_dropper": false,
+    "is_disposer": false,
+    "is_cloner": {
+     "deep": true,
+     "upref": false
+    }
+   },
+   "ptr_args": [
+    {
+     "name": "p",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": {
+       "by_val": true
+      },
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:p"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "av_memdup transiently reads size bytes from p; call sites use it for singleton data, counted buffers, and a terminated AVBPrint string. NULL yields NULL."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": {
+      "by_val": true
+     },
+     "string": true,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns a fresh av_malloc allocation containing the requested byte copy, or NULL for a NULL source or allocation failure."
+    }
+   }
+  },
+  {
+   "name": "free",
+   "defined_in": null,
+   "lifetime": {
+    "for": "__ptr",
+    "is_dropper": true,
+    "is_disposer": false,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "__ptr",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": {
+       "by_val": true
+      },
+      "string": true,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": false,
+      "note": "free consumes a malloc-family allocation; the allocation may hold a singleton, a counted byte/element buffer, or a NUL-terminated string, and NULL is accepted."
+     }
+    }
+   ]
+  },
+  {
+   "name": "munmap",
+   "defined_in": null,
+   "lifetime": {
+    "for": "__addr",
+    "is_dropper": true,
+    "is_disposer": false,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "__addr",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": false,
+      "mutable": false,
+      "note": "munmap consumes a non-null mapped byte range; its separate size argument supplies the allocation extent."
+     }
+    }
+   ]
+  }
+ ]
+}

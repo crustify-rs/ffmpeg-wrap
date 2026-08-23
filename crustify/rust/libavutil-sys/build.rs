@@ -12,9 +12,10 @@ fn main() {
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
         .clang_arg(format!("-I{}", repo.display()))
-        .allowlist_item("^__crustify_allow_nothing__$")
+        .use_core()
+        .allowlist_function("^av_(free|malloc|memdup)$")
         .generate()
-        .expect("generate empty libavutil bindings");
+        .expect("generate libavutil bindings");
     bindings
         .write_to_file(PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("bindings.rs"))
         .expect("write libavutil bindings");
