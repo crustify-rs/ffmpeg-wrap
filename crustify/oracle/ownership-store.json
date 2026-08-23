@@ -185,6 +185,43 @@
      }
     }
    ]
+  },
+  {
+   "name": "AVPixFmtDescriptor",
+   "defined_in": "libavutil/pixdesc.h",
+   "_comment_agent": "AVPixFmtDescriptor has no allocator, releaser, disposer, or cloner. Libavutil's published descriptors live in a process-lifetime static const table; its two pointer fields borrow optional immutable static strings.",
+   "fields": [
+    {
+     "name": "alias",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional comma-separated aliases in the built-in descriptor table are NUL-terminated string literals. Most entries leave the field NULL; get_pix_fmt_internal only reads a non-NULL alias via av_match_name, and no path frees or writes through it."
+     }
+    },
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "The built-in descriptor table stores NUL-terminated string literals and never frees or mutates them. Some configured-out or unused table entries have a NULL name, and av_pix_fmt_desc_next explicitly tests name before returning an entry. Consumers only read the string through formatting, strcmp, or av_match_name."
+     }
+    }
+   ]
   }
  ],
  "symbols": [

@@ -1,9 +1,9 @@
 //! Wrappers for libavutil pixel format descriptors.
 
 use core::ffi::CStr;
-use core::ptr::{addr_of, addr_of_mut};
+use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::define_ctype;
+use ffibox::{CSlice, CSliceMut, define_ctype};
 
 use crate::ffi;
 
@@ -148,5 +148,244 @@ mod tests {
         assert_eq!(shared.offset(), 8);
         assert_eq!(shared.shift(), 9);
         assert_eq!(shared.depth(), 10);
+    }
+}
+
+define_ctype!(
+    /// Wraps: AVPixFmtDescriptor
+    AVPixFmtDescriptor,
+    AVPixFmtDescriptorRef,
+    AVPixFmtDescriptorMut,
+    ffi::AVPixFmtDescriptor
+);
+
+impl AVPixFmtDescriptorRef<'_> {
+    /// Wraps: AVPixFmtDescriptor.flags
+    #[must_use]
+    pub fn flags(&self) -> u64 {
+        // SAFETY: `as_ptr` addresses a live descriptor for this handle's
+        // lifetime; raw-place projection and `read` form no reference to it.
+        unsafe { addr_of!((*self.as_ptr()).flags).read() }
+    }
+
+    /// Wraps: AVPixFmtDescriptor.name
+    #[must_use]
+    pub fn name(&self) -> Option<&CStr> {
+        // SAFETY: `as_ptr` addresses a live descriptor; raw-place projection
+        // and `read` form no reference to its storage.
+        let pointer = unsafe { addr_of!((*self.as_ptr()).name).read() };
+        if pointer.is_null() {
+            None
+        } else {
+            // SAFETY: a non-null `name` in a valid descriptor addresses an
+            // immutable NUL-terminated string which remains live while used.
+            Some(unsafe { CStr::from_ptr(pointer) })
+        }
+    }
+
+    /// Wraps: AVPixFmtDescriptor.comp
+    #[must_use]
+    pub fn components(&self) -> CSlice<'_, AVComponentDescriptor> {
+        // SAFETY: `as_ptr` addresses a live descriptor; `addr_of!` performs
+        // raw-place projection without forming a reference to the array.
+        let pointer = unsafe {
+            addr_of!((*self.as_ptr()).comp)
+                .cast::<AVComponentDescriptor>()
+                .cast_mut()
+        };
+        let pointer = NonNull::new(pointer).expect("an embedded field is non-null");
+        // SAFETY: `comp` is an inline array of four initialized component
+        // descriptors, and the returned shared view is bound to `&self`.
+        unsafe { CSlice::from_raw_parts(pointer, 4) }
+    }
+
+    /// Wraps: AVPixFmtDescriptor.nb_components
+    #[must_use]
+    pub fn nb_components(&self) -> u8 {
+        // SAFETY: `as_ptr` addresses a live descriptor for this handle's
+        // lifetime; raw-place projection and `read` form no reference to it.
+        unsafe { addr_of!((*self.as_ptr()).nb_components).read() }
+    }
+
+    /// Wraps: AVPixFmtDescriptor.alias
+    #[must_use]
+    pub fn alias(&self) -> Option<&CStr> {
+        // SAFETY: `as_ptr` addresses a live descriptor; raw-place projection
+        // and `read` form no reference to its storage.
+        let pointer = unsafe { addr_of!((*self.as_ptr()).alias).read() };
+        if pointer.is_null() {
+            None
+        } else {
+            // SAFETY: a non-null `alias` in a valid descriptor addresses an
+            // immutable NUL-terminated string which remains live while used.
+            Some(unsafe { CStr::from_ptr(pointer) })
+        }
+    }
+
+    /// Wraps: AVPixFmtDescriptor.log2_chroma_h
+    #[must_use]
+    pub fn log2_chroma_h(&self) -> u8 {
+        // SAFETY: `as_ptr` addresses a live descriptor for this handle's
+        // lifetime; raw-place projection and `read` form no reference to it.
+        unsafe { addr_of!((*self.as_ptr()).log2_chroma_h).read() }
+    }
+
+    /// Wraps: AVPixFmtDescriptor.log2_chroma_w
+    #[must_use]
+    pub fn log2_chroma_w(&self) -> u8 {
+        // SAFETY: `as_ptr` addresses a live descriptor for this handle's
+        // lifetime; raw-place projection and `read` form no reference to it.
+        unsafe { addr_of!((*self.as_ptr()).log2_chroma_w).read() }
+    }
+}
+
+impl AVPixFmtDescriptorMut<'_> {
+    /// Sets the pixel-format flags.
+    pub fn set_flags(&mut self, value: u64) {
+        // SAFETY: the exclusive handle supplies write provenance and prevents
+        // any other handle from being used for the duration of this call.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).flags).write(value) }
+    }
+
+    /// Sets the optional static pixel-format name.
+    pub fn set_name(&mut self, value: Option<&'static CStr>) {
+        let pointer = value.map_or(core::ptr::null(), CStr::as_ptr);
+        // SAFETY: the exclusive handle supplies write provenance; the
+        // `'static` string, when present, remains live for every later read.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).name).write(pointer) }
+    }
+
+    /// Exclusively borrows the four inline component descriptors.
+    #[must_use]
+    pub fn components_mut(&mut self) -> CSliceMut<'_, AVComponentDescriptor> {
+        // SAFETY: the exclusive handle addresses a live descriptor;
+        // `addr_of_mut!` projects the array without forming a reference.
+        let pointer =
+            unsafe { addr_of_mut!((*self.as_mut_ptr()).comp).cast::<AVComponentDescriptor>() };
+        let pointer = NonNull::new(pointer).expect("an embedded field is non-null");
+        // SAFETY: `comp` is an inline array of four initialized component
+        // descriptors, and `&mut self` provides exclusive access to the array
+        // for the returned view's lifetime.
+        unsafe { CSliceMut::from_raw_parts(pointer, 4) }
+    }
+
+    /// Sets the number of components in each pixel.
+    pub fn set_nb_components(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance and prevents
+        // any other handle from being used for the duration of this call.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).nb_components).write(value) }
+    }
+
+    /// Sets the optional static comma-separated alias list.
+    pub fn set_alias(&mut self, value: Option<&'static CStr>) {
+        let pointer = value.map_or(core::ptr::null(), CStr::as_ptr);
+        // SAFETY: the exclusive handle supplies write provenance; the
+        // `'static` string, when present, remains live for every later read.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).alias).write(pointer) }
+    }
+
+    /// Sets the vertical chroma subsampling exponent.
+    pub fn set_log2_chroma_h(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance and prevents
+        // any other handle from being used for the duration of this call.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).log2_chroma_h).write(value) }
+    }
+
+    /// Sets the horizontal chroma subsampling exponent.
+    pub fn set_log2_chroma_w(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance and prevents
+        // any other handle from being used for the duration of this call.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).log2_chroma_w).write(value) }
+    }
+}
+
+#[cfg(test)]
+mod pix_fmt_descriptor_tests {
+    use super::*;
+
+    fn component(plane: i32, depth: i32) -> ffi::AVComponentDescriptor {
+        ffi::AVComponentDescriptor {
+            plane,
+            step: 1,
+            offset: 0,
+            shift: 0,
+            depth,
+        }
+    }
+
+    #[test]
+    fn pixel_format_descriptor_fields_round_trip() {
+        let mut raw = ffi::AVPixFmtDescriptor {
+            name: c"initial".as_ptr(),
+            nb_components: 3,
+            log2_chroma_w: 1,
+            log2_chroma_h: 2,
+            flags: 0x10,
+            comp: [
+                component(0, 8),
+                component(1, 9),
+                component(2, 10),
+                component(3, 11),
+            ],
+            alias: core::ptr::null(),
+        };
+
+        // SAFETY: `raw` is live and initialized for the returned handle's
+        // scope, and this is its only borrowed handle.
+        let mut descriptor = unsafe {
+            AVPixFmtDescriptorMut::from_ptr(addr_of_mut!(raw))
+                .expect("stack descriptor is non-null")
+        };
+
+        let shared = descriptor.as_ref();
+        assert_eq!(shared.name(), Some(c"initial"));
+        assert_eq!(shared.alias(), None);
+        assert_eq!(shared.nb_components(), 3);
+        assert_eq!(shared.log2_chroma_w(), 1);
+        assert_eq!(shared.log2_chroma_h(), 2);
+        assert_eq!(shared.flags(), 0x10);
+        let components = shared.components();
+        assert_eq!(components.len(), 4);
+        assert_eq!(components.get(2).unwrap().plane(), 2);
+        assert_eq!(components.get(2).unwrap().depth(), 10);
+
+        descriptor.set_name(Some(c"updated"));
+        descriptor.set_alias(Some(c"updated-alias"));
+        descriptor.set_nb_components(4);
+        descriptor.set_log2_chroma_w(3);
+        descriptor.set_log2_chroma_h(4);
+        descriptor.set_flags(0x20);
+        descriptor
+            .components_mut()
+            .get_mut(2)
+            .unwrap()
+            .set_depth(12);
+
+        let shared = descriptor.as_ref();
+        assert_eq!(shared.name(), Some(c"updated"));
+        assert_eq!(shared.alias(), Some(c"updated-alias"));
+        assert_eq!(shared.nb_components(), 4);
+        assert_eq!(shared.log2_chroma_w(), 3);
+        assert_eq!(shared.log2_chroma_h(), 4);
+        assert_eq!(shared.flags(), 0x20);
+        assert_eq!(shared.components().get(2).unwrap().depth(), 12);
+
+        descriptor.set_name(None);
+        descriptor.set_alias(None);
+        let shared = descriptor.as_ref();
+        assert_eq!(shared.name(), None);
+        assert_eq!(shared.alias(), None);
+    }
+
+    #[test]
+    fn pixel_format_descriptor_wrapper_preserves_layout() {
+        assert_eq!(
+            core::mem::size_of::<AVPixFmtDescriptor>(),
+            core::mem::size_of::<ffi::AVPixFmtDescriptor>()
+        );
+        assert_eq!(
+            core::mem::align_of::<AVPixFmtDescriptor>(),
+            core::mem::align_of::<ffi::AVPixFmtDescriptor>()
+        );
     }
 }
