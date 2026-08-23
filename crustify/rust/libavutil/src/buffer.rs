@@ -1,5 +1,6 @@
 //! Wrappers for libavutil reference-counted buffers.
 
+use core::mem::MaybeUninit;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
 use ffibox::{CBox, CCloned, CDropped, CSlice, CSliceMut, define_ctype};
@@ -13,9 +14,18 @@ define_ctype!(
     /// indirectly through the distinct C `AVBufferRef` structure. Consequently
     /// this wrapper exposes pointer identity and lifetime-carrying borrowed
     /// handles, but no fields or independent owner. In particular, an
-    /// `AVBuffer` may be embedded in a pool entry, so freeing its storage from a
-    /// handle would be incorrect; the [`AVBufferReference`] lifecycle performs
-    /// the refcounted release instead.
+    /// `AVBuffer` may be embedded in a pool entry — `BufferPoolEntry.buffer` in
+    /// `libavutil/buffer_internal.h` holds one by value — so freeing its
+    /// storage from a handle would be incorrect; the [`AVBufferReference`]
+    /// lifecycle performs the refcounted release instead.
+    ///
+    /// Publishing no fields is this wrapper's choice, not a consequence of the
+    /// bindings: `libavutil-sys` includes `buffer_internal.h`, so
+    /// `ffi::AVBuffer` is a complete struct and the layout newtype has its
+    /// full size. `zeroed()` therefore hands back a real all-zero `AVBuffer`,
+    /// which is a valid C value but not a usable one — its `refcount` is 0 and
+    /// its `free` callback null — so it is only ever a stand-in for a header's
+    /// `buffer` slot in a test, never something to hand to libavutil.
     ///
     /// [`AVBufferRef`] is the shared borrowed handle for this object. The safe
     /// wrapper for C's same-spelled `AVBufferRef` structure therefore uses a
@@ -35,17 +45,63 @@ mod tests {
     use super::*;
 
     #[test]
-    fn avbuffer_preserves_the_c_layout() {
-        assert_eq!(size_of::<AVBuffer>(), size_of::<ffi::AVBuffer>());
-        assert_eq!(align_of::<AVBuffer>(), align_of::<ffi::AVBuffer>());
+    fn avbuffer_handles_stay_one_pointer_wide() {
+        // Comparing the layout newtype against the type it is
+        // `repr(transparent)` over cannot fail, so the claim worth pinning is
+        // the handles': one pointer, with the null niche, so an
+        // `Option<AVBufferRef>` still crosses the seam as a `*const AVBuffer`.
         assert_eq!(
             size_of::<AVBufferRef<'_>>(),
             size_of::<*const ffi::AVBuffer>()
         );
         assert_eq!(
+            align_of::<AVBufferRef<'_>>(),
+            align_of::<*const ffi::AVBuffer>()
+        );
+        assert_eq!(
             size_of::<AVBufferMut<'_>>(),
             size_of::<*mut ffi::AVBuffer>()
         );
+        assert_eq!(
+            size_of::<Option<AVBufferRef<'_>>>(),
+            size_of::<*const ffi::AVBuffer>()
+        );
+    }
+
+    #[test]
+    fn avbuffer_identity_survives_a_window_move() {
+        let first = av_buffer_allocz(4).expect("four-byte allocation");
+        let second = av_buffer_allocz(4).expect("four-byte allocation");
+        let mut shared = av_buffer_ref(first.as_ref()).expect("second reference");
+
+        // The one property libavutil publishes for AVBuffer: two references
+        // describe the same data buffer iff their `buffer` pointers are equal.
+        assert_eq!(
+            first.as_ref().buffer().as_ptr(),
+            shared.as_ref().buffer().as_ptr()
+        );
+        assert_ne!(
+            first.as_ref().buffer().as_ptr(),
+            second.as_ref().buffer().as_ptr()
+        );
+        // Distinct headers over one buffer, so the count is shared.
+        assert_ne!(first.as_ptr(), shared.as_ptr());
+        assert_eq!(av_buffer_get_ref_count(first.as_ref()), 2);
+
+        // Moving one window makes `data` differ while `buffer` must not. This
+        // is what pins the projection to the header's first field rather than
+        // its second: `av_buffer_ref` copies `data` too, so without the move
+        // reading the wrong field would still compare equal.
+        assert!(shared.as_mut().advance(1));
+        assert_ne!(
+            first.as_ref().data().unwrap().as_elem_ptr(),
+            shared.as_ref().data().unwrap().as_elem_ptr()
+        );
+        assert_eq!(
+            first.as_ref().buffer().as_ptr(),
+            shared.as_ref().buffer().as_ptr()
+        );
+        assert_eq!(shared.as_ref().size(), 3);
     }
 
     #[test]
@@ -92,7 +148,9 @@ mod tests {
         let reference = unsafe { AVBufferReferenceRef::from_ptr(addr_of_mut!(raw)) }.unwrap();
         assert_eq!(reference.size(), 4);
         let mut copied = [0_u8; 4];
-        assert!(reference.data().unwrap().copy_to_slice(&mut copied));
+        // SAFETY: the window is `bytes`, a fully initialized Rust array.
+        let initialized = unsafe { reference.data_assume_init() }.unwrap();
+        assert!(initialized.copy_to_slice(&mut copied));
         assert_eq!(copied, bytes);
         assert_eq!(reference.buffer().as_ptr(), buffer.cast_const());
 
@@ -118,19 +176,61 @@ mod tests {
             CBox::<AVBufferReference>::from_raw(ffi::av_buffer_allocz(4))
                 .expect("four-byte AVBuffer allocation")
         };
-        assert_eq!(owner.as_ref().data().unwrap().elems().sum::<u8>(), 0);
+        // SAFETY: `av_buffer_allocz` memsets the whole window, so every byte
+        // of it has been written before this view is taken.
+        let zeroed = unsafe { owner.as_ref().data_assume_init() }.unwrap();
+        assert_eq!(zeroed.elems().sum::<u8>(), 0);
 
-        {
-            let mut reference = owner.as_mut();
-            let mut data = reference.data_mut().expect("sole reference is writable");
-            assert!(data.copy_from_slice(&[1, 2, 3, 4]));
-        }
+        assert!(owner.as_mut().write_all(&[1, 2, 3, 4]));
+        // A partial write is refused rather than leaving the window ragged.
+        assert!(!owner.as_mut().write_all(&[9, 9]));
 
         let clone = owner.try_clone().expect("reference header clone");
         assert!(owner.as_mut().data_mut().is_none());
-        assert_eq!(clone.as_ref().data().unwrap().elem(2), Some(3));
+        assert!(!owner.as_mut().write_all(&[5, 6, 7, 8]));
+        // SAFETY: `write_all` initialized all four bytes above and the shared
+        // clone views the same window.
+        let cloned_window = unsafe { clone.as_ref().data_assume_init() }.unwrap();
+        assert_eq!(cloned_window.elem(2), Some(3));
         drop(clone);
         assert!(owner.as_mut().data_mut().is_some());
+
+        // Read-modify-write needs the initialized exclusive view, and it is
+        // gated on the same sole-reference check as `data_mut`.
+        {
+            let mut reference = owner.as_mut();
+            // SAFETY: `write_all` above initialized every byte of this window,
+            // and nothing has grown or moved it since.
+            let mut window =
+                unsafe { reference.data_assume_init_mut() }.expect("sole reference is writable");
+            assert_eq!(window.elem(0), Some(1));
+            assert!(window.set_elem(0, 10));
+        }
+        // SAFETY: still fully initialized; only one byte changed value.
+        let window = unsafe { owner.as_ref().data_assume_init() }.unwrap();
+        assert_eq!(window.elem(0), Some(10));
+    }
+
+    #[test]
+    fn a_zero_length_window_is_vacuously_initialized() {
+        let mut empty = av_buffer_alloc(0).expect("zero-byte allocation");
+        assert_eq!(empty.as_ref().size(), 0);
+        // Nothing to write, so `write_all` succeeds and discharges the
+        // obligation for the whole window.
+        assert!(empty.as_mut().write_all(&[]));
+        assert!(!empty.as_mut().write_all(&[1]));
+        // SAFETY: an empty window has no byte that could be unwritten.
+        let window = unsafe { empty.as_ref().data_assume_init() }.unwrap();
+        assert!(window.is_empty());
+
+        // `advance` to the end leaves the same vacuous case out of a window
+        // whose bytes were never written.
+        let mut unwritten = av_buffer_alloc(4).expect("four-byte allocation");
+        assert!(unwritten.as_mut().advance(4));
+        assert_eq!(unwritten.as_ref().size(), 0);
+        // SAFETY: as above — the window is empty.
+        let window = unsafe { unwritten.as_ref().data_assume_init() }.unwrap();
+        assert!(window.is_empty());
     }
 }
 
@@ -142,6 +242,33 @@ define_ctype!(
     /// [`AVBufferRef`], the borrowed handle for that opaque underlying object.
     /// Owned values use `CBox<AVBufferReference>`; cloning allocates a new C
     /// reference header and increments the underlying buffer's reference count.
+    ///
+    /// # Invariant
+    ///
+    /// `AVBufferReferenceRef::from_ptr` and `CBox::from_raw` promise only that
+    /// the header itself is live and initialized. Every wrapped header
+    /// additionally satisfies, and every unsafe constructor of one owes:
+    ///
+    /// - `buffer` is non-null and addresses an [`AVBuffer`] holding a count on
+    ///   this header's behalf, so it outlives the header;
+    /// - `data` is null, or addresses `size` **allocated** bytes owned by that
+    ///   `AVBuffer` for as long as the header holds its count. Allocated is all
+    ///   that is claimed — see [`AVBufferReferenceRef::data`] for why the
+    ///   contents are not.
+    ///
+    /// [`buffer`](AVBufferReferenceRef::buffer), [`data`](AVBufferReferenceRef::data)
+    /// and [`data_mut`](AVBufferReferenceMut::data_mut) are safe and rest on
+    /// it. Every producer discharges it: `buffer_create` in
+    /// `libavutil/buffer.c` is the only routine that fills a new header and
+    /// writes all three fields together, and `av_buffer_ref` copies a header
+    /// wholesale, so the wrappers over `av_buffer_alloc`, `av_buffer_allocz`,
+    /// `av_buffer_ref`, `av_buffer_realloc` and `av_buffer_make_writable` all
+    /// hold. The only safe writers in this crate are
+    /// [`truncate`](AVBufferReferenceMut::truncate),
+    /// [`advance`](AVBufferReferenceMut::advance) and
+    /// [`write_all`](AVBufferReferenceMut::write_all): the first two replace
+    /// the window with a sub-range of itself, the third writes inside it, and
+    /// none touches `buffer`.
     AVBufferReference,
     AVBufferReferenceRef,
     AVBufferReferenceMut,
@@ -160,9 +287,11 @@ unsafe impl CDropped for AVBufferReference {
     }
 }
 
-// SAFETY: `av_buffer_ref` leaves its source unchanged and returns either NULL
-// or a freshly allocated AVBufferRef header carrying one independently
-// releasable reference to the same underlying buffer.
+// SAFETY: `av_buffer_ref` copies the source header into a freshly allocated
+// one and atomically increments the shared `AVBuffer.refcount`; it never writes
+// the source header, and the underlying count it does write is an atomic the C
+// implementation documents as safe to bump from several threads. The result is
+// NULL or one independently releasable reference to the same underlying buffer.
 unsafe impl CCloned for AVBufferReference {
     unsafe fn c_clone(obj: NonNull<Self>) -> Option<NonNull<Self>> {
         // SAFETY: the trait contract supplies a live source reference and the
@@ -186,23 +315,59 @@ impl<'a> AVBufferReferenceRef<'a> {
     /// Wraps: AVBufferRef.data
     ///
     /// Views the byte window without forming a Rust slice over memory that C
-    /// may mutate. `None` represents a null data pointer, which is valid for an
-    /// empty user-supplied buffer.
+    /// may mutate, and without claiming its bytes have been written.
+    /// `av_buffer_alloc` hands back raw `av_malloc` storage and
+    /// `av_buffer_realloc` leaves the tail it grows into equally unwritten, so
+    /// an initialized `CSlice<u8>` here would break
+    /// [`CSlice::from_raw_parts`]'s precondition and let entirely safe code
+    /// read an uninitialised `u8`. `None` represents a null data pointer, which
+    /// is valid for an empty user-supplied buffer.
+    ///
+    /// Fill a window from safe code with
+    /// [`write_all`](AVBufferReferenceMut::write_all), then read it through
+    /// [`data_assume_init`](Self::data_assume_init).
     #[must_use]
-    pub fn data(&self) -> Option<CSlice<'a, u8>> {
+    pub fn data(&self) -> Option<CSlice<'a, MaybeUninit<u8>>> {
         // SAFETY: both fields are copied through raw projections from a live
-        // header; the underlying buffer keeps `size` bytes alive for `'a`.
+        // header; no reference to C storage is formed.
         let (data, size) = unsafe {
             (
                 addr_of!((*self.as_ptr()).data).read(),
                 addr_of!((*self.as_ptr()).size).read(),
             )
         };
-        NonNull::new(data).map(|data| {
-            // SAFETY: a non-null AVBufferRef data field addresses its `size`
-            // byte window, kept alive by the header's underlying count.
+        NonNull::new(data.cast::<MaybeUninit<u8>>()).map(|data| {
+            // SAFETY: the type invariant gives `size` allocated bytes at a
+            // non-null `data`, kept alive for `'a` by the header's count. Every
+            // byte pattern — and the absence of one — is a valid
+            // `MaybeUninit<u8>`, which is exactly what "allocated" licenses.
             unsafe { CSlice::from_raw_parts(data, size) }
         })
+    }
+
+    /// Wraps: AVBufferRef.data
+    ///
+    /// The same window, viewed as initialized bytes.
+    ///
+    /// # Safety
+    ///
+    /// All `size` bytes of the current window must already have been written:
+    /// by `av_buffer_allocz`, by
+    /// [`write_all`](AVBufferReferenceMut::write_all), by
+    /// `av_buffer_make_writable`'s copy, or by C code outside this crate.
+    /// `av_buffer_alloc` and the region `av_buffer_realloc` grows into do not
+    /// satisfy this, and neither does a window narrowed by
+    /// [`truncate`](AVBufferReferenceMut::truncate) or
+    /// [`advance`](AVBufferReferenceMut::advance) out of an unwritten one.
+    #[must_use]
+    pub unsafe fn data_assume_init(&self) -> Option<CSlice<'a, u8>> {
+        let window = self.data()?;
+        let data = NonNull::new(window.as_elem_ptr().cast::<u8>())?;
+        // SAFETY: the caller asserts every byte of the window is initialized;
+        // `MaybeUninit<u8>` and `u8` share size and alignment, so the same
+        // pointer and count describe the same run of `u8`, and `data()` has
+        // already established that run under the type invariant.
+        Some(unsafe { CSlice::from_raw_parts(data, window.len()) })
     }
 
     /// Wraps: AVBufferRef.buffer
@@ -221,6 +386,12 @@ impl<'a> AVBufferReferenceRef<'a> {
 
 impl AVBufferReferenceMut<'_> {
     /// Shortens the current data window without changing its start.
+    ///
+    /// libavutil supports references that describe different parts of one
+    /// buffer, and `av_buffer_realloc` explicitly re-checks
+    /// `buf->data != buf->buffer->data` before reallocating in place, so a
+    /// narrowed window stays usable. The result is a sub-range of the previous
+    /// one, which is what keeps the type invariant true.
     pub fn truncate(&mut self, new_size: usize) -> bool {
         let size = self.as_ref().size();
         if new_size > size {
@@ -233,6 +404,10 @@ impl AVBufferReferenceMut<'_> {
     }
 
     /// Removes `bytes` from the start of the current data window.
+    ///
+    /// As with [`truncate`](Self::truncate) the new window is a sub-range of
+    /// the old one, so the type invariant continues to hold; `bytes == size`
+    /// leaves an empty window at the one-past-the-end address.
     pub fn advance(&mut self, bytes: usize) -> bool {
         let size = self.as_ref().size();
         if bytes > size {
@@ -261,17 +436,21 @@ impl AVBufferReferenceMut<'_> {
         true
     }
 
+    /// Wraps: AVBufferRef.data
+    ///
     /// Exclusively views the data when this is the only reference and the
-    /// underlying buffer is not marked read-only.
+    /// underlying buffer is not marked read-only. As with
+    /// [`AVBufferReferenceRef::data`], the elements are `MaybeUninit<u8>`
+    /// because the type invariant claims the window is allocated, not written.
     #[must_use]
-    pub fn data_mut(&mut self) -> Option<CSliceMut<'_, u8>> {
+    pub fn data_mut(&mut self) -> Option<CSliceMut<'_, MaybeUninit<u8>>> {
         // SAFETY: the exclusive header handle is live. The C predicate checks
         // the underlying count and read-only flag and does not retain `buf`.
         if unsafe { ffi::av_buffer_is_writable(self.as_mut_ptr()) } == 0 {
             return None;
         }
-        // SAFETY: fields are copied from the live exclusive header. A positive
-        // writability result licenses mutation of this `size`-byte window.
+        // SAFETY: fields are copied from the live exclusive header through raw
+        // projections; no reference to C storage is formed.
         let (data, size) = unsafe {
             let header = self.as_mut_ptr();
             (
@@ -279,18 +458,76 @@ impl AVBufferReferenceMut<'_> {
                 addr_of!((*header).size).read(),
             )
         };
-        NonNull::new(data).map(|data| {
-            // SAFETY: the writability check established exclusive access to
-            // the initialized window, and the view is bound to `&mut self`.
+        NonNull::new(data.cast::<MaybeUninit<u8>>()).map(|data| {
+            // SAFETY: the type invariant gives `size` allocated bytes at a
+            // non-null `data`, every byte of which is a valid
+            // `MaybeUninit<u8>`. The writability check proves no other
+            // reference shares the underlying buffer, and the view is bound to
+            // `&mut self`, so this is the only path to those bytes.
             unsafe { CSliceMut::from_raw_parts(data, size) }
         })
+    }
+
+    /// Wraps: AVBufferRef.data
+    ///
+    /// The same exclusive window, viewed as initialized bytes, for
+    /// read-modify-write access.
+    ///
+    /// # Safety
+    ///
+    /// As [`AVBufferReferenceRef::data_assume_init`]: every byte of the current
+    /// window must already have been written.
+    #[must_use]
+    pub unsafe fn data_assume_init_mut(&mut self) -> Option<CSliceMut<'_, u8>> {
+        let mut window = self.data_mut()?;
+        let len = window.len();
+        let data = NonNull::new(window.as_mut_elem_ptr().cast::<u8>())?;
+        // SAFETY: the caller asserts the window is initialized, and
+        // `data_mut` has already proved exclusive access to `len` allocated
+        // bytes at `data`. `MaybeUninit<u8>` and `u8` share size and
+        // alignment, so both views describe the same run.
+        Some(unsafe { CSliceMut::from_raw_parts(data, len) })
+    }
+
+    /// Wraps: AVBufferRef.data
+    ///
+    /// Writes `src` over the whole window, which is the safe way to make
+    /// [`AVBufferReferenceRef::data_assume_init`] dischargeable for a buffer
+    /// libavutil left unwritten. Returns `false` without writing anything when
+    /// `src` does not cover the window exactly, or when this is not the only
+    /// reference to a writable underlying buffer.
+    pub fn write_all(&mut self, src: &[u8]) -> bool {
+        if src.len() != self.as_ref().size() {
+            return false;
+        }
+        let Some(mut window) = self.data_mut() else {
+            // A null `data` slot has no bytes to write, so an empty `src`
+            // leaves the window vacuously initialized; any other `None` means
+            // the buffer is shared or read-only.
+            return src.is_empty() && av_buffer_is_writable(self.as_ref());
+        };
+        // SAFETY: `window` exclusively covers exactly `src.len()` allocated
+        // bytes of C storage, and `src` is a live Rust slice, which therefore
+        // cannot overlap storage a C object owns. The copy initializes every
+        // byte of the window.
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                window.as_mut_elem_ptr().cast::<u8>(),
+                src.len(),
+            );
+        }
+        true
     }
 }
 
 /// Wraps: av_buffer_alloc
 ///
 /// Allocates an uninitialized byte buffer and adopts its independently
-/// releasable reference header.
+/// releasable reference header. The window is `av_malloc` storage nobody has
+/// written, so it reads back only through
+/// [`AVBufferReferenceRef::data`]; use
+/// [`AVBufferReferenceMut::write_all`] first if you need the initialized view.
 #[must_use]
 pub fn av_buffer_alloc(size: usize) -> Option<CBox<AVBufferReference>> {
     // SAFETY: a non-null return is a fully constructed AVBufferRef carrying
@@ -300,7 +537,10 @@ pub fn av_buffer_alloc(size: usize) -> Option<CBox<AVBufferReference>> {
 
 /// Wraps: av_buffer_allocz
 ///
-/// Allocates a zero-filled byte buffer.
+/// Allocates a zero-filled byte buffer. Unlike [`av_buffer_alloc`] the C
+/// implementation `memset`s the whole window, so
+/// [`AVBufferReferenceRef::data_assume_init`] is immediately dischargeable for
+/// the result — until [`av_buffer_realloc`] grows it.
 #[must_use]
 pub fn av_buffer_allocz(size: usize) -> Option<CBox<AVBufferReference>> {
     // SAFETY: the ownership contract is identical to `av_buffer_alloc`.
@@ -404,22 +644,30 @@ mod scheduled_function_tests {
 
         buffer = av_buffer_make_writable(buffer).expect("already writable");
         assert!(buffer.as_mut().data_mut().is_some());
+        // `av_buffer_allocz` wrote the whole window, and `make_writable`
+        // either kept it or `memcpy`d it, so it is still fully initialized.
+        // SAFETY: as stated above.
+        let window = unsafe { buffer.as_ref().data_assume_init() }.unwrap();
+        assert_eq!(window.len(), 8);
+        assert!(window.elems().all(|byte| byte == 0));
     }
 
     #[test]
     fn realloc_allocates_and_preserves_the_prefix() {
         let mut buffer = av_buffer_alloc(2).expect("buffer allocation");
-        assert!(
-            buffer
-                .as_mut()
-                .data_mut()
-                .expect("sole reference")
-                .copy_from_slice(&[7, 9])
-        );
+        assert!(buffer.as_mut().write_all(&[7, 9]));
         let buffer = av_buffer_realloc(Some(buffer), 4).expect("buffer growth");
         assert_eq!(buffer.as_ref().size(), 4);
-        assert_eq!(buffer.as_ref().data().unwrap().elem(0), Some(7));
-        assert_eq!(buffer.as_ref().data().unwrap().elem(1), Some(9));
+
+        // Only the copied prefix has been written; the two bytes the growth
+        // added are `av_realloc` storage, so the window as a whole is not
+        // `data_assume_init`-able and each surviving byte is read on its own.
+        let window = buffer.as_ref().data().expect("non-null window");
+        // SAFETY: `write_all` initialized both bytes before the growth, and
+        // `av_buffer_realloc` preserves `FFMIN(size, buf->size)` of them.
+        assert_eq!(unsafe { window.elem(0).unwrap().assume_init() }, 7);
+        // SAFETY: as above.
+        assert_eq!(unsafe { window.elem(1).unwrap().assume_init() }, 9);
 
         let allocated = av_buffer_realloc(None, 3).expect("null-slot allocation");
         assert_eq!(allocated.as_ref().size(), 3);

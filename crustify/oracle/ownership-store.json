@@ -88,7 +88,7 @@
   {
    "name": "AVBufferRef",
    "defined_in": "libavutil/buffer.h",
-   "_comment_agent": "buffer_create initializes both pointers; av_buffer_ref copies the header and increments buffer->refcount; buffer_replace/av_buffer_unref free the reference header and release the underlying buffer on the last count. data is a borrowed window whose extent is size and whose storage lifetime is kept by buffer.",
+   "_comment_agent": "buffer_create initializes both pointers; av_buffer_ref copies the header and increments buffer->refcount; buffer_replace/av_buffer_unref free the reference header and release the underlying buffer on the last count. data is a borrowed window whose extent is size and whose storage lifetime is kept by buffer. The window is ALLOCATED, not written: av_buffer_alloc returns raw av_malloc storage and av_buffer_realloc leaves the region it grows into unwritten, so only av_buffer_allocz (memset) and av_buffer_make_writable (memcpy) hand back a fully initialized one.",
    "fields": [
     {
      "name": "buffer",
@@ -119,7 +119,7 @@
       },
       "nullable": true,
       "mutable": true,
-      "note": "Points at a size-byte window into the allocation kept alive by buffer; references may select different subranges. It can be NULL for an empty/user-supplied zero-size buffer and is writable only under AVBuffer's public writability convention."
+      "note": "Points at a size-byte window into the allocation kept alive by buffer; references may select different subranges. It can be NULL for an empty/user-supplied zero-size buffer and is writable only under AVBuffer's public writability convention. The window's bytes are allocated but not necessarily initialized: av_buffer_alloc hands back raw av_malloc storage and av_buffer_realloc's growth tail is av_realloc storage, so a consumer may only read bytes some producer wrote."
      }
     }
    ]
@@ -133,7 +133,7 @@
   {
    "name": "AVChannelCustom",
    "defined_in": "libavutil/channel_layout.h",
-   "_comment_agent": "The opaque field has no libavutil toucher. Custom maps are calloc'd, byte-copied by av_channel_layout_copy, and freed as arrays without per-element disposal, proving this cookie is borrowed and application-managed.",
+   "_comment_agent": "The opaque field has no libavutil toucher. Custom maps are calloc'd, byte-copied by av_channel_layout_copy, and freed as arrays without per-element disposal, proving this cookie is borrowed and application-managed. The name array is read as a C string by av_channel_layout_index_from_string (strcmp), av_channel_layout_describe_bprint (%s) and av_channel_layout_retype (av_strlcpy), so at most 15 payload bytes are usable and the field must be NUL-terminated or all-zero. channel_layout.h makes sizeof(AVChannelCustom) part of the public ABI, so the element stride is a compatibility property rather than an internal detail.",
    "fields": [
     {
      "name": "opaque",

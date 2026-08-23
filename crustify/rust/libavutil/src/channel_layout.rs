@@ -242,48 +242,26 @@ mod avchannel_tests {
         let value = AVChannel::from_raw(0x123);
         assert_eq!(value.as_raw(), 0x123);
     }
-
-    #[test]
-    fn custom_channel_fields_round_trip_without_c_references() {
-        let mut raw = ffi::AVChannelCustom {
-            id: ffi::AVChannel_AV_CHAN_UNKNOWN,
-            name: [0; 16],
-            opaque: core::ptr::null_mut(),
-        };
-        // SAFETY: `raw` is live and initialized, and this is its only active
-        // handle for the duration of the test.
-        let mut custom = unsafe { AVChannelCustomMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
-        assert!(custom.set_name(b"dialogue"));
-        assert!(!custom.set_name(b"sixteen-byte-name"));
-        custom.set_id(AVChannel::FRONT_CENTER);
-        let cookie = NonNull::<u8>::dangling().cast::<c_void>();
-        // SAFETY: the non-null identity is never dereferenced, and is cleared
-        // before the temporary backing contract ends.
-        unsafe { custom.set_opaque(Some(cookie)) };
-
-        assert_eq!(custom.as_ref().id(), AVChannel::FRONT_CENTER);
-        assert_eq!(&custom.as_ref().name()[..9], b"dialogue\0");
-        assert!(custom.as_ref().opaque().is_some());
-        custom.clear_opaque();
-        assert!(custom.as_ref().opaque().is_none());
-
-        assert_eq!(
-            size_of::<AVChannelCustom>(),
-            size_of::<ffi::AVChannelCustom>()
-        );
-        assert_eq!(
-            align_of::<AVChannelCustom>(),
-            align_of::<ffi::AVChannelCustom>()
-        );
-    }
 }
 
 define_ctype!(
     /// Wraps: AVChannelCustom
     ///
     /// One by-value element of an `AV_CHANNEL_ORDER_CUSTOM` channel map. It
-    /// owns no allocation: the enclosing layout owns the element array, while
-    /// `opaque` remains application-managed even when libavutil copies a map.
+    /// owns no allocation: the enclosing layout owns the element array —
+    /// `av_channel_layout_uninit` frees it, `av_channel_layout_copy` `memcpy`s
+    /// it — while `opaque` remains application-managed even across that copy:
+    /// libavutil reproduces the address and never dereferences or frees it.
+    ///
+    /// `channel_layout.h` makes `sizeof(AVChannelCustom)` part of the public
+    /// ABI, so the element stride is a compatibility property rather than an
+    /// internal detail; `custom_map_stride_matches_the_c_library` pins it by
+    /// having C index a map this crate wrote.
+    ///
+    /// `zeroed()` yields a valid element, but not the one
+    /// `av_channel_layout_custom_init` produces: an all-zero `id` is
+    /// `AV_CHAN_FRONT_LEFT`, whereas C initializes fresh entries to
+    /// `AV_CHAN_UNKNOWN`.
     AVChannelCustom,
     AVChannelCustomRef,
     AVChannelCustomMut,
@@ -294,18 +272,39 @@ define_ctype!(
 ///
 /// It intentionally exposes no dereference operation: C records and copies the
 /// erased address but neither knows nor manages the pointee type.
+///
+/// `'a` is the borrow of the *element* the address was read out of, not of the
+/// pointee — nothing in the element records how long the cookie stays valid,
+/// which is why [`AVChannelCustomMut::set_opaque`] is unsafe and states that
+/// obligation on its caller.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AVChannelCustomOpaque<'a> {
     pointer: NonNull<c_void>,
     _borrow: PhantomData<&'a c_void>,
 }
 
-impl AVChannelCustomRef<'_> {
+impl AVChannelCustomOpaque<'_> {
+    /// The erased address exactly as [`AVChannelCustomMut::set_opaque`]
+    /// received it.
+    ///
+    /// Handing the address back forms no reference and performs no access, so
+    /// it is safe; making any use of it is the caller's own unsafe act under
+    /// the contract that setter states. Without it the cookie would be
+    /// write-only, which would defeat the only purpose the field has.
+    #[must_use]
+    pub fn as_ptr(self) -> NonNull<c_void> {
+        self.pointer
+    }
+}
+
+impl<'a> AVChannelCustomRef<'a> {
     /// Wraps: AVChannelCustom.opaque
     ///
-    /// Returns an identity-only token for the application-managed cookie.
+    /// Returns an identity-only token for the application-managed cookie,
+    /// borrowed for as long as the element is, not merely for as long as this
+    /// stack handle is.
     #[must_use]
-    pub fn opaque(&self) -> Option<AVChannelCustomOpaque<'_>> {
+    pub fn opaque(&self) -> Option<AVChannelCustomOpaque<'a>> {
         // SAFETY: the pointer value is copied through a raw projection; no
         // reference to either the C object or the erased pointee is formed.
         NonNull::new(unsafe { addr_of!((*self.as_ptr()).opaque).read() }).map(|pointer| {
@@ -371,6 +370,14 @@ impl AVChannelCustomMut<'_> {
 
     /// Sets the channel name, rejecting embedded NULs and payloads longer than
     /// the 15 bytes available before the terminator.
+    ///
+    /// The 16th byte is not usable: libavutil reads the field as a C string —
+    /// `strcmp` in `av_channel_layout_index_from_string`, `%s` in
+    /// `av_channel_layout_describe_bprint`, `av_strlcpy` in
+    /// `av_channel_layout_retype` — so a full 16 bytes would run off the end
+    /// of the element. An empty `name` clears the field, which is the state
+    /// C's own `av_channel_layout_custom_init` leaves and the one it treats as
+    /// "unnamed".
     pub fn set_name(&mut self, name: &[u8]) -> bool {
         if name.len() >= 16 || name.contains(&0) {
             return false;
@@ -386,10 +393,131 @@ impl AVChannelCustomMut<'_> {
     }
 
     /// Sets the channel identifier.
+    ///
+    /// Any `AVChannel` is accepted, including values this crate does not name.
+    /// `AVChannel::NONE` is representable but makes the enclosing layout fail
+    /// `av_channel_layout_check`, which is a rejected layout rather than an
+    /// unsound one.
     pub fn set_id(&mut self, id: AVChannel) {
         // SAFETY: the exclusive handle permits replacing this integer-backed
         // enum field, and AVChannel is ABI-transparent.
         unsafe { addr_of_mut!((*self.as_mut_ptr()).id).write(id.as_raw()) }
+    }
+}
+
+#[cfg(test)]
+mod avchannelcustom_tests {
+    use super::*;
+
+    #[test]
+    fn custom_channel_fields_round_trip_without_c_references() {
+        let mut raw = ffi::AVChannelCustom {
+            id: ffi::AVChannel_AV_CHAN_UNKNOWN,
+            name: [0; 16],
+            opaque: core::ptr::null_mut(),
+        };
+        // SAFETY: `raw` is live and initialized, and this is its only active
+        // handle for the duration of the test.
+        let mut custom = unsafe { AVChannelCustomMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        assert!(custom.set_name(b"dialogue"));
+        // 15 payload bytes fit, 16 do not: the terminator needs the last one.
+        assert!(custom.set_name(b"fifteen-bytes!!"));
+        assert!(!custom.set_name(b"sixteen-byte-nam"));
+        assert!(!custom.set_name(b"embedded\0nul"));
+        assert!(custom.set_name(b"dialogue"));
+        custom.set_id(AVChannel::FRONT_CENTER);
+        let cookie = NonNull::<u8>::dangling().cast::<c_void>();
+        // SAFETY: the non-null identity is never dereferenced, and is cleared
+        // before the temporary backing contract ends.
+        unsafe { custom.set_opaque(Some(cookie)) };
+
+        assert_eq!(custom.as_ref().id(), AVChannel::FRONT_CENTER);
+        assert_eq!(&custom.as_ref().name()[..9], b"dialogue\0");
+        // The cookie is an identity, so the round trip has to reproduce the
+        // exact address rather than merely something non-null.
+        assert_eq!(
+            custom.as_ref().opaque().map(AVChannelCustomOpaque::as_ptr),
+            Some(cookie)
+        );
+        custom.clear_opaque();
+        assert!(custom.as_ref().opaque().is_none());
+        // Clearing the cookie leaves the other fields alone.
+        assert_eq!(custom.as_ref().id(), AVChannel::FRONT_CENTER);
+        assert_eq!(&custom.as_ref().name()[..9], b"dialogue\0");
+    }
+
+    #[test]
+    fn the_opaque_token_outlives_the_stack_handle() {
+        let mut raw = ffi::AVChannelCustom {
+            id: ffi::AVChannel_AV_CHAN_FRONT_LEFT,
+            name: [0; 16],
+            opaque: NonNull::<u8>::dangling().as_ptr().cast(),
+        };
+        // SAFETY: `raw` outlives every handle taken from it below.
+        let element = unsafe { AVChannelCustomRef::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        let cookie = {
+            // The handle is a local, and dies here; the token borrows the
+            // element for `'a`, so it must survive. This fails to compile if
+            // `opaque` elides its result lifetime to `&self`.
+            let borrowed: AVChannelCustomRef<'_> = element;
+            borrowed.opaque().unwrap()
+        };
+        assert_eq!(cookie.as_ptr().as_ptr().cast(), raw.opaque);
+    }
+
+    #[test]
+    fn custom_map_stride_matches_the_c_library() {
+        // `sizeof(AVChannelCustom)` is public ABI, and comparing the wrapper
+        // with the binding it is transparent over cannot fail. So let C do the
+        // indexing: it walks the map with its own stride and its own field
+        // offsets, over entries this crate wrote through `CSliceMut`.
+        let mut layout = av_channel_layout_default(6);
+        let lossy = av_channel_layout_retype(
+            &mut layout.as_mut(),
+            AVChannelOrder::CUSTOM,
+            AVChannelLayoutRetypeFlags::LOSSLESS,
+        )
+        .expect("a six-channel default is representable as a custom map");
+        assert!(!lossy);
+
+        {
+            let mut exclusive = layout.as_mut();
+            let mut map = exclusive.custom_map_mut().expect("custom order map");
+            assert_eq!(map.len(), 6);
+            assert!(map.get_mut(0).unwrap().set_name(b"head"));
+            assert!(map.get_mut(5).unwrap().set_name(b"tail"));
+        }
+
+        // "@name" searches by name alone: C compares against `map[i].name` for
+        // each i. Finding the last element is what a wrong stride breaks — at
+        // 24 bytes per entry the write would have landed inside entry 3.
+        assert_eq!(
+            av_channel_layout_index_from_string(layout.as_ref(), c"@tail"),
+            Ok(5)
+        );
+        assert_eq!(
+            av_channel_layout_index_from_string(layout.as_ref(), c"@head"),
+            Ok(0)
+        );
+        assert!(av_channel_layout_index_from_string(layout.as_ref(), c"@absent").is_err());
+        assert!(av_channel_layout_check(layout.as_ref()));
+
+        // The same two names, rendered by C's own walk of the map.
+        let mut text = [0_u8; 96];
+        let described = av_channel_layout_describe(layout.as_ref(), &mut text).unwrap();
+        let described = described.text.expect("a described layout is terminated");
+        assert!(described.to_bytes().ends_with(b"@tail)"), "{described:?}");
+        assert!(described.to_bytes().contains(&b'@'));
+
+        // And the ids C reports for those positions are the ones the Rust
+        // handles read out of the same entries.
+        for index in [0_usize, 5] {
+            let map = layout.as_ref().custom_map().expect("custom order map");
+            assert_eq!(
+                av_channel_layout_channel_from_index(layout.as_ref(), index),
+                Some(map.get(index).unwrap().id())
+            );
+        }
     }
 }
 

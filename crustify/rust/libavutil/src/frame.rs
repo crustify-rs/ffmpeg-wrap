@@ -266,7 +266,11 @@ mod side_data_type_tests {
             CBox::<AVBufferReference>::from_raw(ffi::av_buffer_allocz(4))
                 .expect("four-byte side-data buffer")
         };
-        let data = backing.as_ref().data().unwrap().as_elem_ptr();
+        // `AVBufferReferenceRef::data` views the window as `MaybeUninit<u8>`
+        // because C leaves an `av_buffer_alloc` window unwritten; `allocz`
+        // above did write this one, and the side-data header wants the raw
+        // byte address either way.
+        let data = backing.as_ref().data().unwrap().as_elem_ptr().cast::<u8>();
         let mut raw = ffi::AVFrameSideData {
             type_: ffi::AVFrameSideDataType_AV_FRAME_DATA_A53_CC,
             data,
