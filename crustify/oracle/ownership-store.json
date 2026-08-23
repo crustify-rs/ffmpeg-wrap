@@ -26,6 +26,72 @@
    ]
   },
   {
+   "name": "AVBuffer",
+   "defined_in": "libavutil/buffer_internal.h",
+   "_comment_agent": "AVBuffer is public only as an opaque identity behind AVBufferRef. Its internal data allocation is released by the stored callback at the last reference; opaque is runtime-polymorphic callback state and may either be transferred to that callback or borrowed until it runs; free is installed to a non-null static callback on construction. No independent AVBuffer storage dropper is valid because pool entries embed the object.",
+   "fields": [
+    {
+     "name": "data",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Byte array of size bytes. av_buffer_create transfers it to the AVBuffer; the stored free callback receives it when the last AVBufferRef is released."
+     }
+    },
+    {
+     "name": "free",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Construction replaces NULL with av_buffer_default_free, so every initialized AVBuffer holds a static code pointer invoked at the last reference."
+     }
+    },
+    {
+     "name": "opaque",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": {
+       "lifetime": "other"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Type-erased callback state retained until free runs. The callback contract is runtime-polymorphic: callers may transfer context for the callback to dispose or retain externally owned state through the callback."
+     }
+    },
+    {
+     "name": "refcount",
+     "refcount": true
+    }
+   ]
+  },
+  {
+   "name": "AVChannel",
+   "defined_in": "libavutil/channel_layout.h",
+   "_comment_agent": "AVChannel is a by-value C enum with no pointer or lifecycle slots. The inclusive ambisonic endpoint range contains values without individual enumerators, so the Rust surface must remain integer-representable.",
+   "fields": []
+  },
+  {
    "name": "AVChannelOrder",
    "defined_in": "libavutil/channel_layout.h",
    "_comment_agent": "C enum has no pointer or lifecycle fields.",
