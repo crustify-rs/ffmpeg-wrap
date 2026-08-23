@@ -15,11 +15,12 @@ fn main() {
         .use_core()
         .allowlist_type("^(AVColorPrimaries|AVColorRange)$")
         .allowlist_type("^(AVChannelOrder|AVChromaLocation)$")
-        .allowlist_function("^av_(free|malloc|memdup|strdup|strndup)$")
+        .allowlist_function("^av_(free|malloc|md5_alloc|memdup|strdup|strndup)$")
         .allowlist_type("^AVHW(DeviceType|FrameTransferDirection)$")
         .allowlist_type("^(AVPictureType|AVPixelFormat)$")
         .allowlist_type("^AVColor(Space|TransferCharacteristic)$")
         .allowlist_type("^AVSampleFormat$")
+        .allowlist_type("^(AVMD5|AVMediaType)$")
         .generate()
         .expect("generate libavutil bindings");
     bindings

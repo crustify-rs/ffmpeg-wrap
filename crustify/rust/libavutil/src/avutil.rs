@@ -59,6 +59,63 @@ impl From<AVPictureType> for ffi::AVPictureType {
     }
 }
 
+/// Wraps: AVMediaType
+///
+/// ABI-compatible media type. The integer newtype accepts both the named C
+/// constants and unknown values without constructing an invalid Rust enum
+/// discriminant; this preserves `av_get_media_type_string`'s documented
+/// unknown-value case.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AVMediaType(ffi::AVMediaType);
+
+impl AVMediaType {
+    /// An unknown type, usually treated as [`DATA`](Self::DATA).
+    pub const UNKNOWN: Self = Self(ffi::AVMediaType_AVMEDIA_TYPE_UNKNOWN);
+    /// Video data.
+    pub const VIDEO: Self = Self(ffi::AVMediaType_AVMEDIA_TYPE_VIDEO);
+    /// Audio data.
+    pub const AUDIO: Self = Self(ffi::AVMediaType_AVMEDIA_TYPE_AUDIO);
+    /// Opaque, usually continuous data.
+    pub const DATA: Self = Self(ffi::AVMediaType_AVMEDIA_TYPE_DATA);
+    /// Subtitle data.
+    pub const SUBTITLE: Self = Self(ffi::AVMediaType_AVMEDIA_TYPE_SUBTITLE);
+    /// Opaque, usually sparse attachment data.
+    pub const ATTACHMENT: Self = Self(ffi::AVMediaType_AVMEDIA_TYPE_ATTACHMENT);
+    /// Number of ordinary media-type values; a C API sentinel, not media.
+    pub const NB: Self = Self(ffi::AVMediaType_AVMEDIA_TYPE_NB);
+
+    /// Wraps a raw libavutil media-type value, including unknown values.
+    #[must_use]
+    pub const fn from_raw(value: ffi::AVMediaType) -> Self {
+        Self(value)
+    }
+
+    /// Returns the raw libavutil media-type value.
+    #[must_use]
+    pub const fn as_raw(self) -> ffi::AVMediaType {
+        self.0
+    }
+}
+
+impl Default for AVMediaType {
+    fn default() -> Self {
+        Self::UNKNOWN
+    }
+}
+
+impl From<ffi::AVMediaType> for AVMediaType {
+    fn from(value: ffi::AVMediaType) -> Self {
+        Self::from_raw(value)
+    }
+}
+
+impl From<AVMediaType> for ffi::AVMediaType {
+    fn from(value: AVMediaType) -> Self {
+        value.as_raw()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use core::mem::{align_of, size_of};
@@ -86,5 +143,26 @@ mod tests {
         let raw = 99;
         assert_eq!(AVPictureType::from_raw(raw).as_raw(), raw);
         assert_eq!(ffi::AVPictureType::from(AVPictureType::from(raw)), raw);
+    }
+
+    #[test]
+    fn media_type_layout_matches_the_c_enum() {
+        assert_eq!(size_of::<AVMediaType>(), size_of::<ffi::AVMediaType>());
+        assert_eq!(align_of::<AVMediaType>(), align_of::<ffi::AVMediaType>());
+    }
+
+    #[test]
+    fn media_type_named_values_match_the_bindings() {
+        assert_eq!(AVMediaType::UNKNOWN.as_raw(), -1);
+        assert_eq!(AVMediaType::VIDEO.as_raw(), 0);
+        assert_eq!(AVMediaType::ATTACHMENT.as_raw(), 4);
+        assert_eq!(AVMediaType::NB.as_raw(), 5);
+    }
+
+    #[test]
+    fn media_type_unknown_values_round_trip() {
+        let raw = 99;
+        assert_eq!(AVMediaType::from_raw(raw).as_raw(), raw);
+        assert_eq!(ffi::AVMediaType::from(AVMediaType::from(raw)), raw);
     }
 }

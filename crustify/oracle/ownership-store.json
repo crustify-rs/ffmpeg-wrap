@@ -71,6 +71,24 @@
    ]
   },
   {
+   "name": "av_md5_alloc",
+   "defined_in": "libavutil/md5.c",
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "av_md5_alloc returns NULL on allocation failure or transfers a fresh, writable AVMD5 allocation to the caller. Its sole operation is av_mallocz(sizeof(struct AVMD5)), so every byte is initialized to zero and the allocation belongs to the av_malloc family. In-tree owners in av_hash_alloc and av_hmac_alloc eventually release this context through av_free; the Rust AVMD5 CDropped implementation preserves that allocator match. The caller must still call av_md5_init before hashing: zero-filled storage is allocated and initialized as bytes, but does not yet contain the algorithm's initial state."
+    }
+   }
+  },
+  {
    "name": "av_memdup",
    "defined_in": "libavutil/mem.c",
    "lifetime": {
