@@ -796,13 +796,39 @@ mod scheduled_context_tests {
 ///
 /// Allocates a hardware surface from an initialized frames context into an
 /// empty frame. The C API's currently-unused flags parameter is fixed to zero.
+///
+/// "Empty" is a precondition C states and does not check, so it is enforced
+/// here: a frame that already
+/// [holds planes](crate::frame::AVFrameRef::is_unallocated) or already carries
+/// a hardware frames context is refused with `AVERROR(EINVAL)` (-22) before
+/// the call. Unlike the same precondition on
+/// [`av_frame_get_buffer`](crate::frame::av_frame_get_buffer), which costs a
+/// leak, breaking it here costs soundness. C assigns
+/// `frame->hw_frames_ctx = av_buffer_ref(hwframe_ref)` unconditionally
+/// (`hwcontext.c:555`) and, when `frames_get_buffer` then fails, clears that
+/// field again (`hwcontext.c:561`). A frame that arrived holding surfaces of
+/// *its own* context therefore comes back with those surfaces and a **null**
+/// `hw_frames_ctx` — precisely the state
+/// [`replace_hardware_frames_context`](crate::frame::AVFrameMut::replace_hardware_frames_context)
+/// is `unsafe` to forbid, after which a safe
+/// [`av_frame_copy`](crate::frame::av_frame_copy) takes the software route and
+/// hands opaque surface handles to `av_image_copy2` as row addresses.
+///
+/// [`av_frame_unref`](crate::frame::av_frame_unref) releases both the planes
+/// and the context, and is how a frame becomes eligible again.
 pub fn av_hwframe_get_buffer(
     context: &HWFramesContext,
     frame: &mut crate::frame::AVFrameMut<'_>,
 ) -> Result<(), i32> {
+    if !frame.as_ref().is_unallocated() || frame.as_ref().hardware_frames_context().is_some() {
+        return Err(-22);
+    }
     // SAFETY: the type state proves the context is initialized, the frame is
     // exclusively borrowed, and zero is the only documented flags value. Any
-    // installed buffer references become owned by the destination frame.
+    // installed buffer references become owned by the destination frame, and
+    // the check above proves it held no plane or context they could displace —
+    // so neither the success path nor the `frames_get_buffer` failure path can
+    // leave surfaces behind without the context that describes them.
     let status = unsafe {
         ffi::av_hwframe_get_buffer(
             context.buffer_ref().as_ptr().cast_mut(),
@@ -817,13 +843,25 @@ pub fn av_hwframe_get_buffer(
 ///
 /// Transfers image data between a hardware frame and another compatible
 /// frame. The C API's currently-unused flags parameter is fixed to zero.
+///
+/// The destination need not already hold buffers. With a null `dst->buf[0]` C
+/// takes the allocating route (`transfer_data_alloc`, `hwcontext.c:398`): it
+/// builds a temporary frame at the source context's dimensions, in
+/// `dst->format` when that is set and the backend's first reported transfer
+/// format otherwise, transfers into it and moves it into the destination. The
+/// move is `av_frame_move_ref`, which overwrites the destination's fields
+/// wholesale, so any side data, metadata or channel layout it was carrying is
+/// dropped on the floor rather than released — a leak C owns, and the reason
+/// to hand this call a destination that is either allocated or fresh.
 pub fn av_hwframe_transfer_data(
     destination: &mut crate::frame::AVFrameMut<'_>,
     source: crate::frame::AVFrameRef<'_>,
 ) -> Result<(), i32> {
     // SAFETY: the destination is exclusively borrowed and the source is shared
     // for the call. C retains neither frame header and zero is the documented
-    // flags value.
+    // flags value. By AVFrame's invariant a non-null `hw_frames_ctx` on either
+    // frame is an initialized frames context describing that frame's own
+    // planes, which is what the backend transfer hooks are handed.
     let status =
         unsafe { ffi::av_hwframe_transfer_data(destination.as_mut_ptr(), source.as_ptr(), 0) };
     if status < 0 { Err(status) } else { Ok(()) }

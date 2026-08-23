@@ -2673,7 +2673,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Transient exclusive borrow of an initialized destination frame; the call copies data into existing buffers without retaining the frame."
+      "note": "Transient exclusive borrow of an initialized destination frame; the call copies data into existing buffers without retaining the frame. One exception: when either frame carries a hw_frames_ctx, frame_copy_video (frame.c:676) forwards to av_hwframe_transfer_data, whose transfer_data_alloc route (hwcontext.c:398) ALLOCATES into a destination whose buf[0] is null and installs the result with av_frame_move_ref, so buffers can become owned by the destination here too. C validates only equal non-negative format, dst dimensions no smaller than src, and non-null planes on both sides (audio: equal nb_samples and comparable channel layouts); that each frame's geometry describes its own allocation is assumed, and av_image_copy2 then copies src's full extent through both linesize arrays."
      }
     },
     {
@@ -2713,7 +2713,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Transient exclusive borrow of a live destination frame; owned metadata installed by the call becomes part of the destination lifecycle."
+      "note": "Transient exclusive borrow of a live destination frame; owned metadata installed by the call becomes part of the destination lifecycle: a fresh av_buffer_alloc window per side-data entry, av_dict_copy for the dictionaries, an av_refstruct_replace up-ref for private_ref and av_buffer_replace for opaque_ref. Two consequences the name does not suggest: a failure runs av_frame_side_data_free over the WHOLE destination table (frame.c:258), discarding entries the destination already had, while the scalars and merged metadata copied before that point stay; and dst->opaque is copied as a bare address (frame.c:232), so the caller obligation attached to storing that cookie extends to every frame that later receives it."
      }
     },
     {
@@ -2730,7 +2730,7 @@
       },
       "nullable": false,
       "mutable": false,
-      "note": "Transient shared borrow of a live source frame; referenced properties are duplicated or independently reference-counted rather than borrowed."
+      "note": "Transient shared borrow of a live source frame; referenced properties are duplicated or independently reference-counted rather than borrowed. Side data is duplicated by value: force_copy sizes each destination entry with av_frame_new_side_data and memcpys sd_src->size bytes over it (frame.c:261), so the destination window inherits the source window's contents byte for byte, initialized or not."
      }
     }
    ]
@@ -2785,7 +2785,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Transient exclusive non-null borrow of an initialized frame; allocations installed on success become owned by the frame lifecycle."
+      "note": "Transient exclusive non-null borrow of an initialized frame that must hold no plane or buffer yet: get_video_buffer (frame.c:122) assigns frame->buf[0] and frame->data, and get_audio_buffer (frame.c:167) assigns extended_data/extended_buf, neither releasing a prior owner, so a second call orphans the first set (LSan: 1352 bytes for one 8x8 RGBA frame). The frame must also carry no hw_frames_ctx, since the planes installed here are software planes while av_frame_copy routes any frame carrying a context to av_hwframe_transfer_data (frame.c:676). Allocations installed on success become owned by the frame lifecycle. The align argument is normalized (align <= 0 becomes the default at frame.c:89) or refused by av_samples_get_buffer_size, so it carries no precondition of its own."
      }
     }
    ]
@@ -2870,7 +2870,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Transient exclusive non-null borrow; the call may replace all data buffer owners while leaving the frame initialized."
+      "note": "Transient exclusive non-null borrow; the call may replace all data buffer owners while leaving the frame initialized. It builds a private frame from the caller's format/width/height/nb_samples and a copy of its channel layout, allocates through av_hwframe_get_buffer when the frame carries a hw_frames_ctx and av_frame_get_buffer otherwise, copies data and props into it, unrefs the caller's frame and moves the private one in by assignment. Every failure path returns before touching the caller's frame, so an error leaves it exactly as it was; the one at frame.c:576 forgets to unref its private frame first and leaks the channel-layout map it had just copied, which reaches only a CUSTOM-order audio layout whose allocation then fails."
      }
     }
    ]
@@ -2910,7 +2910,7 @@
      },
      "nullable": true,
      "mutable": true,
-     "note": "Returns a nullable exclusive interior borrow of the newly installed side-data entry, tied to the frame borrow."
+     "note": "Returns a nullable exclusive interior borrow of the newly installed side-data entry, tied to the frame borrow. The entry is APPENDED, never merged: add_side_data_from_buf_ext (side_data.c:148) grows the table and inspects no existing entry, so a frame may carry several of one type \u2014 av_frame_get_side_data then answers with the first in table order and av_frame_remove_side_data drops all of them. The header is its own av_mallocz allocation, so the returned pointer survives the av_realloc_array a later append performs on the table. Its size-byte window comes from av_buffer_alloc and is left unwritten by this call."
     }
    }
   },
@@ -3576,7 +3576,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Transient exclusive non-null borrow of an empty initialized frame; installed references and buffers become owned by the frame lifecycle."
+      "note": "Transient exclusive non-null borrow of an EMPTY initialized frame; installed references and buffers become owned by the frame lifecycle. Emptiness is load-bearing rather than merely tidy: C assigns frame->hw_frames_ctx = av_buffer_ref(hwframe_ref) unconditionally (hwcontext.c:555) and, when frames_get_buffer then fails, unrefs that field back to NULL (hwcontext.c:561). A frame that arrived holding surfaces of its own context is therefore left with the surfaces and a null hw_frames_ctx, after which av_frame_copy takes the software route and hands opaque surface handles to av_image_copy2 as row addresses. A frame that arrived holding a context but no surfaces merely leaks that reference."
      }
     },
     {

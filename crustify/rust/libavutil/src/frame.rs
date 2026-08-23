@@ -279,10 +279,16 @@ impl<'a> AVFrameSideDataRef<'a> {
     ///
     /// All `size` bytes of the window must already have been written: by
     /// [`write_all`](AVFrameSideDataMut::write_all), by the producer that
-    /// filled the entry (`frame_copy_props` memcpys the whole window,
-    /// `av_frame_side_data_clone` hands over a buffer it copied), or by C code
-    /// outside this crate. A window `av_frame_new_side_data` or
-    /// `av_frame_side_data_new` has just sized does not satisfy this.
+    /// filled the entry (`av_frame_side_data_clone` hands over a buffer it
+    /// copied), or by C code outside this crate. A window
+    /// `av_frame_new_side_data` or `av_frame_side_data_new` has just sized does
+    /// not satisfy this.
+    ///
+    /// [`av_frame_copy_props`] only *propagates* the obligation: it sizes each
+    /// destination entry with `av_frame_new_side_data` and `memcpy`s the source
+    /// window over it, so a destination entry is fully written exactly when the
+    /// source entry it was copied from already was. Copying an entry nobody
+    /// filled produces a destination window that is equally unwritten.
     #[must_use]
     pub unsafe fn data_assume_init(&self) -> Option<CSlice<'a, u8>> {
         let window = self.data()?;
@@ -1675,23 +1681,67 @@ fn frame_status(status: i32) -> Result<(), i32> {
 
 /// Wraps: av_frame_copy
 ///
-/// Copies frame data into buffers already allocated on `destination`.
+/// Copies frame data, and only data — [`av_frame_copy_props`] carries
+/// everything else.
+///
+/// Normally this writes into buffers `destination` already holds. The one
+/// exception is the hardware route: when either frame carries a
+/// `hw_frames_ctx`, `frame_copy_video` (`frame.c:676`) forwards the whole call
+/// to [`av_hwframe_transfer_data`](crate::hwcontext::av_hwframe_transfer_data),
+/// which *allocates* into a destination whose `buf[0]` is still null
+/// (`transfer_data_alloc`, `hwcontext.c:398`) before transferring.
+///
+/// What C checks is narrow: identical non-negative `format`, a destination no
+/// smaller than the source in each dimension, and a non-null plane on both
+/// sides for each of the format's planes — for audio, equal `nb_samples` and
+/// comparing channel layouts instead. It then copies `source`'s full extent
+/// through both frames' `linesize`. That each frame's geometry actually
+/// describes its own allocation is not checked here at all; it is the relation
+/// [`AVFrame`]'s invariant pins, and the reason the geometry setters refuse a
+/// frame that holds planes.
 pub fn av_frame_copy(destination: &mut AVFrameMut<'_>, source: AVFrameRef<'_>) -> Result<(), i32> {
     // SAFETY: the exclusive destination and shared source handles are live for
-    // the call. C retains neither header and reports incompatible layouts.
+    // the call, and by AVFrame's invariant each frame's planes cover the extent
+    // its own geometry describes, which is what C copies within. Any buffer the
+    // hardware route installs in the destination becomes owned by it, and C
+    // retains neither header.
     frame_status(unsafe { ffi::av_frame_copy(destination.as_mut_ptr(), source.as_ptr()) })
 }
 
 /// Wraps: av_frame_copy_props
 ///
 /// Copies non-layout properties and installs independently owned metadata in
-/// `destination`.
+/// `destination`. Three details of `frame_copy_props(dst, src, 1)`
+/// (`frame.c:220`) are worth stating because they are not what "copy
+/// properties" suggests:
+///
+/// - **Side-data windows are byte copies, so they inherit the source's
+///   initialization state rather than establish one.** For each entry C calls
+///   [`av_frame_new_side_data`] — an `av_buffer_alloc` window it writes none
+///   of — and then `memcpy`s `sd_src->size` bytes over it. The destination
+///   entry is fully written exactly when the source's was, which is why
+///   [`AVFrameSideDataRef::data_assume_init`] names this call only as a
+///   *propagating* producer.
+/// - **A failure discards the destination's entire side-data table**, the
+///   entries it already had included: the `av_frame_new_side_data` failure
+///   path runs `av_frame_side_data_free` over all of `dst->side_data` before
+///   returning `ENOMEM`. The scalars and the merged `metadata` copied before
+///   that point stay. The destination is left valid, not unchanged.
+/// - **`opaque` is copied as a bare address** (`frame.c:232`), as it is by
+///   [`av_frame_clone`]. It is identity only — libavutil never dereferences
+///   it — but it means the obligation
+///   [`set_opaque`](AVFrameMut::set_opaque) states covers every frame that
+///   later receives the address, not just the one it was stored in.
 pub fn av_frame_copy_props(
     destination: &mut AVFrameMut<'_>,
     source: AVFrameRef<'_>,
 ) -> Result<(), i32> {
     // SAFETY: the destination is exclusively borrowed, the source is shared,
-    // and every installed pointer receives its own ownership count or copy.
+    // and every installed pointer receives its own ownership count or copy: a
+    // fresh buffer per side-data entry, `av_dict_copy` for the dictionaries, a
+    // refstruct up-ref for `private_ref` and `av_buffer_replace` for
+    // `opaque_ref`. Both outcomes leave the destination satisfying AVFrame's
+    // invariant.
     frame_status(unsafe { ffi::av_frame_copy_props(destination.as_mut_ptr(), source.as_ptr()) })
 }
 
@@ -1706,10 +1756,40 @@ pub fn av_frame_free(frame: Option<ffibox::CBox<AVFrame>>) {
 /// Wraps: av_frame_get_buffer
 ///
 /// Allocates audio or video buffers from the properties already configured on
-/// `frame`. An alignment of zero asks libavutil to choose its preferred value.
+/// `frame`. An alignment of zero or below asks libavutil to choose its
+/// preferred value; `get_video_buffer` (`frame.c:89`) and
+/// `av_samples_get_buffer_size` both normalize or refuse one before any extent
+/// is computed from it.
+///
+/// Refuses with `AVERROR(EINVAL)` (-22), before reaching C, a frame that is
+/// not [empty](AVFrameRef::is_unallocated) or that already carries a hardware
+/// frames context. Both halves are preconditions C states but does not check:
+///
+/// - C's own header warns "if frame already has been allocated, calling this
+///   function will leak memory", and it means it. `get_video_buffer`
+///   (`frame.c:122`) assigns `frame->buf[0]` and `frame->data` outright, and
+///   `get_audio_buffer` (`frame.c:167`) does the same to `extended_data` and
+///   `extended_buf`, neither releasing what was there. A second call therefore
+///   orphans the whole first set of owners, which is 1352 bytes of `av_malloc`
+///   storage LSan reports for one 8x8 RGBA frame with no `unsafe` anywhere in
+///   the caller — and it contradicts the recorded contract that "allocations
+///   installed on success become owned by the frame lifecycle", since after
+///   the second call the first set is owned by nothing.
+/// - The planes this call installs are *software* planes. Installing them
+///   under a `hw_frames_ctx` would leave the two halves of
+///   [`AVFrame`]'s invariant disagreeing, and `av_frame_copy` routes any frame
+///   carrying a context to `av_hwframe_transfer_data` (`frame.c:676`), which
+///   hands those rows to `hw_frames_ctx->data->hw_type->transfer_data_from`.
+///
+/// [`av_frame_unref`] is how a frame that holds planes becomes eligible again;
+/// it clears the hardware context in the same pass.
 pub fn av_frame_get_buffer(frame: &mut AVFrameMut<'_>, alignment: i32) -> Result<(), i32> {
+    if !frame.as_ref().is_unallocated() || frame.as_ref().hardware_frames_context().is_some() {
+        return Err(-22);
+    }
     // SAFETY: the exclusive handle supplies a live initialized frame. Any
-    // allocations installed on success become owned by the frame lifecycle.
+    // allocations installed on success become owned by the frame lifecycle,
+    // and the check above proves the frame held no owner for them to displace.
     frame_status(unsafe { ffi::av_frame_get_buffer(frame.as_mut_ptr(), alignment) })
 }
 
@@ -1730,7 +1810,18 @@ pub fn av_frame_get_side_data<'a>(
 
 /// Wraps: av_frame_is_writable
 ///
-/// Reports whether every data buffer currently has a unique writable owner.
+/// Reports whether the frame's data may be written through: it must hold at
+/// least one reference-counted buffer, and every buffer it holds — `buf[i]`
+/// and each of the `nb_extended_buf` extended ones — must be uniquely
+/// referenced and not read-only.
+///
+/// A frame with a null `buf[0]` answers `false` rather than vacuously `true`:
+/// C returns early there ("assume non-refcounted frames are not writable",
+/// `frame.c:539`), so an empty frame and one whose planes live in
+/// caller-managed storage are both reported unwritable. This is the predicate
+/// [`av_frame_make_writable`] consults first, which is why that call goes on to
+/// allocate and copy for a frame whose planes are caller-managed instead of
+/// reporting it already writable.
 #[must_use]
 pub fn av_frame_is_writable(frame: AVFrameRef<'_>) -> bool {
     // SAFETY: despite its legacy non-const signature, the implementation only
@@ -1741,10 +1832,26 @@ pub fn av_frame_is_writable(frame: AVFrameRef<'_>) -> bool {
 /// Wraps: av_frame_make_writable
 ///
 /// Replaces shared or non-reference-counted data with uniquely writable
-/// buffers while preserving the frame's initialized state.
+/// buffers while preserving the frame's initialized state. `Ok(())` without
+/// work when [`av_frame_is_writable`] already answers `true`.
+///
+/// Otherwise C copies the frame sideways: it builds a private frame from this
+/// one's `format`, `width`, `height`, `nb_samples` and a copy of its channel
+/// layout, allocates through `av_hwframe_get_buffer` when the frame carries a
+/// hardware frames context and `av_frame_get_buffer` otherwise, runs
+/// [`av_frame_copy`] and [`av_frame_copy_props`] into it, unrefs this frame and
+/// moves the private one in. The fresh allocation gets C's own strides, so a
+/// stride installed with [`set_line_size`](AVFrameMut::set_line_size) does not
+/// survive the exchange — the geometry the invariant pins does.
+///
+/// Every failure path returns before this frame is touched, so an error leaves
+/// it exactly as it was, satisfying the same invariant it already did.
 pub fn av_frame_make_writable(frame: &mut AVFrameMut<'_>) -> Result<(), i32> {
     // SAFETY: the exclusive frame handle permits C to replace its owned buffer
-    // fields. Both success and failure leave the frame initialized.
+    // fields, and by AVFrame's invariant the geometry it reads describes the
+    // planes it copies out. Success installs owners the frame alone holds;
+    // failure returns before assigning anything to it. Both leave the frame
+    // initialized.
     frame_status(unsafe { ffi::av_frame_make_writable(frame.as_mut_ptr()) })
 }
 
@@ -1755,6 +1862,15 @@ pub fn av_frame_make_writable(frame: &mut AVFrameMut<'_>) -> Result<(), i32> {
 /// and writes none of it, so the new entry reads back only through
 /// [`AVFrameSideDataRef::data`]; use [`AVFrameSideDataMut::write_all`] first if
 /// you need the initialized view.
+///
+/// The entry is **appended**, not merged: `add_side_data_from_buf_ext`
+/// (`side_data.c:148`) grows the table and never inspects the existing entries,
+/// so a frame may carry several of one `kind`. That matters to both readers of
+/// the collection — [`av_frame_get_side_data`] hands back the *first* match in
+/// table order, and [`av_frame_remove_side_data`] drops every one of them.
+/// The header itself is a separate `av_mallocz` allocation, so the returned
+/// handle survives the `av_realloc_array` that a later append performs on the
+/// table of pointers.
 #[must_use]
 pub fn av_frame_new_side_data<'a>(
     frame: &'a mut AVFrameMut<'_>,
@@ -1824,6 +1940,166 @@ mod scheduled_frame_function_tests {
         av_frame_unref(&mut clone.as_mut());
         assert_eq!(clone.as_ref().format(), -1);
         av_frame_free(Some(clone));
+    }
+
+    #[test]
+    fn a_second_allocation_over_the_same_frame_is_refused() {
+        let mut frame = configured_video_frame();
+        // Keep only the address: the plane token borrows the frame, and
+        // holding it across the `as_mut` below would — correctly — be refused.
+        let first_plane = frame
+            .as_ref()
+            .data_plane(0)
+            .expect("first plane")
+            .as_non_null();
+
+        // This once succeeded, and C reassigned `buf[0]` and `data` over the
+        // owners already installed: 1352 bytes of `av_malloc` storage that
+        // LSan reports as leaked, reached with no `unsafe` in this test. The
+        // refusal is the wrapper's, before the call.
+        assert_eq!(av_frame_get_buffer(&mut frame.as_mut(), 0), Err(-22));
+        assert_eq!(av_frame_get_buffer(&mut frame.as_mut(), 32), Err(-22));
+        // Nothing moved, so the frame still owns exactly what it did.
+        assert_eq!(
+            frame.as_ref().data_plane(0).map(AVFramePlane::as_non_null),
+            Some(first_plane)
+        );
+        assert!(frame.as_ref().buffer(0).is_some());
+
+        // `av_frame_unref` is the documented way back: it releases the owners
+        // and restores the phase in which an allocation is admissible.
+        av_frame_unref(&mut frame.as_mut());
+        assert!(frame.as_ref().is_unallocated());
+        assert!(frame.as_mut().set_width(8));
+        assert!(frame.as_mut().set_height(8));
+        assert!(
+            frame
+                .as_mut()
+                .set_format(crate::pixfmt::AVPixelFormat::RGBA.as_raw())
+        );
+        av_frame_get_buffer(&mut frame.as_mut(), 0).expect("allocation after unref");
+    }
+
+    #[test]
+    fn the_allocation_gate_asks_only_about_the_frame_phase() {
+        // A frame that holds nothing passes the gate, so what refuses it is
+        // C's own validation of the geometry — the same `AVERROR(EINVAL)`, but
+        // reached rather than pre-empted. What the two answers share is the
+        // postcondition: the frame stays in the unallocated phase, which is
+        // what makes retrying after configuring it admissible.
+        let mut frame = av_frame_alloc().expect("frame allocation");
+        assert!(frame.as_ref().is_unallocated());
+        assert_eq!(frame.as_ref().format(), -1);
+        assert_eq!(av_frame_get_buffer(&mut frame.as_mut(), 0), Err(-22));
+        assert!(frame.as_ref().is_unallocated());
+
+        // A format with no dimensions and no samples is still not enough.
+        assert!(
+            frame
+                .as_mut()
+                .set_format(crate::pixfmt::AVPixelFormat::RGBA.as_raw())
+        );
+        assert!(av_frame_get_buffer(&mut frame.as_mut(), 0).is_err());
+        assert!(frame.as_ref().is_unallocated());
+
+        // Dimensions complete the geometry, and the same call now succeeds on
+        // the same frame — the gate never latched.
+        assert!(frame.as_mut().set_width(8));
+        assert!(frame.as_mut().set_height(8));
+        av_frame_get_buffer(&mut frame.as_mut(), 0).expect("configured allocation");
+        assert!(!frame.as_ref().is_unallocated());
+    }
+
+    #[test]
+    fn a_frame_carries_several_entries_of_one_kind() {
+        let mut frame = av_frame_alloc().expect("frame allocation");
+        {
+            let mut handle = frame.as_mut();
+            let mut first =
+                av_frame_new_side_data(&mut handle, AVFrameSideDataType::SEI_UNREGISTERED, 2)
+                    .expect("first entry");
+            assert!(first.write_all(&[1, 2]));
+        }
+        {
+            let mut handle = frame.as_mut();
+            let mut second =
+                av_frame_new_side_data(&mut handle, AVFrameSideDataType::SEI_UNREGISTERED, 2)
+                    .expect("second entry");
+            // The append does not merge, so the first entry is still there.
+            assert!(second.write_all(&[3, 4]));
+        }
+        assert_eq!(frame.as_ref().nb_side_data(), 2);
+
+        // `av_frame_get_side_data` answers with the first match in table
+        // order, not the most recent one.
+        let found = av_frame_get_side_data(frame.as_ref(), AVFrameSideDataType::SEI_UNREGISTERED)
+            .expect("a matching entry");
+        // SAFETY: `write_all` covered every byte of both windows above.
+        let window = unsafe { found.data_assume_init() }.expect("entry window");
+        assert!(window.elems().eq([1, 2]));
+
+        // And the removal drops every one of them rather than the first.
+        av_frame_remove_side_data(&mut frame.as_mut(), AVFrameSideDataType::SEI_UNREGISTERED);
+        assert_eq!(frame.as_ref().nb_side_data(), 0);
+    }
+
+    #[test]
+    fn copied_properties_duplicate_a_side_data_window() {
+        let mut source = av_frame_alloc().expect("source frame");
+        {
+            let mut handle = source.as_mut();
+            let mut entry =
+                av_frame_new_side_data(&mut handle, AVFrameSideDataType::SEI_UNREGISTERED, 3)
+                    .expect("source entry");
+            assert!(entry.write_all(&[9, 8, 7]));
+        }
+        source.as_mut().set_pts(11);
+
+        let mut destination = av_frame_alloc().expect("destination frame");
+        av_frame_copy_props(&mut destination.as_mut(), source.as_ref()).expect("copy properties");
+        assert_eq!(destination.as_ref().pts(), 11);
+        assert_eq!(destination.as_ref().nb_side_data(), 1);
+
+        let copied =
+            av_frame_get_side_data(destination.as_ref(), AVFrameSideDataType::SEI_UNREGISTERED)
+                .expect("copied entry");
+        // The destination entry is a fresh `av_buffer_alloc` window C memcpy'd
+        // the source's bytes over, so it owns a different buffer holding the
+        // same contents — which is also why the obligation on
+        // `data_assume_init` is propagated here rather than established.
+        assert_ne!(
+            copied.buffer().map(|buffer| buffer.as_ptr()),
+            av_frame_get_side_data(source.as_ref(), AVFrameSideDataType::SEI_UNREGISTERED)
+                .and_then(|entry| entry.buffer())
+                .map(|buffer| buffer.as_ptr())
+        );
+        // SAFETY: the source window was fully written by `write_all`, and the
+        // copy covered all three of its bytes.
+        let window = unsafe { copied.data_assume_init() }.expect("copied window");
+        assert!(window.elems().eq([9, 8, 7]));
+    }
+
+    #[test]
+    fn writability_is_reported_about_buffers_not_about_emptiness() {
+        // A frame that holds nothing has no buffer to be unique owner of, and
+        // C answers `false` rather than vacuously `true`.
+        let empty = av_frame_alloc().expect("frame allocation");
+        assert!(empty.as_ref().is_unallocated());
+        assert!(!av_frame_is_writable(empty.as_ref()));
+
+        // Its own allocation makes it writable; a second reference to the
+        // same buffers takes that away from both.
+        let mut frame = configured_video_frame();
+        assert!(av_frame_is_writable(frame.as_ref()));
+        let clone = av_frame_clone(frame.as_ref()).expect("frame clone");
+        assert!(!av_frame_is_writable(frame.as_ref()));
+        assert!(!av_frame_is_writable(clone.as_ref()));
+        drop(clone);
+        assert!(av_frame_is_writable(frame.as_ref()));
+
+        // And `av_frame_make_writable` is a no-op on a frame that already is.
+        av_frame_make_writable(&mut frame.as_mut()).expect("already writable");
+        assert!(av_frame_is_writable(frame.as_ref()));
     }
 
     #[test]
