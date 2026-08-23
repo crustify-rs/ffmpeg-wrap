@@ -25,8 +25,8 @@
       "owned": true,
       "borrowed": null,
       "nullable": true,
-      "mutable": false,
-      "note": "av_free consumes an av_malloc-family allocation of any byte-level shape, including allocations used as strings; NULL is explicitly accepted."
+      "mutable": null,
+      "note": "av_free consumes an av_malloc-family allocation of any byte-level shape and releases its storage; NULL is explicitly allowed (documented in mem.h and forwarded unchanged). All three shapes are observed at the callsites: singletons (av_aes_ctr_free's a, av_encryption_info_free's info), counted buffers (executor_free's e->threads, av_encryption_info_free's info->subsamples, av_file_unmap's bufptr on a build without HAVE_MMAP), and NUL-terminated av_strdup/av_strndup strings (av_dict_set's copy_key/copy_value, parse_channel_list's chname). array is by_val, not by_ref, even where the buffer holds pointers (av_encryption_init_info_free's info->key_ids): the caller frees every element first, so av_free neither owns nor borrows the elements a by_ref block would have to describe -- to it the buffer is opaque bytes. mutable is null, not false: the body only forwards ptr to free, or to _aligned_free where HAVE_ALIGNED_MALLOC holds, and both are external symbols with no definition in this extraction, so no body inspection can decide whether the released block is written; it is not observably read-only either, since a real allocator writes its own bookkeeping into it. This matches the same-shape verdict already recorded on free, whose sole in-scope caller this is. The allocator family is a build-time property -- MALLOC_PREFIX renames free, and HAVE_ALIGNED_MALLOC swaps in _aligned_free -- so an av_free pointer must come from av_malloc/av_realloc and never from plain malloc."
      }
     }
    ]
