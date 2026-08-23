@@ -65,35 +65,83 @@ impl From<AVChromaLocation> for ffi::AVChromaLocation {
 
 /// Wraps: AVColorPrimaries
 ///
-/// Identifies the chromaticity coordinates of source color primaries. The
-/// transparent representation preserves extension and unknown values without
-/// turning an unfamiliar C value into an invalid Rust enum.
+/// Identifies the chromaticity coordinates of the source color primaries, as
+/// numbered by ITU-T H.273. The transparent representation preserves values
+/// this crate does not name — the base range has unassigned gaps, libavutil
+/// adds a custom extension range above [`EXT_BASE`](Self::EXT_BASE), and a
+/// newer linked library may define more — instead of turning an unfamiliar C
+/// value into an invalid Rust enum.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AVColorPrimaries(ffi::AVColorPrimaries);
 
 impl AVColorPrimaries {
+    /// Reserved by H.273.
     pub const RESERVED0: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_RESERVED0);
+
+    /// Also ITU-R BT1361 / IEC 61966-2-4 / SMPTE RP 177 Annex B.
     pub const BT709: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_BT709);
+
+    /// The primaries are unknown or deliberately unset.
     pub const UNSPECIFIED: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_UNSPECIFIED);
+
+    /// Reserved by H.273.
     pub const RESERVED: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_RESERVED);
+
+    /// Also FCC Title 47 Code of Federal Regulations 73.682 (a)(20).
     pub const BT470M: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_BT470M);
+
+    /// Also ITU-R BT601-6 625 / ITU-R BT1358 625 / ITU-R BT1700 625 PAL and SECAM.
     pub const BT470BG: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_BT470BG);
+
+    /// Also ITU-R BT601-6 525 / ITU-R BT1358 525 / ITU-R BT1700 NTSC.
     pub const SMPTE170M: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_SMPTE170M);
+
+    /// The same primaries as [`SMPTE170M`](Self::SMPTE170M), also called
+    /// "SMPTE C" even though it uses D65. It is a distinct H.273 value, so it
+    /// does not compare equal to [`SMPTE170M`](Self::SMPTE170M).
     pub const SMPTE240M: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_SMPTE240M);
+
+    /// Colour filters using Illuminant C.
     pub const FILM: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_FILM);
+
+    /// ITU-R BT2020.
     pub const BT2020: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_BT2020);
+
+    /// SMPTE ST 428-1 (CIE 1931 XYZ).
     pub const SMPTE428: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_SMPTE428);
+
+    /// Alternative C spelling of [`SMPTE428`](Self::SMPTE428); the same value.
     pub const SMPTEST428_1: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_SMPTEST428_1);
+
+    /// SMPTE ST 431-2 (2011) / DCI P3.
     pub const SMPTE431: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_SMPTE431);
+
+    /// SMPTE ST 432-1 (2010) / P3 D65 / Display P3.
     pub const SMPTE432: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_SMPTE432);
+
+    /// EBU Tech. 3213-E / one of the JEDEC P22 group phosphors.
     pub const EBU3213: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_EBU3213);
+
+    /// Alternative C spelling of [`EBU3213`](Self::EBU3213); the same value.
     pub const JEDEC_P22: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_JEDEC_P22);
-    /// Sentinel for the number of base values; not part of the stable C ABI.
+
+    /// Exclusive upper bound of the H.273 base range; not part of the ABI.
+    /// It is a bound, not a count: the values between
+    /// [`SMPTE432`](Self::SMPTE432) and [`EBU3213`](Self::EBU3213) are
+    /// unassigned and name nothing.
     pub const NB: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_NB);
+
+    /// First value of libavutil's custom extension range, which lies above
+    /// every H.273 value and is not part of that standard.
     pub const EXT_BASE: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_EXT_BASE);
+
+    /// V-Gamut, the first custom extension and equal to
+    /// [`EXT_BASE`](Self::EXT_BASE); libavutil names it `vgamut`.
     pub const V_GAMUT: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_V_GAMUT);
-    /// Sentinel for the number of extension values; not part of the stable C ABI.
+
+    /// Exclusive upper bound of the custom extension range; not part of the
+    /// ABI.
     pub const EXT_NB: Self = Self(ffi::AVColorPrimaries_AVCOL_PRI_EXT_NB);
 
     /// Wraps a raw C enum value, including one unknown to this crate version.
@@ -122,19 +170,28 @@ impl From<AVColorPrimaries> for ffi::AVColorPrimaries {
 /// Wraps: AVColorRange
 ///
 /// Describes whether visual content uses narrow, full, or unspecified sample
-/// ranges. The transparent representation keeps unknown C values representable
-/// for forward compatibility.
+/// ranges. The transparent representation keeps values unknown to this crate
+/// representable, so a value from a newer linked libavutil round-trips instead
+/// of becoming an invalid Rust enum.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AVColorRange(ffi::AVColorRange);
 
 impl AVColorRange {
+    /// The sample range is unknown or deliberately unset.
     pub const UNSPECIFIED: Self = Self(ffi::AVColorRange_AVCOL_RANGE_UNSPECIFIED);
-    /// Narrow or limited range content.
+
+    /// Narrow or limited range content: luma is `(219 * E + 16) * 2^(n-8)`
+    /// and chroma is `(224 * E + 128) * 2^(n-8)`, so 8-bit luma occupies
+    /// 16-235 and 8-bit chroma 16-240.
     pub const MPEG: Self = Self(ffi::AVColorRange_AVCOL_RANGE_MPEG);
-    /// Full range content.
+
+    /// Full range content: RGB and luma are `(2^n - 1) * E` and chroma is
+    /// `(2^n - 1) * E + 2^(n-1)`, so 8-bit luma occupies 0-255 and 8-bit
+    /// chroma 1-255.
     pub const JPEG: Self = Self(ffi::AVColorRange_AVCOL_RANGE_JPEG);
-    /// Sentinel for the number of values; not part of the stable C ABI.
+
+    /// Exclusive upper bound of the defined values; not part of the ABI.
     pub const NB: Self = Self(ffi::AVColorRange_AVCOL_RANGE_NB);
 
     /// Wraps a raw C enum value, including one unknown to this crate version.
@@ -342,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn color_primaries_is_layout_compatible_and_round_trips() {
+    fn color_primaries_matches_the_h273_numbering() {
         assert_eq!(
             size_of::<AVColorPrimaries>(),
             size_of::<ffi::AVColorPrimaries>()
@@ -351,28 +408,109 @@ mod tests {
             align_of::<AVColorPrimaries>(),
             align_of::<ffi::AVColorPrimaries>()
         );
-        assert_eq!(
-            AVColorPrimaries::BT2020.as_raw(),
-            ffi::AVColorPrimaries_AVCOL_PRI_BT2020
-        );
+
+        // Pinned against libavutil/pixfmt.h so a bindgen or header change that
+        // renumbered a value is a test failure rather than a silent mismatch
+        // with the linked library.
+        for (value, expected) in [
+            (AVColorPrimaries::RESERVED0, 0),
+            (AVColorPrimaries::BT709, 1),
+            (AVColorPrimaries::UNSPECIFIED, 2),
+            (AVColorPrimaries::RESERVED, 3),
+            (AVColorPrimaries::BT470M, 4),
+            (AVColorPrimaries::BT470BG, 5),
+            (AVColorPrimaries::SMPTE170M, 6),
+            (AVColorPrimaries::SMPTE240M, 7),
+            (AVColorPrimaries::FILM, 8),
+            (AVColorPrimaries::BT2020, 9),
+            (AVColorPrimaries::SMPTE428, 10),
+            (AVColorPrimaries::SMPTE431, 11),
+            (AVColorPrimaries::SMPTE432, 12),
+            (AVColorPrimaries::EBU3213, 22),
+            (AVColorPrimaries::NB, 23),
+            (AVColorPrimaries::EXT_BASE, 256),
+            (AVColorPrimaries::EXT_NB, 257),
+        ] {
+            assert_eq!(value.as_raw(), expected);
+        }
+
+        // The C header defines these as alternative spellings, not as values
+        // of their own.
         assert_eq!(AVColorPrimaries::SMPTE428, AVColorPrimaries::SMPTEST428_1);
         assert_eq!(AVColorPrimaries::EBU3213, AVColorPrimaries::JEDEC_P22);
+        assert_eq!(AVColorPrimaries::V_GAMUT, AVColorPrimaries::EXT_BASE);
+
+        // `NB` bounds the base range but does not count it: the values below
+        // it between SMPTE432 and EBU3213 are unassigned.
+        assert!(AVColorPrimaries::SMPTE432 < AVColorPrimaries::EBU3213);
+        assert!(AVColorPrimaries::NB < AVColorPrimaries::EXT_BASE);
 
         let unknown = ffi::AVColorPrimaries::MAX;
         assert_eq!(AVColorPrimaries::from_raw(unknown).as_raw(), unknown);
     }
 
     #[test]
-    fn color_range_is_layout_compatible_and_round_trips() {
+    fn color_primaries_cross_the_abi_over_the_whole_value_space() {
+        use crate::pixdesc::av_color_primaries_name;
+
+        // A named base value, and the extension value 256 — which only
+        // resolves if the wrapper hands C an `unsigned int` of the width the
+        // linked library's enum uses.
+        assert_eq!(
+            av_color_primaries_name(AVColorPrimaries::BT709),
+            Some(c"bt709")
+        );
+        assert_eq!(
+            av_color_primaries_name(AVColorPrimaries::V_GAMUT),
+            Some(c"vgamut")
+        );
+
+        // Unnamed values stay valid Rust values and are rejected by C rather
+        // than indexing its tables: 13 falls in the base range's unassigned
+        // hole, `NB` and `EXT_NB` are the exclusive bounds, and the gap
+        // between the ranges is empty.
+        for value in [
+            AVColorPrimaries::from_raw(13),
+            AVColorPrimaries::NB,
+            AVColorPrimaries::from_raw(255),
+            AVColorPrimaries::EXT_NB,
+            AVColorPrimaries::from_raw(ffi::AVColorPrimaries::MAX),
+        ] {
+            assert_eq!(av_color_primaries_name(value), None);
+        }
+    }
+
+    #[test]
+    fn color_range_matches_the_c_numbering_and_crosses_the_abi() {
+        use crate::pixdesc::av_color_range_name;
+
         assert_eq!(size_of::<AVColorRange>(), size_of::<ffi::AVColorRange>());
         assert_eq!(align_of::<AVColorRange>(), align_of::<ffi::AVColorRange>());
+
+        for (value, expected) in [
+            (AVColorRange::UNSPECIFIED, 0),
+            (AVColorRange::MPEG, 1),
+            (AVColorRange::JPEG, 2),
+            (AVColorRange::NB, 3),
+        ] {
+            assert_eq!(value.as_raw(), expected);
+        }
+
+        // libavutil names the narrow and full ranges after their container
+        // conventions; the mapping proves the values reach C unchanged.
         assert_eq!(
-            AVColorRange::JPEG.as_raw(),
-            ffi::AVColorRange_AVCOL_RANGE_JPEG
+            av_color_range_name(AVColorRange::UNSPECIFIED),
+            Some(c"unknown")
         );
+        assert_eq!(av_color_range_name(AVColorRange::MPEG), Some(c"tv"));
+        assert_eq!(av_color_range_name(AVColorRange::JPEG), Some(c"pc"));
+
+        // `NB` is the exclusive bound, so C names nothing for it or above.
+        assert_eq!(av_color_range_name(AVColorRange::NB), None);
 
         let unknown = ffi::AVColorRange::MAX;
         assert_eq!(AVColorRange::from_raw(unknown).as_raw(), unknown);
+        assert_eq!(av_color_range_name(AVColorRange::from_raw(unknown)), None);
     }
 
     #[test]
