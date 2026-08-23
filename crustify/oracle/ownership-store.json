@@ -261,6 +261,178 @@
    ]
   },
   {
+   "name": "AVFrame",
+   "defined_in": "libavutil/frame.h",
+   "_comment_agent": "AVFrame owns its reference headers, side-data collection, dictionaries, channel-layout resources, and conditional pointer tables; plane addresses borrow storage kept alive either by those buffer references or by caller-managed non-refcounted storage. private_ref is an internal RefStruct owner and opaque is application-borrowed identity only.",
+   "fields": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Each non-null slot in the inline eight-element array owns one independently releasable AVBufferRef header; av_frame_unref consumes all slots. Non-null entries must be contiguous."
+     }
+    },
+    {
+     "name": "data",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "other"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Each inline slot is an optional interior plane pointer. In a reference-counted frame it borrows storage kept alive by buf/extended_buf; a non-refcounted frame may instead borrow caller-managed storage. Plane extent depends on media type, format, dimensions, and signed linesize."
+     }
+    },
+    {
+     "name": "extended_buf",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Owns an av_malloc-family nb_extended_buf-element pointer table and every non-null AVBufferRef header stored in it; av_frame_unref releases headers then table."
+     }
+    },
+    {
+     "name": "extended_data",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": false,
+        "borrowed": {
+         "lifetime": "other"
+        }
+       }
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": false,
+      "mutable": true,
+      "note": "Points either at the inline data array (no separate allocation) or at a frame-owned pointer table sized by the audio channel count. Its element plane addresses borrow buffer-backed or caller-managed data; unref frees only a separate table."
+     }
+    },
+    {
+     "name": "hw_frames_ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Optional owned AVBufferRef header describing the hardware frames context; cloned by reference and consumed during av_frame_unref."
+     }
+    },
+    {
+     "name": "metadata",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Optional frame-owned dictionary, copied by frame property-copy operations and consumed by av_dict_free during unref/replacement."
+     }
+    },
+    {
+     "name": "opaque",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "other"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Application-owned type-erased cookie. Frame operations copy or clear the address but never dereference or free it; the application must keep it alive across every copied frame retaining it."
+     }
+    },
+    {
+     "name": "opaque_ref",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Optional owned AVBufferRef header carrying reference-counted opaque data; copied with av_buffer_ref and consumed during av_frame_unref."
+     }
+    },
+    {
+     "name": "private_ref",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Internal nullable RefStruct reference owned by one libav* library and consumed by av_refstruct_unref. Public users are forbidden to inspect or change it."
+     }
+    },
+    {
+     "name": "side_data",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Owns an nb_side_data-element allocated pointer table and every non-null AVFrameSideData entry. av_frame_side_data_free releases entries and table."
+     }
+    }
+   ]
+  },
+  {
    "name": "AVFrameSideData",
    "defined_in": "libavutil/frame.h",
    "_comment_agent": "AVFrameSideData headers are owned by a frame/side-data array rather than independently by public callers. The buf owner keeps the data window alive; metadata is a separate nullable owner.",
@@ -2408,6 +2580,151 @@
    ]
   },
   {
+   "name": "av_frame_alloc",
+   "defined_in": "libavutil/frame.c",
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns a newly allocated, initialized AVFrame owned by the caller, or NULL on allocation failure."
+    }
+   }
+  },
+  {
+   "name": "av_frame_clone",
+   "defined_in": "libavutil/frame.c",
+   "lifetime": {
+    "for": "src",
+    "is_dropper": false,
+    "is_disposer": false,
+    "is_cloner": {
+     "deep": true,
+     "upref": false
+    }
+   },
+   "ptr_args": [
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient shared borrow of a valid source frame; its owned subobjects are duplicated or reference-counted into the result."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns a newly allocated independently droppable AVFrame header, or NULL on failure."
+    }
+   }
+  },
+  {
+   "name": "av_frame_free",
+   "defined_in": "libavutil/frame.c",
+   "lifetime": {
+    "for": "frame",
+    "is_dropper": true,
+    "is_disposer": false,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "frame",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": {
+       "lifetime": "arg:frame"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Borrows the outer slot, consumes its nullable owned AVFrame, releases all fields and storage, and writes NULL; the outer slot may itself be NULL."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_frame_ref",
+   "defined_in": "libavutil/frame.c",
+   "lifetime": {
+    "for": "src",
+    "is_dropper": false,
+    "is_disposer": false,
+    "is_cloner": {
+     "deep": true,
+     "upref": false
+    }
+   },
+   "ptr_args": [
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Mutably borrows a newly allocated or already-unreferenced destination and initializes it with cloned source state."
+     }
+    },
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient shared source borrow; buffer reference units and owned properties are duplicated into dst."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_frame_side_data_name",
    "defined_in": "libavutil/side_data.c",
    "ptr_ret": {
@@ -2426,6 +2743,35 @@
      "note": "Returns a borrowed process-lifetime table string, or NULL for an unknown enum value."
     }
    }
+  },
+  {
+   "name": "av_frame_unref",
+   "defined_in": "libavutil/frame.c",
+   "lifetime": {
+    "for": "frame",
+    "is_dropper": false,
+    "is_disposer": true,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "frame",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:frame"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Mutably borrows the by-value frame, disposes every owned field, and restores initialized defaults while retaining the header storage."
+     }
+    }
+   ]
   },
   {
    "name": "av_free",

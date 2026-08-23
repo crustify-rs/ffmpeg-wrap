@@ -38,7 +38,7 @@ fn main() {
         .allowlist_function("^av_(image_(copy_to_buffer|fill_arrays|fill_black|fill_pointers|get_buffer_size)|md5_(alloc|final|init|update)|mul_q|nearer_q|opt_set_(array|dict|pixel_fmt|q|sample_fmt|video_rate)|q2intfloat|rescale_(q|q_rnd|rnd)|sample_fmt_is_planar|samples_(alloc|alloc_array_and_samples|copy|fill_arrays|get_buffer_size|set_silence)|sub_q)$")
         .allowlist_type("^AV(ComponentDescriptor|Dictionary|PixFmtDescriptor)$")
         .allowlist_type(
-            "^(AVBuffer|AVBufferRef|AVChannel|AVChannelCustom|AVChannelLayout|AVFrameSideData)$",
+            "^(AVBuffer|AVBufferRef|AVChannel|AVChannelCustom|AVChannelLayout|AVFrame|AVFrameSideData)$",
         )
         .allowlist_function(
             "^av_channel_layout_(channel_from_(index|string)|check|compare|copy|default|describe|from_(mask|string)|index_from_(channel|string)|retype|standard|subset|uninit)$",
@@ -48,6 +48,7 @@ fn main() {
         .allowlist_function(
             "^av_buffer_(alloc|allocz|get_ref_count|is_writable|make_writable|realloc|ref|unref)$",
         )
+        .allowlist_function("^av_frame_(alloc|clone|free|get_buffer)$")
         .allowlist_function(
             "^av_(get_bits_per_pixel|pix_fmt_desc_(get|get_id|next)|opt_find2)$",
         )
