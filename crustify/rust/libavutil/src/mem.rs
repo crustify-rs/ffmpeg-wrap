@@ -10,10 +10,10 @@ use crate::ffi;
 /// Wraps: av_free
 ///
 /// Releases an allocation from the `av_malloc` family — `av_malloc`,
-/// `av_mallocz`, `av_calloc`, `av_realloc`, `av_memdup`, `av_strdup` and the
-/// dynarray helpers built on them. The recorded contract covers all three
-/// byte-level shapes the pointer may hold, and each reaches `av_free` through
-/// the owner that matches it:
+/// `av_mallocz`, `av_calloc`, `av_realloc`, `av_memdup`, `av_strdup`,
+/// `av_strndup` and the dynarray helpers built on them. The recorded contract
+/// covers all three byte-level shapes the pointer may hold, and each reaches
+/// `av_free` through the owner that matches it:
 ///
 /// | shape | owner | callsite it models |
 /// |---|---|---|
@@ -81,30 +81,76 @@ unsafe impl CLenDropped for AvFree {
 ///
 /// Deep-clones an owned NUL-terminated string into an independent allocation
 /// from the `av_malloc` family. This is the ordinary clone strategy for
-/// [`CrustifyStr<AvFree>`](ffibox::CrustifyStr): the source stays live, the
-/// returned string owes its own [`AvFree`] drop, and allocation failure is
-/// reported by [`try_clone`](ffibox::CrustifyStr::try_clone).
-// SAFETY: `av_strdup` preserves the source and returns either NULL or a fresh,
-// independently owned NUL-terminated allocation released by `AvFree`.
+/// [`CrustifyStr<AvFree>`](ffibox::CrustifyStr): the source stays live and the
+/// returned string owes its own [`AvFree`] drop.
+///
+/// `av_strdup` sizes the copy with `strlen(s) + 1` and takes it from
+/// `av_realloc`, so it returns NULL both on OOM and for a string at or above
+/// the `av_max_alloc` limit `av_realloc` enforces — `INT_MAX` by default. As
+/// on the counted tier, [`try_clone`](ffibox::CrustifyStr::try_clone) reports
+/// that as `None` while [`Clone::clone`] aborts.
+///
+/// # The obligation this impl adds
+///
+/// [`CCloned::c_clone`] asks its caller only for "a live, valid instance of
+/// `Self`", and `Self` here is a zero-sized strategy naming a destructor
+/// class, so that says nothing about the bytes behind the pointer. This impl
+/// narrows it: `obj` must additionally address a NUL-terminated string,
+/// because `av_strdup` recovers the extent with `strlen` and an unterminated
+/// source would read past the allocation.
+///
+/// No safe path can violate that, and the ffibox bounds are what rule it out
+/// rather than a convention. [`CrustifyStr`](ffibox::CrustifyStr) is the only
+/// owner whose `Clone` reaches [`CCloned`] with `AvFree`, and a terminator is
+/// precisely its type invariant: [`CBox`](ffibox::CBox) additionally requires
+/// [`CCell`](ffibox::CCell), which a strategy is not;
+/// [`CVoidBox`](ffibox::CVoidBox) — the erased tier, whose bytes need hold no
+/// terminator at all — has no `Clone` whatsoever; and [`CVec`](ffibox::CVec)
+/// clones through the length-carrying [`CLenCloned`] below.
+// SAFETY: given that obligation, `av_strdup` reads the source without
+// modifying, freeing or retaining it, and returns either NULL or a fresh,
+// independently owned NUL-terminated allocation that one `AvFree::c_drop`
+// releases.
 unsafe impl CCloned for AvFree {
     unsafe fn c_clone(obj: NonNull<Self>) -> Option<NonNull<Self>> {
-        // SAFETY: this impl is reached by `CrustifyStr`, whose invariant makes
-        // `obj` a live NUL-terminated string. `av_strdup` reads that string,
-        // preserves it, and returns a fresh allocation or NULL.
+        // SAFETY: the caller owes a live NUL-terminated `av_malloc`-family
+        // string at `obj`, so `av_strdup` may run `strlen` over it and copy
+        // through the terminator. It leaves the source live and hands back
+        // NULL or a fresh allocation this strategy now owns.
         NonNull::new(unsafe { ffi::av_strdup(obj.as_ptr().cast::<c_char>()) }.cast::<Self>())
     }
 }
 
 /// Wraps: av_strndup
 ///
-/// Alternative `av_malloc` string strategy whose clone uses `av_strndup`.
+/// String strategy whose clone runs `av_strndup` instead of `av_strdup`. Drop
+/// delegates to the same allocator-matched [`av_free`](ffi::av_free) as
+/// [`AvFree`], so the allocations the two strategies hold are interchangeable
+/// even though `CrustifyStr<AvFree>` and `CrustifyStr<AvFreeWithStrndup>` are
+/// distinct Rust types.
 ///
-/// `av_strndup` accepts an external maximum rather than recovering it itself.
+/// `av_strndup` takes its maximum from the caller rather than recovering one,
+/// and truncates at the first NUL inside that bound. Adoption is where that
+/// buys something: a bounded copy out of a buffer that need not be terminated
+/// at all is the one thing `av_strdup` cannot do. The bound is a read
+/// obligation, not a hint — `memchr` may scan the whole range before finding
+/// nothing — so the caller must supply that many readable bytes.
+///
+/// The clone cannot use that freedom, and saying so is the point of this type.
 /// [`CrustifyStr`](ffibox::CrustifyStr) already guarantees a terminator, so
-/// this strategy recovers the exact byte length and supplies it as the bound.
-/// The operation therefore copies the complete string rather than truncating
-/// it, while still exercising the length-bounded primitive. Drop delegates to
-/// the same allocator-matched [`av_free`](ffi::av_free) as [`AvFree`].
+/// the only bound that preserves the string is its own `strlen`; supplying it
+/// makes `av_strndup` allocate `strlen + 1` and copy every byte, which is
+/// byte-for-byte what `av_strdup` produces from the same source. The two
+/// clones are therefore observably identical, and this strategy exists only
+/// because [`CCloned`] admits one impl per type — [`AvFree`] spends its on
+/// `av_strdup`, so `av_strndup` needs a type of its own to be reachable at
+/// all. Choose it to keep an adopted `av_strndup` result on the primitive the
+/// ported C code called; choose [`AvFree`] otherwise, and necessarily for a
+/// counted buffer, since [`CLenDropped`] and [`CLenCloned`] live only there.
+///
+/// Failure is reported as on every other tier: `None` from
+/// [`try_clone`](ffibox::CrustifyStr::try_clone), an abort from
+/// [`Clone::clone`], for OOM and for the `av_max_alloc` cap alike.
 pub struct AvFreeWithStrndup;
 
 // SAFETY: `c_drop` delegates exactly once to the allocator-matched `av_free`.
@@ -116,18 +162,24 @@ unsafe impl CDropped for AvFreeWithStrndup {
     }
 }
 
-// SAFETY: the source is a `CrustifyStr` string, and using its recovered length
-// as `av_strndup`'s bound produces an exact independent clone released by this
-// strategy's `CDropped` implementation.
+// SAFETY: the caller owes what `AvFree`'s `CCloned` impl documents — a live
+// NUL-terminated `av_malloc`-family string at `obj`, which is more than
+// `CCloned` itself demands and which only `CrustifyStr` can reach this impl
+// with. Given it, the recovered `strlen` is a bound `av_strndup` may read in
+// full, and the result is a fresh independently owned string released by this
+// strategy's `CDropped`.
 unsafe impl CCloned for AvFreeWithStrndup {
     unsafe fn c_clone(obj: NonNull<Self>) -> Option<NonNull<Self>> {
         let ptr = obj.as_ptr().cast::<c_char>();
-        // SAFETY: this impl is reached by `CrustifyStr`, whose invariant makes
-        // `ptr` live and NUL-terminated for the duration of the shared clone.
+        // SAFETY: the caller owes a live NUL-terminated string at `ptr`, and
+        // the borrow this forms over it ends with the statement, well inside
+        // the window in which the caller keeps the source alive and unwritten.
         let byte_len = unsafe { CStr::from_ptr(ptr) }.to_bytes().len();
-        // SAFETY: `byte_len` is the number of readable non-NUL bytes before the
-        // terminator, so `av_strndup` may inspect that range and returns a fresh
-        // terminated allocation or NULL without modifying the source.
+        // SAFETY: `byte_len` counts the non-NUL bytes before the terminator, so
+        // every byte of the bound is readable: `memchr` scans the whole range,
+        // stays inside the allocation and finds nothing, after which
+        // `av_strndup` copies all of it and terminates the copy. The source is
+        // neither modified nor retained, and NULL means allocation failure.
         NonNull::new(unsafe { ffi::av_strndup(ptr, byte_len) }.cast::<Self>())
     }
 }
@@ -144,7 +196,7 @@ unsafe impl CCloned for AvFreeWithStrndup {
 /// ([`CVoidBox<AvFree>`](ffibox::CVoidBox)) has no extent to pass, and ffibox
 /// gives it no clone at all. A NUL-terminated string
 /// ([`CrustifyStr<AvFree>`](ffibox::CrustifyStr)) clones through
-/// [`CCloned`](ffibox::CCloned), whose pointer-only signature is shaped for
+/// [`CCloned`], whose pointer-only signature is shaped for
 /// `av_strdup` — libavutil's own string cloner, which allocates through
 /// `av_realloc` and so is released by `AvFree` too. Binding `CCloned` here to a
 /// `strlen`-derived `av_memdup` would take the one available impl away from the
@@ -384,5 +436,113 @@ mod tests {
         assert_eq!(cloned.as_bytes(), b"crustify");
         assert_eq!(cloned.as_bytes(), original.as_bytes());
         assert_ne!(cloned.as_ptr(), original.as_ptr());
+    }
+
+    #[test]
+    fn clones_empty_string_with_both_strategies() {
+        // The string mirror of `clones_empty_counted_buffer`. `av_strdup("")`
+        // asks `av_realloc` for one byte and `av_strndup(s, 0)` reaches the
+        // same call, so an empty clone comes back live rather than as the NULL
+        // that signals failure — and still owns an allocation that has to be
+        // released, which the sanitiser run checks. It also pins the
+        // `byte_len == 0` bound on the strndup strategy's clone.
+
+        // SAFETY: the C literal is an empty NUL-terminated string that outlives
+        // the call; `av_strdup` returns NULL or a fresh av_malloc-family string
+        // adopted exactly once.
+        let by_strdup = unsafe { CrustifyStr::<AvFree>::from_raw(ffi::av_strdup(c"".as_ptr())) }
+            .expect("av_strdup failed");
+        // SAFETY: as above, with a zero bound `av_strndup` may read none of —
+        // the terminator is inside the literal either way.
+        let by_strndup =
+            unsafe { CrustifyStr::<AvFreeWithStrndup>::from_raw(ffi::av_strndup(c"".as_ptr(), 0)) }
+                .expect("av_strndup failed");
+
+        assert!(by_strdup.is_empty());
+        assert!(by_strndup.is_empty());
+
+        let strdup_clone = by_strdup.try_clone().expect("av_strdup failed");
+        let strndup_clone = by_strndup.try_clone().expect("av_strndup failed");
+
+        assert!(strdup_clone.is_empty());
+        assert!(strndup_clone.is_empty());
+        assert_ne!(strdup_clone.as_ptr(), by_strdup.as_ptr());
+        assert_ne!(strndup_clone.as_ptr(), by_strndup.as_ptr());
+    }
+
+    #[test]
+    fn strndup_bounds_a_source_that_carries_no_terminator() {
+        const TEXT: [u8; 6] = *b"abcdef";
+
+        // What `av_strndup` can do and `av_strdup` cannot, and the reason the
+        // recorded contract puts a read obligation on the caller: copy out of a
+        // buffer with no terminator in it. The source is an `av_malloc`
+        // allocation rather than a Rust array so that the obligation is
+        // actually checked — the C side is ASan-instrumented, so the allocation
+        // carries redzones and a `memchr` running past `TEXT.len()` fails the
+        // run instead of passing silently.
+        let source = av_alloc_filled(&TEXT);
+
+        // SAFETY: `source` owns exactly `TEXT.len()` initialised bytes, which is
+        // the bound handed over, so `memchr` and `memcpy` stay inside the
+        // allocation. Finding no terminator, `av_strndup` returns NULL or a
+        // fresh NUL-terminated av_malloc-family string adopted exactly once.
+        let whole = unsafe {
+            CrustifyStr::<AvFreeWithStrndup>::from_raw(ffi::av_strndup(
+                source.as_ptr().cast(),
+                TEXT.len(),
+            ))
+        }
+        .expect("av_strndup failed");
+        assert_eq!(whole.as_bytes(), b"abcdef");
+
+        // SAFETY: as above with a shorter bound, which is also readable and
+        // which `av_strndup` truncates the copy to.
+        let prefix = unsafe {
+            CrustifyStr::<AvFreeWithStrndup>::from_raw(ffi::av_strndup(source.as_ptr().cast(), 3))
+        }
+        .expect("av_strndup failed");
+        assert_eq!(prefix.as_bytes(), b"abc");
+
+        // Cloning is not truncating twice: the strategy recovers the adopted
+        // string's own `strlen`, so a truncated owner clones to itself rather
+        // than to something shorter still.
+        let cloned = prefix.try_clone().expect("av_strndup failed");
+        assert_eq!(cloned.as_bytes(), b"abc");
+        assert_ne!(cloned.as_ptr(), prefix.as_ptr());
+    }
+
+    #[test]
+    fn the_two_string_strategies_clone_to_the_same_bytes() {
+        const TEXT: &CStr = c"crustify";
+
+        // The load-bearing claim in `AvFreeWithStrndup`'s doc: handing
+        // `av_strndup` the recovered `strlen` makes it allocate `strlen + 1`
+        // and copy every byte, which is exactly what `av_strdup` does. If that
+        // ever stopped holding — a bound off by one, a truncation — the choice
+        // between the two strategies would become observable, so it is pinned
+        // here rather than left to the prose.
+
+        // SAFETY: `TEXT` is NUL-terminated and outlives both calls; each
+        // returns NULL or a fresh av_malloc-family string adopted exactly once
+        // by the strategy that matches the primitive.
+        let by_strdup = unsafe { CrustifyStr::<AvFree>::from_raw(ffi::av_strdup(TEXT.as_ptr())) }
+            .expect("av_strdup failed");
+        // SAFETY: as above, with the literal's own length as the bound, so
+        // `av_strndup` reads only bytes the literal holds.
+        let by_strndup = unsafe {
+            CrustifyStr::<AvFreeWithStrndup>::from_raw(ffi::av_strndup(
+                TEXT.as_ptr(),
+                TEXT.to_bytes().len(),
+            ))
+        }
+        .expect("av_strndup failed");
+
+        let strdup_clone = by_strdup.try_clone().expect("av_strdup failed");
+        let strndup_clone = by_strndup.try_clone().expect("av_strndup failed");
+
+        assert_eq!(strdup_clone.as_bytes(), TEXT.to_bytes());
+        assert_eq!(strndup_clone.as_bytes(), strdup_clone.as_bytes());
+        assert_eq!(strndup_clone.len(), strdup_clone.len());
     }
 }
