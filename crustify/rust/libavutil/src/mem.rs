@@ -34,8 +34,8 @@ use crate::ffi;
 /// every ffibox owner is non-null by construction, so the null case is absorbed
 /// at `from_raw` and never becomes a drop.
 ///
-/// This is deliberately distinct from `libc`'s `LibcFree` strategy. The two
-/// allocation families are not interchangeable: `av_free` resolves to
+/// This is deliberately distinct from [`LibcFree`](libc::stdlib::LibcFree).
+/// The two allocation families are not interchangeable: `av_free` resolves to
 /// `_aligned_free` wherever `HAVE_ALIGNED_MALLOC` holds and to a prefixed
 /// allocator under `MALLOC_PREFIX`, matching an `av_malloc` that allocates
 /// through `posix_memalign`, `_aligned_malloc` or `memalign`. An `av_malloc`
@@ -62,6 +62,35 @@ unsafe impl CLenDropped for AvFree {
 }
 
 /// Wraps: av_memdup
+///
+/// Deep-copies a counted buffer: `av_memdup` takes `byte_len` bytes from
+/// `av_malloc` and byte-copies the source into them, so the result is an
+/// independent allocation of the same family that this strategy releases.
+/// Consumers reach it as [`CVec::try_clone`](ffibox::CVec::try_clone) and the
+/// [`Clone`] built on it, never as a free-standing function.
+///
+/// Only the counted owner gets a clone, and that is deliberate. A single value
+/// ([`CVoidBox<AvFree>`](ffibox::CVoidBox)) has no extent to pass, and ffibox
+/// gives it no clone at all. A NUL-terminated string
+/// ([`CrustifyStr<AvFree>`](ffibox::CrustifyStr)) clones through
+/// [`CCloned`](ffibox::CCloned), whose pointer-only signature is shaped for
+/// `av_strdup` — libavutil's own string cloner, which allocates through
+/// `av_realloc` and so is released by `AvFree` too. Binding `CCloned` here to a
+/// `strlen`-derived `av_memdup` would take the one available impl away from the
+/// primitive that matches it, so the string tier keeps it.
+///
+/// The copy is bytewise, which is why ffibox demands `T: Copy`: for a buffer of
+/// pointers it duplicates the addresses and aliases the pointees rather than
+/// copying them. That is exactly what `av_frame_ref` asks of it when it
+/// duplicates `extended_data`, a buffer of channel pointers whose planes stay
+/// owned by the frame's buffer references.
+///
+/// Cloning can fail — `av_malloc` returns NULL on OOM and for any request above
+/// the `av_max_alloc` limit, `INT_MAX` by default — so ported code that checked
+/// C's return uses `try_clone`; [`Clone::clone`] aborts on that path. A
+/// zero-length clone is not a failure: as in [`c_drop_len`](CLenDropped),
+/// `av_malloc(0)` retries at one byte, so an empty [`CVec`](ffibox::CVec)
+/// clones to a live allocation that still has to be released.
 // SAFETY: `av_memdup` returns an independent `av_malloc` allocation containing
 // exactly the requested byte copy, and `AvFree` releases that allocation.
 unsafe impl CLenCloned for AvFree {
@@ -98,9 +127,64 @@ mod tests {
                 .expect("av_malloc failed");
         original.as_mut_slice().copy_from_slice(&[1, 2, 3, 4]);
 
-        let cloned = original.try_clone().expect("av_memdup failed");
+        let mut cloned = original.try_clone().expect("av_memdup failed");
         assert_eq!(cloned.as_slice(), original.as_slice());
         assert_ne!(cloned.as_ptr(), original.as_ptr());
+
+        // The copy is independent storage, not a view: writing through one
+        // owner leaves the other untouched, and both are freed separately.
+        cloned.as_mut_slice()[0] = 9;
+        assert_eq!(original.as_slice(), &[1, 2, 3, 4]);
+        assert_eq!(cloned.as_slice(), &[9, 2, 3, 4]);
+    }
+
+    #[test]
+    fn clones_empty_counted_buffer() {
+        // `av_memdup(p, 0)` reaches `av_malloc(0)`, which retries at one byte,
+        // so an empty clone comes back live rather than as the NULL that
+        // signals failure — `try_clone` must succeed and its result must still
+        // be released, which the sanitiser run checks.
+        //
+        // SAFETY: as in `drops_empty_counted_buffer` — the checked `av_malloc`
+        // result is a uniquely owned allocation adopted exactly once, and the
+        // zero element count means no byte of it is read through the views.
+        let empty = unsafe { CVec::<u8, AvFree>::from_raw_parts(ffi::av_malloc(0).cast(), 0) }
+            .expect("av_malloc failed");
+
+        let cloned = empty.try_clone().expect("av_memdup failed");
+        assert!(cloned.is_empty());
+        assert_ne!(cloned.as_ptr(), empty.as_ptr());
+    }
+
+    #[test]
+    fn clones_pointer_buffer_by_aliasing_its_elements() {
+        // The `av_frame_ref` shape: `extended_data` is a buffer of channel
+        // pointers, and duplicating it with `av_memdup` copies the addresses
+        // while both buffers keep pointing at the one set of planes.
+        const LEN: usize = 2;
+
+        let mut planes = [7u8, 8];
+        let (first, second) = planes.split_at_mut(1);
+
+        // SAFETY: `av_malloc` returns null or a uniquely owned allocation of
+        // `LEN` pointer-sized elements, aligned well past `*mut u8`, which this
+        // `CVec` adopts exactly once. `*mut u8` is a `CElem` — no bit pattern
+        // of it is invalid — which is what makes the slice view of the
+        // freshly allocated elements legal before they are written below.
+        let mut table = unsafe {
+            CVec::<*mut u8, AvFree>::from_raw_parts(
+                ffi::av_malloc(LEN * size_of::<*mut u8>()).cast(),
+                LEN,
+            )
+        }
+        .expect("av_malloc failed");
+        table
+            .as_mut_slice()
+            .copy_from_slice(&[first.as_mut_ptr(), second.as_mut_ptr()]);
+
+        let cloned = table.try_clone().expect("av_memdup failed");
+        assert_ne!(cloned.as_ptr(), table.as_ptr());
+        assert_eq!(cloned.as_slice(), table.as_slice());
     }
 
     #[test]

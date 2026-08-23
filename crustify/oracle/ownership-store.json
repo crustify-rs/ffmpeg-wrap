@@ -86,7 +86,7 @@
       },
       "nullable": true,
       "mutable": false,
-      "note": "av_memdup transiently reads size bytes from p; call sites use it for singleton data, counted buffers, and a terminated AVBPrint string. NULL yields NULL."
+      "note": "av_memdup reads size bytes from p as the memcpy SOURCE and neither stores, frees nor writes it: const in the type forces mutable=false, and the read does not outlive the call, so the borrow names its own arg. p==NULL short-circuits to a NULL return with no allocation, and opt_copy_elem depends on that -- it passes *src8, the possibly-unset payload of an AV_OPT_TYPE_BINARY option, and treats a NULL result as an error only when len is non-zero. Every shape observed in this extraction is multi-byte: a counted buffer of uint8_t* channel pointers (av_frame_ref, av_frame_replace: sizeof(*extended_data)*ch), a counted binary payload (opt_copy_elem: len read from the option's companion int), and a NUL-terminated string (av_bprint_finalize: real_size = FFMIN(buf->len+1, buf->size), which always spans the terminator, truncated or not). scalar stays by_val on the published mem.h contract -- av_memdup is exported as a general byte-copy primitive and in-tree callers outside this extraction duplicate single objects with it (libavcodec/pthread_frame.c av_memdup(avctx, sizeof(*avctx)), fftools/ffmpeg_dec.c av_memdup(subtitle, sizeof(*subtitle))) -- not on any libavutil callsite; the earlier note's claim of a libavutil singleton callsite was unsupported. array is by_val, not by_ref, even at the frame callsites whose elements are pointers: av_memdup copies bytes and never reads a pointee, so it neither owns nor borrows the elements a by_ref block would have to describe. Same verdict, same reason, as av_free's arg."
      }
     }
    ],
@@ -103,7 +103,7 @@
      "borrowed": null,
      "nullable": true,
      "mutable": true,
-     "note": "Returns a fresh av_malloc allocation containing the requested byte copy, or NULL for a NULL source or allocation failure."
+     "note": "Returns a fresh av_malloc allocation of size bytes holding a byte-exact copy; ownership transfers to the caller and av_free -- the recorded dropper of this family, and the same AvFree strategy in the Rust wrapper -- releases it. NULL means p was NULL or the allocation failed; av_malloc fails on OOM and on any request above the av_max_alloc limit (INT_MAX by default), which is why every caller checks the return (opt_copy_elem only when its len is non-zero, since a zero-length binary option legitimately yields NULL from a NULL source). A zero size with a non-NULL p is NOT the NULL case: av_malloc(0) retries at one byte, so the caller still receives, and still owns, a live allocation. The copy is shallow, which the shape records as by_val rather than by_ref: where the source holds pointers (av_frame_ref's extended_data) the result aliases the same pointees, kept alive by the frame's AVBufferRefs and not by this allocation. Alignment is av_malloc's ALIGN (64/32/16 by SIMD config), so the copy is re-castable to whatever element type the source held. string is true for the av_bprint_finalize path, whose copy carries the source terminator."
     }
    }
   },
