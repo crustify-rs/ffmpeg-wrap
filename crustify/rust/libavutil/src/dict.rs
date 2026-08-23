@@ -86,6 +86,18 @@ define_ctype!(
     /// rather than the header, because it may reallocate or release the header
     /// itself. Mutation therefore goes through [`Dictionary`], which owns that
     /// slot.
+    ///
+    /// # Zero-sized layout
+    ///
+    /// `dict.h` only forward-declares the struct, so bindgen emits it as an
+    /// incomplete type and this layout newtype is zero-sized. It is a pointee
+    /// name, never storage: nothing embeds it by value, and the safe
+    /// `zeroed()` that [`define_ctype!`](ffibox::define_ctype) emits hands back
+    /// a 0-byte value where C reads two fields. That value is inert rather
+    /// than unsound — no safe operation turns it into an owner or a handle,
+    /// since [`CBox::from_raw`](ffibox::CBox::from_raw) and the handles'
+    /// `from_ptr` are all unsafe — but it is not a dictionary and must not be
+    /// handed to one.
     AVDictionary,
     AVDictionaryRef,
     AVDictionaryMut,
@@ -93,10 +105,24 @@ define_ctype!(
 );
 
 /// Wraps: av_dict_free
-// SAFETY: a `CBox<AVDictionary>` exclusively owns a fully constructed
-// dictionary returned by libavutil. `c_drop` passes that one ownership unit to
-// its public destructor, which frees the entries and header and nulls the local
-// slot. No alias is exposed or retained.
+// SAFETY: this impl ADDS an obligation the trait does not state. `AVDictionary`
+// is zero-sized (see its `Zero-sized layout` note), so `CDropped`'s "a live,
+// valid instance of `Self`" is met by any aligned non-null address, including a
+// dangling one; what `av_dict_free` actually needs is a pointer libavutil's own
+// allocator produced for a fully constructed dictionary and that nothing has
+// freed yet. The caller owes that.
+//
+// No safe path can owe it and fail to pay: `CBox::from_raw` is the only
+// constructor of the only owner that runs this `c_drop`, and it is unsafe; the
+// type implements no `CCloned`, no `CValued` and no `CDropper`, so no other
+// ffibox owner reaches teardown; and `Dictionary`, the one wrapper that adopts
+// a dictionary without an unsafe call at its own surface, only ever re-adopts
+// the pointer that came back out of its own owner slot.
+//
+// Given a pointer meeting that obligation, `av_dict_free` receives the single
+// ownership unit through a local slot, frees every entry key and value, the
+// entry array and the header, and nulls the slot. No alias is exposed or
+// retained.
 unsafe impl CDropped for AVDictionary {
     unsafe fn c_drop(obj: NonNull<Self>) {
         let mut dictionary = obj.as_ptr().cast::<ffi::AVDictionary>();
