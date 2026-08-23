@@ -118,17 +118,34 @@ impl From<AVMediaType> for ffi::AVMediaType {
 
 #[cfg(test)]
 mod tests {
+    use core::ffi::c_int;
     use core::mem::{align_of, size_of};
 
     use super::*;
 
     #[test]
-    fn layout_matches_the_c_enum() {
-        assert_eq!(size_of::<AVPictureType>(), size_of::<ffi::AVPictureType>());
-        assert_eq!(
-            align_of::<AVPictureType>(),
-            align_of::<ffi::AVPictureType>()
-        );
+    fn layout_is_the_c_enum_abi() {
+        // `repr(transparent)` already ties the newtype to `ffi::AVPictureType`,
+        // so the claim worth testing is the one it is transparent over: this
+        // enum travels as a plain `int` in the C ABI.
+        assert_eq!(size_of::<AVPictureType>(), size_of::<c_int>());
+        assert_eq!(align_of::<AVPictureType>(), align_of::<c_int>());
+    }
+
+    /// Layout agreement with the linked library, not just with bindgen: C reads
+    /// `pict_type` out of the source frame and writes it into the destination,
+    /// so a mismatched offset or width would not survive the round trip.
+    #[test]
+    fn picture_type_survives_a_c_side_property_copy() {
+        let mut source = crate::frame::av_frame_alloc().expect("frame allocation");
+        let mut destination = crate::frame::av_frame_alloc().expect("frame allocation");
+        assert_eq!(source.as_ref().picture_type(), AVPictureType::NONE);
+
+        source.as_mut().set_picture_type(AVPictureType::BI);
+        crate::frame::av_frame_copy_props(&mut destination.as_mut(), source.as_ref())
+            .expect("property copy");
+
+        assert_eq!(destination.as_ref().picture_type(), AVPictureType::BI);
     }
 
     #[test]

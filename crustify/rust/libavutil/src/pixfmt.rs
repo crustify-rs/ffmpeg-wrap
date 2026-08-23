@@ -629,6 +629,8 @@ mod tests {
 pub struct AVPixelFormat(ffi::AVPixelFormat);
 
 impl AVPixelFormat {
+    /// The sentinel meaning "no pixel format"; also the terminator libavutil
+    /// writes at the end of a format list.
     pub const NONE: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_NONE);
     pub const YUV420P: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_YUV420P);
     pub const YUYV422: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_YUYV422);
@@ -642,8 +644,14 @@ impl AVPixelFormat {
     pub const MONOWHITE: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_MONOWHITE);
     pub const MONOBLACK: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_MONOBLACK);
     pub const PAL8: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_PAL8);
+    /// Deprecated in C in favour of [`YUV420P`](Self::YUV420P) plus
+    /// [`AVColorRange::JPEG`].
     pub const YUVJ420P: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_YUVJ420P);
+    /// Deprecated in C in favour of [`YUV422P`](Self::YUV422P) plus
+    /// [`AVColorRange::JPEG`].
     pub const YUVJ422P: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_YUVJ422P);
+    /// Deprecated in C in favour of [`YUV444P`](Self::YUV444P) plus
+    /// [`AVColorRange::JPEG`].
     pub const YUVJ444P: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_YUVJ444P);
     pub const UYVY422: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_UYVY422);
     pub const UYYVYY411: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_UYYVYY411);
@@ -662,6 +670,8 @@ impl AVPixelFormat {
     pub const GRAY16BE: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_GRAY16BE);
     pub const GRAY16LE: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_GRAY16LE);
     pub const YUV440P: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_YUV440P);
+    /// Deprecated in C in favour of [`YUV440P`](Self::YUV440P) plus
+    /// [`AVColorRange::JPEG`].
     pub const YUVJ440P: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_YUVJ440P);
     pub const YUVA420P: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_YUVA420P);
     pub const RGB48BE: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_RGB48BE);
@@ -771,6 +781,8 @@ impl AVPixelFormat {
     pub const GBRP12LE: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_GBRP12LE);
     pub const GBRP14BE: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_GBRP14BE);
     pub const GBRP14LE: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_GBRP14LE);
+    /// Deprecated in C in favour of [`YUV411P`](Self::YUV411P) plus
+    /// [`AVColorRange::JPEG`].
     pub const YUVJ411P: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_YUVJ411P);
     pub const BAYER_BGGR8: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_BAYER_BGGR8);
     pub const BAYER_RGGB8: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_BAYER_RGGB8);
@@ -901,6 +913,11 @@ impl AVPixelFormat {
     pub const GBRP12MSBLE: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_GBRP12MSBLE);
     pub const OHCODEC: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_OHCODEC);
     pub const CUARRAY: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_CUARRAY);
+    /// The number of pixel formats known to the headers this crate was built
+    /// against. C documents it as unusable for shared linking, and that
+    /// applies here: the linked libavutil may know more formats than this
+    /// compile-time bound, so it is not a valid upper limit on a value
+    /// received from C.
     pub const NB: Self = Self(ffi::AVPixelFormat_AV_PIX_FMT_NB);
 
     /// Wraps a raw libavutil pixel-format value, including unknown values.
@@ -922,6 +939,11 @@ impl Default for AVPixelFormat {
     }
 }
 
+// SAFETY: the newtype is `repr(transparent)` over `ffi::AVPixelFormat`, a
+// `c_int`, so every bit pattern of it is a valid `AVPixelFormat` — unknown
+// values included, which is exactly what the open representation promises.
+unsafe impl ffibox::CElem for AVPixelFormat {}
+
 impl From<ffi::AVPixelFormat> for AVPixelFormat {
     fn from(value: ffi::AVPixelFormat) -> Self {
         Self::from_raw(value)
@@ -936,17 +958,21 @@ impl From<AVPixelFormat> for ffi::AVPixelFormat {
 
 #[cfg(test)]
 mod pixel_format_tests {
+    use core::ffi::c_int;
     use core::mem::{align_of, size_of};
 
     use super::*;
+    use crate::pixdesc::{
+        av_get_pix_fmt, av_get_pix_fmt_name, av_pix_fmt_desc_get_id, av_pix_fmt_desc_next,
+    };
 
     #[test]
-    fn layout_matches_the_c_enum() {
-        assert_eq!(size_of::<AVPixelFormat>(), size_of::<ffi::AVPixelFormat>());
-        assert_eq!(
-            align_of::<AVPixelFormat>(),
-            align_of::<ffi::AVPixelFormat>()
-        );
+    fn layout_is_the_c_enum_abi() {
+        // `repr(transparent)` already ties the newtype to `ffi::AVPixelFormat`,
+        // so the claim worth testing is the one it is transparent over: this
+        // enum travels as a plain `int` in the C ABI.
+        assert_eq!(size_of::<AVPixelFormat>(), size_of::<c_int>());
+        assert_eq!(align_of::<AVPixelFormat>(), align_of::<c_int>());
     }
 
     #[test]
@@ -956,7 +982,6 @@ mod pixel_format_tests {
         assert_eq!(AVPixelFormat::Y400A, AVPixelFormat::YA8);
         assert_eq!(AVPixelFormat::GRAY8A, AVPixelFormat::YA8);
         assert_eq!(AVPixelFormat::GBR24P, AVPixelFormat::GBRP);
-        assert_eq!(AVPixelFormat::NB.as_raw(), ffi::AVPixelFormat_AV_PIX_FMT_NB);
     }
 
     #[test]
@@ -964,6 +989,57 @@ mod pixel_format_tests {
         let raw = ffi::AVPixelFormat_AV_PIX_FMT_NB + 17;
         assert_eq!(AVPixelFormat::from_raw(raw).as_raw(), raw);
         assert_eq!(ffi::AVPixelFormat::from(AVPixelFormat::from(raw)), raw);
+    }
+
+    /// The constants come from the headers; the values arriving at runtime come
+    /// from the linked shared object. Walk the library's own descriptor table
+    /// and check the two agree on every format it publishes.
+    #[test]
+    fn named_constants_agree_with_the_linked_library() {
+        let mut entry = av_pix_fmt_desc_next(None);
+        let mut seen = 0usize;
+        while let Some(descriptor) = entry {
+            let format = av_pix_fmt_desc_get_id(descriptor);
+            assert_ne!(format, AVPixelFormat::NONE);
+
+            // A name the library recognises must map back to the same value,
+            // so a constant bound to the wrong enumerator cannot hide here.
+            let name = av_get_pix_fmt_name(format).expect("table entry is named");
+            assert_eq!(av_get_pix_fmt(name), format);
+
+            seen += 1;
+            entry = av_pix_fmt_desc_next(Some(descriptor));
+        }
+        assert!(seen > 0, "descriptor table is nonempty");
+    }
+
+    /// Each constant is bound to a bindgen name, so a constant carrying the
+    /// wrong enumerator compiles cleanly. Ask the linked library what these
+    /// values actually are; the spread covers the start, the middle, the
+    /// deprecated group, the leading-digit names and the header's upper bound.
+    #[test]
+    fn named_constants_denote_the_formats_they_are_named_after() {
+        for (format, name) in [
+            (AVPixelFormat::YUV420P, c"yuv420p"),
+            (AVPixelFormat::RGB24, c"rgb24"),
+            (AVPixelFormat::BGR24, c"bgr24"),
+            (AVPixelFormat::NV12, c"nv12"),
+            (AVPixelFormat::NV21, c"nv21"),
+            (AVPixelFormat::YA8, c"ya8"),
+            (AVPixelFormat::_0RGB, c"0rgb"),
+            (AVPixelFormat::BGR0, c"bgr0"),
+            (AVPixelFormat::YUVJ411P, c"yuvj411p"),
+            (AVPixelFormat::GBRAP32LE, c"gbrap32le"),
+            (AVPixelFormat::XYZ12BE, c"xyz12be"),
+        ] {
+            assert_eq!(av_get_pix_fmt_name(format), Some(name));
+            assert_eq!(av_get_pix_fmt(name), format);
+        }
+
+        // The header's upper bound is one past the last format this build
+        // names, so the value below it must still be a format C knows.
+        let last = AVPixelFormat::from_raw(AVPixelFormat::NB.as_raw() - 1);
+        assert!(av_get_pix_fmt_name(last).is_some());
     }
 }
 

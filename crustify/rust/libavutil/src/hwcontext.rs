@@ -537,7 +537,7 @@ pub fn av_hwframe_ctx_init(
 /// so the list can be empty. The terminating sentinel is retained inside the
 /// private allocation but omitted from the safe indexed view.
 pub struct HWFrameTransferFormats {
-    allocation: CVec<ffi::AVPixelFormat, AvFree>,
+    allocation: CVec<AVPixelFormat, AvFree>,
     len: usize,
 }
 
@@ -554,11 +554,7 @@ impl HWFrameTransferFormats {
 
     #[must_use]
     pub fn get(&self, index: usize) -> Option<AVPixelFormat> {
-        self.allocation
-            .as_slice()
-            .get(index)
-            .copied()
-            .map(AVPixelFormat::from_raw)
+        self.allocation.as_slice().get(index).copied()
     }
 
     pub fn iter(&self) -> HWFrameTransferFormatIter<'_> {
@@ -615,16 +611,19 @@ pub fn av_hwframe_transfer_get_formats(
     }
     let formats = NonNull::new(formats).expect("successful format query returned a list");
     let mut len = 0usize;
+    let formats = formats.as_ptr().cast::<AVPixelFormat>();
     // SAFETY: success guarantees a readable AVPixelFormat array terminated by
-    // AV_PIX_FMT_NONE. Each step stays inside that allocation through the
-    // guaranteed sentinel, and no other owner or writer exists.
-    while unsafe { formats.as_ptr().add(len).read() } != ffi::AVPixelFormat_AV_PIX_FMT_NONE {
+    // AV_PIX_FMT_NONE, and the wrapper is `repr(transparent)` over that C enum,
+    // so the cast above keeps the element type. Each step stays inside that
+    // allocation through the guaranteed sentinel, and no other owner or writer
+    // exists.
+    while unsafe { formats.add(len).read() } != AVPixelFormat::NONE {
         len += 1;
     }
     // SAFETY: the pointer is a uniquely owned av_malloc-family allocation with
     // `len` initialized formats plus the initialized sentinel.
-    let allocation = unsafe { CVec::from_raw_parts(formats.as_ptr(), len + 1) }
-        .expect("checked non-null format list");
+    let allocation =
+        unsafe { CVec::from_raw_parts(formats, len + 1) }.expect("checked non-null format list");
     Ok(HWFrameTransferFormats { allocation, len })
 }
 
