@@ -2,6 +2,61 @@
 
 use crate::ffi;
 
+/// Wraps: AVChromaLocation
+///
+/// Identifies where chroma samples are positioned relative to luma samples.
+/// The transparent integer representation preserves values introduced by
+/// newer libavutil versions instead of turning an unfamiliar C value into an
+/// invalid Rust enum discriminant.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AVChromaLocation(ffi::AVChromaLocation);
+
+impl AVChromaLocation {
+    /// The chroma location is unspecified.
+    pub const UNSPECIFIED: Self = Self(ffi::AVChromaLocation_AVCHROMA_LOC_UNSPECIFIED);
+
+    /// Chroma is horizontally co-sited with the left luma sample.
+    pub const LEFT: Self = Self(ffi::AVChromaLocation_AVCHROMA_LOC_LEFT);
+
+    /// Chroma is centered between horizontal luma samples.
+    pub const CENTER: Self = Self(ffi::AVChromaLocation_AVCHROMA_LOC_CENTER);
+
+    /// Chroma is co-sited with the top-left luma sample.
+    pub const TOP_LEFT: Self = Self(ffi::AVChromaLocation_AVCHROMA_LOC_TOPLEFT);
+
+    /// Chroma is horizontally centered and vertically co-sited at the top.
+    pub const TOP: Self = Self(ffi::AVChromaLocation_AVCHROMA_LOC_TOP);
+
+    /// Chroma is co-sited with the bottom-left luma sample.
+    pub const BOTTOM_LEFT: Self = Self(ffi::AVChromaLocation_AVCHROMA_LOC_BOTTOMLEFT);
+
+    /// Chroma is horizontally centered and vertically co-sited at the bottom.
+    pub const BOTTOM: Self = Self(ffi::AVChromaLocation_AVCHROMA_LOC_BOTTOM);
+
+    /// Wraps a raw C enum value, including one unknown to this crate version.
+    pub const fn from_raw(raw: ffi::AVChromaLocation) -> Self {
+        Self(raw)
+    }
+
+    /// Returns the ABI value accepted by libavutil.
+    pub const fn as_raw(self) -> ffi::AVChromaLocation {
+        self.0
+    }
+}
+
+impl From<ffi::AVChromaLocation> for AVChromaLocation {
+    fn from(raw: ffi::AVChromaLocation) -> Self {
+        Self::from_raw(raw)
+    }
+}
+
+impl From<AVChromaLocation> for ffi::AVChromaLocation {
+    fn from(location: AVChromaLocation) -> Self {
+        location.as_raw()
+    }
+}
+
 /// Wraps: AVColorPrimaries
 ///
 /// Identifies the chromaticity coordinates of source color primaries. The
@@ -646,5 +701,31 @@ mod pixel_format_tests {
         let raw = ffi::AVPixelFormat_AV_PIX_FMT_NB + 17;
         assert_eq!(AVPixelFormat::from_raw(raw).as_raw(), raw);
         assert_eq!(ffi::AVPixelFormat::from(AVPixelFormat::from(raw)), raw);
+    }
+}
+
+#[cfg(test)]
+mod chroma_location_tests {
+    use core::mem::{align_of, size_of};
+
+    use super::*;
+
+    #[test]
+    fn chroma_location_is_layout_compatible_and_open() {
+        assert_eq!(
+            size_of::<AVChromaLocation>(),
+            size_of::<ffi::AVChromaLocation>()
+        );
+        assert_eq!(
+            align_of::<AVChromaLocation>(),
+            align_of::<ffi::AVChromaLocation>()
+        );
+        assert_eq!(
+            AVChromaLocation::BOTTOM_LEFT.as_raw(),
+            ffi::AVChromaLocation_AVCHROMA_LOC_BOTTOMLEFT
+        );
+
+        let future = ffi::AVChromaLocation::MAX;
+        assert_eq!(AVChromaLocation::from_raw(future).as_raw(), future);
     }
 }

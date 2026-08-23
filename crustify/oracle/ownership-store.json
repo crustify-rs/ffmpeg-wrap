@@ -1,6 +1,19 @@
 {
  "_comment": "Authored analysis: ownership, lifecycle, refcount and locking judgements that no composer can derive, keyed to the C entities they describe. The structural half of each record (field layout, signatures, footprints, casts) is composed from the CodeQL tables on demand and merged in at read time, so a re-extract rewrites nothing here. Written only by `crustify-oracle <target> query {types,symbols} --update`; read through crustify.manifests. Hand-edit at your own risk: `--update` validates a submission against the composed skeleton (unknown field, wrong kind, ptr-invariant violation) and this file does not.",
- "types": [],
+ "types": [
+  {
+   "name": "AVChannelOrder",
+   "defined_in": "libavutil/channel_layout.h",
+   "_comment_agent": "C enum has no pointer or lifecycle fields.",
+   "fields": []
+  },
+  {
+   "name": "AVChromaLocation",
+   "defined_in": "libavutil/pixfmt.h",
+   "_comment_agent": "C enum has no pointer or lifecycle fields.",
+   "fields": []
+  }
+ ],
  "symbols": [
   {
    "name": "av_free",
