@@ -9,7 +9,7 @@
     "min_fields": 10
   },
   "summary": {
-    "unit_count": 199,
+    "unit_count": 196,
     "layer_count": 5,
     "batch_count": 24,
     "file_count": 14
@@ -2143,21 +2143,6 @@
       "generates": []
     },
     {
-      "name": "av_free",
-      "defined_in": "libavutil/mem.c",
-      "kind": "symbol",
-      "source_kind": "function_exported",
-      "layer": 0,
-      "loc": 7,
-      "deps": {
-        "types": [],
-        "symbols": []
-      },
-      "fallback": [],
-      "back_fill": [],
-      "generates": []
-    },
-    {
       "name": "av_freep",
       "defined_in": "libavutil/mem.c",
       "kind": "symbol",
@@ -3108,21 +3093,6 @@
       "generates": []
     },
     {
-      "name": "av_memdup",
-      "defined_in": "libavutil/mem.c",
-      "kind": "symbol",
-      "source_kind": "function_exported",
-      "layer": 0,
-      "loc": 9,
-      "deps": {
-        "types": [],
-        "symbols": []
-      },
-      "fallback": [],
-      "back_fill": [],
-      "generates": []
-    },
-    {
       "name": "av_mul_q",
       "defined_in": "libavutil/rational.c",
       "kind": "symbol",
@@ -3740,21 +3710,6 @@
       "generates": []
     },
     {
-      "name": "av_strdup",
-      "defined_in": "libavutil/mem.c",
-      "kind": "symbol",
-      "source_kind": "function_exported",
-      "layer": 0,
-      "loc": 10,
-      "deps": {
-        "types": [],
-        "symbols": []
-      },
-      "fallback": [],
-      "back_fill": [],
-      "generates": []
-    },
-    {
       "name": "av_strerror",
       "defined_in": "libavutil/error.c",
       "kind": "symbol",
@@ -3871,7 +3826,7 @@
       "layers": [
         0
       ],
-      "unit_count": 59,
+      "unit_count": 56,
       "batches": [
         {
           "kind": "type",
@@ -4437,22 +4392,6 @@
               "field_anchors": []
             },
             {
-              "name": "av_free",
-              "defined_in": "libavutil/mem.c",
-              "kind": "symbol",
-              "source_kind": "function_exported",
-              "layer": 0,
-              "loc": 7,
-              "deps": {
-                "types": [],
-                "symbols": []
-              },
-              "fallback": [],
-              "back_fill": [],
-              "generates": [],
-              "field_anchors": []
-            },
-            {
               "name": "av_freep",
               "defined_in": "libavutil/mem.c",
               "kind": "symbol",
@@ -4677,22 +4616,6 @@
               "field_anchors": []
             },
             {
-              "name": "av_memdup",
-              "defined_in": "libavutil/mem.c",
-              "kind": "symbol",
-              "source_kind": "function_exported",
-              "layer": 0,
-              "loc": 9,
-              "deps": {
-                "types": [],
-                "symbols": []
-              },
-              "fallback": [],
-              "back_fill": [],
-              "generates": [],
-              "field_anchors": []
-            },
-            {
               "name": "av_opt_set",
               "defined_in": "libavutil/opt.c",
               "kind": "symbol",
@@ -4795,22 +4718,6 @@
               "source_kind": "function_exported",
               "layer": 0,
               "loc": 42,
-              "deps": {
-                "types": [],
-                "symbols": []
-              },
-              "fallback": [],
-              "back_fill": [],
-              "generates": [],
-              "field_anchors": []
-            },
-            {
-              "name": "av_strdup",
-              "defined_in": "libavutil/mem.c",
-              "kind": "symbol",
-              "source_kind": "function_exported",
-              "layer": 0,
-              "loc": 10,
               "deps": {
                 "types": [],
                 "symbols": []
