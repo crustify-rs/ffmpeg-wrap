@@ -108,6 +108,92 @@
    }
   },
   {
+   "name": "av_strdup",
+   "defined_in": "libavutil/mem.c",
+   "lifetime": {
+    "for": "s",
+    "is_dropper": false,
+    "is_disposer": false,
+    "is_cloner": {
+     "deep": true,
+     "upref": false
+    }
+   },
+   "ptr_args": [
+    {
+     "name": "s",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:s"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "s is a transient read-only borrow of a NUL-terminated byte string. The body checks s before strlen, so NULL is accepted and produces NULL; otherwise strlen(s)+1 determines the complete initialized extent and memcpy reads through the terminator. The source is neither stored, freed, nor modified and remains live after the call."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": null,
+     "array": null,
+     "string": true,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns NULL for a NULL source or allocation failure; otherwise returns a fresh, independently owned, writable av_realloc(NULL, strlen(s)+1) allocation containing the source bytes and terminator. The allocation belongs to the av_malloc family and must be released with av_free."
+    }
+   }
+  },
+  {
+   "name": "av_strndup",
+   "defined_in": "libavutil/mem.c",
+   "lifetime": {
+    "for": "s",
+    "is_dropper": false,
+    "is_disposer": false,
+    "is_cloner": {
+     "deep": true,
+     "upref": false
+    }
+   },
+   "ptr_args": [
+    {
+     "name": "s",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:s"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "s is a transient read-only string/buffer borrow. NULL is accepted and returns NULL. Otherwise memchr is permitted to read the full len-byte range looking for a terminator, after which memcpy copies the prefix; the caller must therefore provide len readable bytes. The call transfers no ownership, does not modify or retain the source, and leaves it live."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": null,
+     "array": null,
+     "string": true,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns NULL for a NULL source or allocation failure; otherwise returns a fresh, independently owned, writable av_realloc(NULL, prefix_len+1) allocation containing at most len source bytes followed by a terminator. It is always a NUL-terminated av_malloc-family string and must be released with av_free. When the bound is the source strlen, this is an exact independent clone suitable for CrustifyStr's length-recovering clone strategy."
+    }
+   }
+  },
+  {
    "name": "free",
    "defined_in": null,
    "lifetime": {

@@ -13,7 +13,7 @@ fn main() {
         .header("wrapper.h")
         .clang_arg(format!("-I{}", repo.display()))
         .use_core()
-        .allowlist_function("^av_(free|malloc|memdup)$")
+        .allowlist_function("^av_(free|malloc|memdup|strdup|strndup)$")
         .generate()
         .expect("generate libavutil bindings");
     bindings

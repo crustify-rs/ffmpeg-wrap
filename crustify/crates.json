@@ -14,7 +14,7 @@
               "tu": "libavutil/mem.c",
               "headers": ["libavutil/mem.h"],
               "members": {
-                "functions": ["av_free", "av_memdup"],
+                "functions": ["av_free", "av_memdup", "av_strdup", "av_strndup"],
                 "globals": [],
                 "types": [],
                 "callbacks": [],
