@@ -191,6 +191,38 @@ mod tests {
 
 define_ctype!(
     /// Wraps: AVPixFmtDescriptor
+    ///
+    /// Describes how the bits of one pixel are laid out across up to four
+    /// planes. Libavutil never allocates, frees or mutates a descriptor: every
+    /// one it publishes is an entry of the `static const` table in
+    /// `libavutil/pixdesc.c`, reached through [`av_pix_fmt_desc_get`] and
+    /// [`av_pix_fmt_desc_next`], so the type has no lifecycle operation.
+    ///
+    /// # Invariant
+    ///
+    /// A handle over a descriptor asserts two things about its storage, both
+    /// of which libavutil's own readers rely on without checking:
+    ///
+    /// - `name` and `alias` are null or address NUL-terminated strings that
+    ///   outlive the handle's borrow. That is what makes the safe getters
+    ///   [`AVPixFmtDescriptorRef::name`] and [`AVPixFmtDescriptorRef::alias`]
+    ///   sound. The unsafe `from_ptr` constructors are where a caller
+    ///   establishes it; [`AVPixFmtDescriptorMut::set_name`] and
+    ///   [`AVPixFmtDescriptorMut::set_alias`] preserve it by accepting only a
+    ///   `&'static CStr`; C upholds it with string literals or a null field.
+    /// - `nb_components` is at most 4. `comp` has exactly four slots and every
+    ///   libavutil reader — `av_get_bits_per_pixel`, `av_pix_fmt_count_planes`,
+    ///   `av_image_fill_linesizes` — walks `comp[c]` for `c < nb_components`,
+    ///   so a larger count is an out-of-bounds read inside C. `from_ptr`'s
+    ///   caller establishes it and
+    ///   [`AVPixFmtDescriptorMut::set_nb_components`] rejects anything larger.
+    ///
+    /// The remaining fields are unconstrained here, which is why the one
+    /// wrapped C reader over this type, [`av_get_bits_per_pixel`], takes an
+    /// [`AVPixFmtDescriptorEntry`] rather than a bare handle: it shifts an
+    /// `int` by `log2_chroma_w + log2_chroma_h` and accumulates
+    /// `comp[c].depth` into it, and no per-field bound makes that arithmetic
+    /// defined for every combination a caller could set.
     AVPixFmtDescriptor,
     AVPixFmtDescriptorRef,
     AVPixFmtDescriptorMut,
@@ -207,16 +239,24 @@ impl<'a> AVPixFmtDescriptorRef<'a> {
     }
 
     /// Wraps: AVPixFmtDescriptor.name
+    ///
+    /// Returns the canonical format name, or `None` for a table slot no
+    /// configuration filled in. The string borrows for the handle's own
+    /// lifetime, not for the borrow of the handle.
     #[must_use]
-    pub fn name(&self) -> Option<&CStr> {
+    pub fn name(&self) -> Option<&'a CStr> {
         // SAFETY: `as_ptr` addresses a live descriptor; raw-place projection
         // and `read` form no reference to its storage.
         let pointer = unsafe { addr_of!((*self.as_ptr()).name).read() };
         if pointer.is_null() {
             None
         } else {
-            // SAFETY: a non-null `name` in a valid descriptor addresses an
-            // immutable NUL-terminated string which remains live while used.
+            // SAFETY: `AVPixFmtDescriptor`'s handle invariant makes a non-null
+            // `name` a NUL-terminated string outliving this borrow. Every
+            // producer carries that obligation: `from_ptr`'s caller asserts it,
+            // and `set_name` cannot break it because it accepts only
+            // `&'static CStr`. The result is narrowed to `'a`, which the
+            // descriptor itself already outlives.
             Some(unsafe { CStr::from_ptr(pointer) })
         }
     }
@@ -256,16 +296,24 @@ impl<'a> AVPixFmtDescriptorRef<'a> {
     }
 
     /// Wraps: AVPixFmtDescriptor.alias
+    ///
+    /// Returns the comma-separated alternative names — the spellings
+    /// `av_get_pix_fmt` also accepts for this format — or `None` when the
+    /// descriptor declares none. The string borrows for the handle's own
+    /// lifetime, not for the borrow of the handle.
     #[must_use]
-    pub fn alias(&self) -> Option<&CStr> {
+    pub fn alias(&self) -> Option<&'a CStr> {
         // SAFETY: `as_ptr` addresses a live descriptor; raw-place projection
         // and `read` form no reference to its storage.
         let pointer = unsafe { addr_of!((*self.as_ptr()).alias).read() };
         if pointer.is_null() {
             None
         } else {
-            // SAFETY: a non-null `alias` in a valid descriptor addresses an
-            // immutable NUL-terminated string which remains live while used.
+            // SAFETY: `AVPixFmtDescriptor`'s handle invariant makes a non-null
+            // `alias` a NUL-terminated string outliving this borrow, upheld by
+            // `from_ptr`'s caller and preserved by `set_alias`, which accepts
+            // only `&'static CStr`. The result is narrowed to `'a`, which the
+            // descriptor itself already outlives.
             Some(unsafe { CStr::from_ptr(pointer) })
         }
     }
@@ -318,7 +366,18 @@ impl AVPixFmtDescriptorMut<'_> {
     }
 
     /// Sets the number of components in each pixel.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `value` exceeds 4. `comp` holds four descriptors and
+    /// libavutil reads `comp[c]` for every `c < nb_components`, so a larger
+    /// count would break the [type's invariant](AVPixFmtDescriptor) and read
+    /// past the array inside C.
     pub fn set_nb_components(&mut self, value: u8) {
+        assert!(
+            value <= 4,
+            "a pixel format has at most 4 components, got {value}"
+        );
         // SAFETY: the exclusive handle supplies write provenance and prevents
         // any other handle from being used for the duration of this call.
         unsafe { addr_of_mut!((*self.as_mut_ptr()).nb_components).write(value) }
@@ -426,15 +485,32 @@ mod pix_fmt_descriptor_tests {
     }
 
     #[test]
-    fn pixel_format_descriptor_wrapper_preserves_layout() {
-        assert_eq!(
-            core::mem::size_of::<AVPixFmtDescriptor>(),
-            core::mem::size_of::<ffi::AVPixFmtDescriptor>()
-        );
-        assert_eq!(
-            core::mem::align_of::<AVPixFmtDescriptor>(),
-            core::mem::align_of::<ffi::AVPixFmtDescriptor>()
-        );
+    #[should_panic = "a pixel format has at most 4 components"]
+    fn a_component_count_past_the_array_is_rejected() {
+        let mut raw = ffi::AVPixFmtDescriptor {
+            name: c"probe".as_ptr(),
+            nb_components: 1,
+            log2_chroma_w: 0,
+            log2_chroma_h: 0,
+            flags: 0,
+            comp: [component(0, 8); 4],
+            alias: core::ptr::null(),
+        };
+
+        // SAFETY: `raw` is live and initialized for the handle's scope, its
+        // `nb_components` is within the four-slot `comp` array, its `name` is a
+        // `'static` literal, and this is its only borrowed handle.
+        let mut descriptor = unsafe {
+            AVPixFmtDescriptorMut::from_ptr(addr_of_mut!(raw))
+                .expect("stack descriptor is non-null")
+        };
+
+        // Without the bound, a descriptor built here reaches C claiming more
+        // components than `comp` can hold, and the reader walks past the array:
+        // the probe behind this test set the count to 200 and called
+        // `av_get_bits_per_pixel`, which UBSan reported as an out-of-bounds
+        // index at pixdesc.c:3419 with no `unsafe` anywhere in the caller.
+        descriptor.set_nb_components(5);
     }
 }
 
@@ -570,24 +646,44 @@ mod scheduled_symbol_tests {
     }
 }
 
-/// Wraps: av_get_bits_per_pixel
-#[must_use]
-pub fn av_get_bits_per_pixel(descriptor: AVPixFmtDescriptorRef<'_>) -> i32 {
-    // SAFETY: the handle supplies a live immutable descriptor for this
-    // read-only call and C does not retain it.
-    unsafe { ffi::av_get_bits_per_pixel(descriptor.as_ptr()) }
-}
-
 /// An immutable entry in libavutil's process-lifetime pixel-format table.
+///
+/// The table is the `static const` array in `libavutil/pixdesc.c`; nothing
+/// writes to it after load, so an entry is only ever read. Holding one is what
+/// distinguishes a descriptor libavutil itself vouches for from a descriptor a
+/// caller built, which is the distinction
+/// [`av_pix_fmt_desc_get_id`] and [`av_get_bits_per_pixel`] need.
 #[derive(Clone, Copy)]
 pub struct AVPixFmtDescriptorEntry(AVPixFmtDescriptorRef<'static>);
 
 impl AVPixFmtDescriptorEntry {
     /// Borrows the immutable descriptor metadata in this table entry.
+    ///
+    /// The handle borrows for `'static`, not for this borrow of the entry:
+    /// the descriptor it addresses lives as long as the loaded library.
     #[must_use]
-    pub fn as_ref(&self) -> AVPixFmtDescriptorRef<'_> {
+    pub fn as_ref(&self) -> AVPixFmtDescriptorRef<'static> {
         self.0
     }
+}
+
+/// Wraps: av_get_bits_per_pixel
+///
+/// Returns the average number of bits each pixel of the format occupies,
+/// counting chroma subsampling but not padding.
+///
+/// Takes a table entry rather than a bare handle. C sums
+/// `comp[c].depth << (log2_chroma_w + log2_chroma_h)` over `c` below
+/// `nb_components` and shifts the `int` total back down, checking none of the
+/// three fields; the descriptors libavutil publishes are the ones whose values
+/// that arithmetic is defined for. See the
+/// [type documentation](AVPixFmtDescriptor).
+#[must_use]
+pub fn av_get_bits_per_pixel(descriptor: AVPixFmtDescriptorEntry) -> i32 {
+    // SAFETY: the entry type can only be produced by the table lookup or the
+    // iterator, so the pointer addresses a live immutable table descriptor for
+    // this read-only call, and C does not retain it.
+    unsafe { ffi::av_get_bits_per_pixel(descriptor.0.as_ptr()) }
 }
 
 /// Wraps: av_pix_fmt_desc_get
@@ -637,7 +733,7 @@ mod scheduled_descriptor_tests {
     fn descriptor_lookup_identity_and_bit_count_round_trip() {
         let descriptor = av_pix_fmt_desc_get(AVPixelFormat::YUV420P).expect("known format");
         assert_eq!(av_pix_fmt_desc_get_id(descriptor), AVPixelFormat::YUV420P);
-        assert_eq!(av_get_bits_per_pixel(descriptor.as_ref()), 12);
+        assert_eq!(av_get_bits_per_pixel(descriptor), 12);
     }
 
     #[test]
@@ -659,6 +755,71 @@ mod scheduled_descriptor_tests {
                 .sum::<i32>(),
             24
         );
+    }
+
+    #[test]
+    fn the_wrapper_agrees_with_the_c_table_layout() {
+        // C's descriptors are one contiguous array indexed by pixel format, so
+        // the distance between two adjacent entries is what C compiled as
+        // `sizeof(AVPixFmtDescriptor)`. That is the stride `CSlice`, `addr_of!`
+        // and every projection in this module are laid out against.
+        let first = av_pix_fmt_desc_get(AVPixelFormat::YUV420P).expect("known format");
+        let second = av_pix_fmt_desc_get(AVPixelFormat::YUYV422).expect("known format");
+        assert_eq!(
+            second.as_ref().as_ptr() as usize - first.as_ref().as_ptr() as usize,
+            core::mem::size_of::<AVPixFmtDescriptor>()
+        );
+
+        // Every field offset, read back against pixdesc.c's own initializer for
+        // AV_PIX_FMT_GRAY8. A field projected at the wrong offset lands in a
+        // neighbouring one, which these values distinguish.
+        let gray = av_pix_fmt_desc_get(AVPixelFormat::GRAY8).expect("known format");
+        let gray = gray.as_ref();
+        assert_eq!(gray.name(), Some(c"gray"));
+        assert_eq!(gray.alias(), Some(c"gray8,y8"));
+        assert_eq!(gray.nb_components(), 1);
+        assert_eq!(gray.log2_chroma_w(), 0);
+        assert_eq!(gray.log2_chroma_h(), 0);
+        assert_eq!(gray.flags(), 0);
+        let luma = gray.components().get(0).expect("a first component");
+        assert_eq!(
+            (
+                luma.plane(),
+                luma.step(),
+                luma.offset(),
+                luma.shift(),
+                luma.depth()
+            ),
+            (0, 1, 0, 0, 8)
+        );
+
+        // yuv420p pins what gray8 leaves at zero: pixdesc.h numbers the flags
+        // BE, PAL, BITSTREAM, HWACCEL, PLANAR from bit 0, and this format is
+        // planar and subsampled by two in each direction.
+        let planar = first.as_ref();
+        assert_eq!(planar.flags(), 1 << 4);
+        assert_eq!((planar.log2_chroma_w(), planar.log2_chroma_h()), (1, 1));
+        // The `comp` stride is `size_of::<AVComponentDescriptor>()`; C gives
+        // the three planes distinct indices, so a wrong stride shows up here.
+        let components = planar.components();
+        assert_eq!(components.get(0).expect("a luma plane").plane(), 0);
+        assert_eq!(components.get(1).expect("a chroma-U plane").plane(), 1);
+        assert_eq!(components.get(2).expect("a chroma-V plane").plane(), 2);
+    }
+
+    #[test]
+    fn table_strings_outlive_the_entry_that_produced_them() {
+        // Both strings borrow from the table, not from the handle or the entry
+        // the handle came from -- this block would not compile otherwise.
+        let (name, alias) = {
+            let entry = av_pix_fmt_desc_get(AVPixelFormat::GRAY8).expect("known format");
+            (entry.as_ref().name(), entry.as_ref().alias())
+        };
+        assert_eq!(name, Some(c"gray"));
+        assert_eq!(alias, Some(c"gray8,y8"));
+        // The alias is not decoration: C accepts each comma-separated spelling
+        // in it as a name for the same format.
+        assert_eq!(av_get_pix_fmt(c"y8"), AVPixelFormat::GRAY8);
     }
 
     #[test]

@@ -613,7 +613,7 @@
   {
    "name": "AVPixFmtDescriptor",
    "defined_in": "libavutil/pixdesc.h",
-   "_comment_agent": "AVPixFmtDescriptor has no allocator, releaser, disposer, or cloner. Libavutil's published descriptors live in a process-lifetime static const table; its two pointer fields borrow optional immutable static strings.",
+   "_comment_agent": "AVPixFmtDescriptor has no allocator, releaser, disposer, or cloner. Libavutil's published descriptors live in a process-lifetime static const table; its two pointer fields borrow optional immutable static strings. Nothing in the target writes any field of a descriptor, in the table or elsewhere. nb_components is a cardinality field, not just data: every reader that takes a descriptor pointer (av_get_bits_per_pixel, av_pix_fmt_count_planes, get_pix_fmt_depth, av_image_fill_linesizes, image_copy) walks comp[c] for c < nb_components over an array of exactly 4, and none of them validates the count, so a wrapper must bound it at 4. av_get_bits_per_pixel additionally shifts an int by log2_chroma_w + log2_chroma_h and accumulates comp[c].depth into it, which no per-field bound makes total; a caller-built descriptor is therefore not a safe argument to a descriptor-taking reader, only a table entry is.",
    "fields": [
     {
      "name": "alias",
