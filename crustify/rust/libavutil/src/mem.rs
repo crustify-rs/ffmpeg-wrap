@@ -26,6 +26,22 @@ use crate::ffi;
 /// impl the counted one. For a counted buffer it also enables bytewise cloning
 /// through [`av_memdup`](ffi::av_memdup).
 ///
+/// Building the counted owner over a *fresh* `av_malloc` takes two steps.
+/// `av_malloc` hands back uninitialised bytes — its only write is the optional
+/// `CONFIG_MEMORY_POISONING` memset, compiled out here — while
+/// [`CVec::from_raw_parts`](ffibox::CVec::from_raw_parts) requires the pointer
+/// to already hold its `count` elements, which
+/// [`as_slice`](ffibox::CVec::as_slice) then materialises as one `&[T]`
+/// covering all of them. [`CElem`](ffibox::CElem) does not excuse that: its
+/// obligation ranges over the bit patterns the buffer may hold, and
+/// uninitialised memory is not a bit pattern — read as a `u8` or a `*mut u8`
+/// it is an invalid value either way. Adopt the allocation as
+/// `CVec<MaybeUninit<T>, AvFree>`, ffibox's escape hatch for a buffer C has
+/// not filled, fill it through that owner, then promote it. `MaybeUninit<T>`
+/// has `T`'s size, so `AvFree` releases the same extent from either tier. An
+/// [`av_memdup`](ffi::av_memdup) result needs none of this: it arrives
+/// initialised over every byte its element count can reach.
+///
 /// Unlike `munmap`, the length-aware release must not short-circuit on a zero
 /// byte length: `av_malloc(0)` retries with one byte, so a zero-length owner
 /// still holds a live allocation that has to be freed.
@@ -103,9 +119,57 @@ unsafe impl CLenCloned for AvFree {
 
 #[cfg(test)]
 mod tests {
+    use core::mem::MaybeUninit;
+
     use ffibox::{CVec, CVoidBox, CrustifyStr};
 
     use super::*;
+
+    /// Allocate `values.len()` elements with `av_malloc` and return the counted
+    /// owner over them, filled.
+    ///
+    /// The two tiers are the point, not ceremony, and this is the only place in
+    /// the module allowed to build a typed [`CVec`] over `av_malloc` storage.
+    /// `av_malloc` returns uninitialised bytes, so the fresh allocation does not
+    /// yet hold `count` values of `T`, which is what
+    /// [`CVec::from_raw_parts`] requires and what [`CVec::as_slice`] asserts for
+    /// the whole buffer at once. [`CElem`](ffibox::CElem) is a claim about bit
+    /// patterns and says nothing about uninitialised memory, so it does not
+    /// license the shortcut for `u8` or for `*mut u8`. Owning the allocation as
+    /// `MaybeUninit<T>` first makes the fill safe code, and the promotion an
+    /// isolated step that can state why every element is now valid.
+    fn av_alloc_filled<T: Copy>(values: &[T]) -> CVec<T, AvFree> {
+        // SAFETY: `av_malloc` returns null or a uniquely owned allocation of at
+        // least this many bytes, aligned to its ALIGN (16 at the weakest, past
+        // every `T` used here), which this owner adopts exactly once. Adopting
+        // it as `MaybeUninit<T>` claims nothing about the contents — that is
+        // what the escape hatch is for — so the precondition holds before a
+        // single byte is written, and a panic in the fill below still releases
+        // the allocation through `AvFree`.
+        let mut storage = unsafe {
+            CVec::<MaybeUninit<T>, AvFree>::from_raw_parts(
+                ffi::av_malloc(size_of_val(values)).cast(),
+                values.len(),
+            )
+        }
+        .expect("av_malloc failed");
+
+        for (slot, value) in storage.as_mut_slice().iter_mut().zip(values) {
+            slot.write(*value);
+        }
+
+        let (ptr, count) = storage.into_raw_parts();
+
+        // SAFETY: the loop wrote every one of the `count` slots, so the
+        // allocation now holds `count` contiguous initialised `T` — exactly the
+        // precondition `from_raw_parts` states and `as_slice` relies on.
+        // `into_raw_parts` surrendered ownership without freeing, and
+        // `MaybeUninit<T>` shares `T`'s size and alignment, so the promoted
+        // owner hands `AvFree` the same pointer and the same byte length the
+        // uninitialised tier would have. `ptr` came out of a `NonNull`.
+        unsafe { CVec::<T, AvFree>::from_raw_parts(ptr.cast::<T>(), count) }
+            .expect("av_malloc failed")
+    }
 
     #[test]
     fn drops_scalar_allocation() {
@@ -118,14 +182,7 @@ mod tests {
 
     #[test]
     fn clones_and_drops_counted_buffer() {
-        const LEN: usize = 4;
-
-        // SAFETY: `av_malloc(LEN)` returns null or a uniquely owned allocation
-        // of at least LEN bytes, which this `CVec` adopts exactly once.
-        let mut original =
-            unsafe { CVec::<u8, AvFree>::from_raw_parts(ffi::av_malloc(LEN).cast(), LEN) }
-                .expect("av_malloc failed");
-        original.as_mut_slice().copy_from_slice(&[1, 2, 3, 4]);
+        let original = av_alloc_filled(&[1u8, 2, 3, 4]);
 
         let mut cloned = original.try_clone().expect("av_memdup failed");
         assert_eq!(cloned.as_slice(), original.as_slice());
@@ -144,12 +201,7 @@ mod tests {
         // so an empty clone comes back live rather than as the NULL that
         // signals failure — `try_clone` must succeed and its result must still
         // be released, which the sanitiser run checks.
-        //
-        // SAFETY: as in `drops_empty_counted_buffer` — the checked `av_malloc`
-        // result is a uniquely owned allocation adopted exactly once, and the
-        // zero element count means no byte of it is read through the views.
-        let empty = unsafe { CVec::<u8, AvFree>::from_raw_parts(ffi::av_malloc(0).cast(), 0) }
-            .expect("av_malloc failed");
+        let empty = av_alloc_filled::<u8>(&[]);
 
         let cloned = empty.try_clone().expect("av_memdup failed");
         assert!(cloned.is_empty());
@@ -161,26 +213,16 @@ mod tests {
         // The `av_frame_ref` shape: `extended_data` is a buffer of channel
         // pointers, and duplicating it with `av_memdup` copies the addresses
         // while both buffers keep pointing at the one set of planes.
-        const LEN: usize = 2;
-
+        //
+        // The element type does not change the construction rule. `*mut u8` is
+        // a `CElem`, but that marker covers the bit patterns a pointer may
+        // hold, not the absence of one: the freshly allocated slots are
+        // uninitialised until written, so they too are filled through the
+        // `MaybeUninit` tier before any `&[*mut u8]` covers them.
         let mut planes = [7u8, 8];
         let (first, second) = planes.split_at_mut(1);
 
-        // SAFETY: `av_malloc` returns null or a uniquely owned allocation of
-        // `LEN` pointer-sized elements, aligned well past `*mut u8`, which this
-        // `CVec` adopts exactly once. `*mut u8` is a `CElem` — no bit pattern
-        // of it is invalid — which is what makes the slice view of the
-        // freshly allocated elements legal before they are written below.
-        let mut table = unsafe {
-            CVec::<*mut u8, AvFree>::from_raw_parts(
-                ffi::av_malloc(LEN * size_of::<*mut u8>()).cast(),
-                LEN,
-            )
-        }
-        .expect("av_malloc failed");
-        table
-            .as_mut_slice()
-            .copy_from_slice(&[first.as_mut_ptr(), second.as_mut_ptr()]);
+        let table = av_alloc_filled(&[first.as_mut_ptr(), second.as_mut_ptr()]);
 
         let cloned = table.try_clone().expect("av_memdup failed");
         assert_ne!(cloned.as_ptr(), table.as_ptr());
@@ -193,14 +235,50 @@ mod tests {
         // zero-length owner still owns storage. `c_drop_len` must therefore
         // reach `av_free` for it — a `munmap`-style zero-length short-circuit
         // would leak here, which the sanitiser run turns into a failure.
-        //
-        // SAFETY: the checked `av_malloc(0)` result is a uniquely owned
-        // allocation this `CVec` adopts exactly once; the element count is
-        // zero, so no byte of it is ever read through the slice views.
-        let empty = unsafe { CVec::<u8, AvFree>::from_raw_parts(ffi::av_malloc(0).cast(), 0) }
-            .expect("av_malloc failed");
+        let empty = av_alloc_filled::<u8>(&[]);
         assert!(empty.is_empty());
         drop(empty);
+    }
+
+    #[test]
+    fn promotes_a_filled_buffer_without_changing_its_extent() {
+        const VALUES: [u8; 4] = [1, 2, 3, 4];
+
+        let promoted = av_alloc_filled(&VALUES);
+
+        // What the promotion in `av_alloc_filled` has to preserve, pinned so a
+        // regression shows up here rather than as a silent invalid slice: every
+        // slot reads back what was written, so the typed view covers
+        // initialised elements only, and the count and byte extent are the ones
+        // the uninitialised tier held, so `AvFree::c_drop_len` still releases
+        // exactly the allocation `av_malloc` handed out.
+        assert_eq!(promoted.as_slice(), &VALUES);
+        assert_eq!(promoted.count(), VALUES.len());
+        assert_eq!(promoted.byte_len(), VALUES.len() * size_of::<u8>());
+    }
+
+    #[test]
+    fn drops_an_unfilled_buffer_through_the_uninitialised_tier() {
+        const LEN: usize = 4;
+
+        // The other half of the escape hatch, and `av_alloc_filled`'s bail
+        // path: a buffer that is never filled must still be owned and released,
+        // which is only expressible while the element type is `MaybeUninit<T>`.
+        // The byte extent matches the typed tier's, so the two are
+        // interchangeable to `AvFree` — a mismatch would reach `av_free` as an
+        // invalid free, which the sanitiser run catches.
+        //
+        // SAFETY: `av_malloc` returns null or a uniquely owned allocation of at
+        // least `LEN` `u8`-sized slots, which this owner adopts exactly once;
+        // every bit pattern, and the absence of one, is a valid
+        // `MaybeUninit<u8>`, so no element is ever read as anything else.
+        let unfilled = unsafe {
+            CVec::<MaybeUninit<u8>, AvFree>::from_raw_parts(ffi::av_malloc(LEN).cast(), LEN)
+        }
+        .expect("av_malloc failed");
+
+        assert_eq!(unfilled.byte_len(), LEN * size_of::<u8>());
+        drop(unfilled);
     }
 
     #[test]
