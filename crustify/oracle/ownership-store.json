@@ -206,9 +206,15 @@
    "fields": []
   },
   {
+   "name": "AVComponentDescriptor",
+   "defined_in": "libavutil/pixdesc.h",
+   "_comment_agent": "AVComponentDescriptor is a pointer-free by-value POD of five ints. It has no lifecycle of its own: it is never heap-allocated on its own, and its only published storage is the inline four-element AVPixFmtDescriptor.comp array in libavutil.s immutable process-lifetime descriptor table, whose entries are freed by nothing. Reviewed 2026-08-23; no ownership slots exist to record.",
+   "fields": []
+  },
+  {
    "name": "AVDictionary",
    "defined_in": "libavutil/dict.c",
-   "_comment_agent": "AVDictionary owns its elems array and the strings held by its inline entries; av_dict_free tears down that complete graph.",
+   "_comment_agent": "AVDictionary owns its elems array and the strings held by its inline entries; av_dict_free tears down that complete graph. Reviewed 2026-08-23: the header itself is not stable across a mutation. av_dict_set av_mallocz-es it on the first insertion and av_freep-s it, storing NULL back into the caller slot, once the last entry is removed, so every mutating entry point takes AVDictionary ** rather than AVDictionary *. A nullable owner slot, not a non-null handle, is the only faithful representation.",
    "fields": [
     {
      "name": "elems",

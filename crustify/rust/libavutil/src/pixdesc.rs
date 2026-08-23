@@ -164,6 +164,21 @@ mod tests {
         assert_eq!(shared.shift(), 9);
         assert_eq!(shared.depth(), 10);
     }
+
+    #[test]
+    fn component_descriptor_wrapper_preserves_layout() {
+        // The wrapper is reached as an element of `AVPixFmtDescriptor.comp`
+        // through `CSlice`, which strides by `size_of::<AVComponentDescriptor>()`
+        // over storage C laid out; the two must agree.
+        assert_eq!(
+            core::mem::size_of::<AVComponentDescriptor>(),
+            core::mem::size_of::<ffi::AVComponentDescriptor>()
+        );
+        assert_eq!(
+            core::mem::align_of::<AVComponentDescriptor>(),
+            core::mem::align_of::<ffi::AVComponentDescriptor>()
+        );
+    }
 }
 
 define_ctype!(
@@ -174,7 +189,7 @@ define_ctype!(
     ffi::AVPixFmtDescriptor
 );
 
-impl AVPixFmtDescriptorRef<'_> {
+impl<'a> AVPixFmtDescriptorRef<'a> {
     /// Wraps: AVPixFmtDescriptor.flags
     #[must_use]
     pub fn flags(&self) -> u64 {
@@ -199,8 +214,17 @@ impl AVPixFmtDescriptorRef<'_> {
     }
 
     /// Wraps: AVPixFmtDescriptor.comp
+    ///
+    /// The view borrows for the handle's own lifetime, not for the borrow of
+    /// the handle: the descriptors live inside the C object the handle already
+    /// addresses for `'a`, and the only route to a table descriptor's
+    /// components is through a temporary handle from
+    /// [`AVPixFmtDescriptorEntry::as_ref`].
+    ///
+    /// The array always has four elements; `nb_components` says how many of
+    /// them the pixel format uses.
     #[must_use]
-    pub fn components(&self) -> CSlice<'_, AVComponentDescriptor> {
+    pub fn components(&self) -> CSlice<'a, AVComponentDescriptor> {
         // SAFETY: `as_ptr` addresses a live descriptor; `addr_of!` performs
         // raw-place projection without forming a reference to the array.
         let pointer = unsafe {
@@ -210,7 +234,8 @@ impl AVPixFmtDescriptorRef<'_> {
         };
         let pointer = NonNull::new(pointer).expect("an embedded field is non-null");
         // SAFETY: `comp` is an inline array of four initialized component
-        // descriptors, and the returned shared view is bound to `&self`.
+        // descriptors embedded in a descriptor live for `'a`, and the returned
+        // view is shared, so it cannot outlive or alias-violate the handle.
         unsafe { CSlice::from_raw_parts(pointer, 4) }
     }
 
@@ -605,6 +630,27 @@ mod scheduled_descriptor_tests {
         let descriptor = av_pix_fmt_desc_get(AVPixelFormat::YUV420P).expect("known format");
         assert_eq!(av_pix_fmt_desc_get_id(descriptor), AVPixelFormat::YUV420P);
         assert_eq!(av_get_bits_per_pixel(descriptor.as_ref()), 12);
+    }
+
+    #[test]
+    fn table_components_outlive_the_temporary_handle() {
+        let entry = av_pix_fmt_desc_get(AVPixelFormat::YUV420P).expect("known format");
+        // The handle from `as_ref()` is a temporary; the view must borrow the
+        // descriptor itself, not that temporary.
+        let components = entry.as_ref().components();
+        assert_eq!(components.len(), 4);
+        let luma = components.get(0).expect("a first component");
+        assert_eq!(luma.plane(), 0);
+        assert_eq!(luma.depth(), 8);
+        assert_eq!(luma.step(), 1);
+        assert_eq!(
+            components
+                .iter()
+                .take(usize::from(entry.as_ref().nb_components()))
+                .map(|component| component.depth())
+                .sum::<i32>(),
+            24
+        );
     }
 
     #[test]
