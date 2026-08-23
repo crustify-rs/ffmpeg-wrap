@@ -3,7 +3,7 @@
 use core::ffi::{CStr, c_char, c_void};
 use core::ptr::NonNull;
 
-use ffibox::{CCloned, CDropped, CLenCloned, CLenDropped};
+use ffibox::{CCloned, CDropped, CLenCloned, CLenDropped, CVec, CVoidBox, CrustifyStr};
 
 use crate::ffi;
 
@@ -544,5 +544,204 @@ mod tests {
         assert_eq!(strdup_clone.as_bytes(), TEXT.to_bytes());
         assert_eq!(strndup_clone.as_bytes(), strdup_clone.as_bytes());
         assert_eq!(strndup_clone.len(), strdup_clone.len());
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DynArrayAddError {
+    CountOverflow,
+    AllocationFailed,
+}
+
+/// Wraps: av_dynarray_add
+///
+/// Grows an owned table of opaque element pointers. The table allocation is
+/// always owned by `AvFree`; element pointees are never dereferenced or freed.
+/// On allocation failure C frees the old table, so `table` becomes `None`.
+pub fn av_dynarray_add<T>(
+    table: &mut Option<CVec<*mut T, AvFree>>,
+    element: Option<NonNull<T>>,
+) -> Result<(), DynArrayAddError> {
+    let count = table.as_ref().map_or(0, CVec::count);
+    let mut count = i32::try_from(count).map_err(|_| DynArrayAddError::CountOverflow)?;
+    let mut pointer = table
+        .take()
+        .map_or(core::ptr::null_mut(), |owner| owner.into_raw_parts().0);
+
+    // SAFETY: `pointer` is null or the uniquely owned av_malloc-family pointer
+    // table paired with `count`; both local slots are writable, and `element`
+    // is only copied as an opaque value and never dereferenced or retained by
+    // C beyond its presence in the returned table.
+    unsafe {
+        ffi::av_dynarray_add(
+            (&raw mut pointer).cast::<c_void>(),
+            &raw mut count,
+            element
+                .map_or(core::ptr::null_mut(), NonNull::as_ptr)
+                .cast(),
+        )
+    };
+
+    if pointer.is_null() {
+        debug_assert_eq!(count, 0);
+        return Err(DynArrayAddError::AllocationFailed);
+    }
+    let count = usize::try_from(count).expect("av_dynarray_add returned a negative count");
+    // SAFETY: on success C returns the uniquely owned av_malloc-family table
+    // containing exactly `count` initialized pointer elements.
+    *table = unsafe { CVec::from_raw_parts(pointer, count) };
+    Ok(())
+}
+
+mod sealed {
+    pub trait Sealed {}
+}
+
+/// Owner shapes that can be consumed by [`av_freep`]. This trait is sealed so
+/// an allocator-incompatible owner cannot opt into the safe freeing surface.
+pub trait AvFreepTarget: sealed::Sealed {
+    #[doc(hidden)]
+    fn free_with_av_freep(self);
+}
+
+fn freep_raw(mut pointer: *mut c_void) {
+    // SAFETY: every caller surrendered one av_malloc-family owner into this
+    // local pointer slot; `av_freep` consumes it and writes NULL to the slot.
+    unsafe { ffi::av_freep((&raw mut pointer).cast::<c_void>()) }
+}
+
+impl sealed::Sealed for CVoidBox<AvFree> {}
+impl AvFreepTarget for CVoidBox<AvFree> {
+    fn free_with_av_freep(self) {
+        freep_raw(self.into_raw());
+    }
+}
+
+impl<T> sealed::Sealed for CVec<T, AvFree> {}
+impl<T> AvFreepTarget for CVec<T, AvFree> {
+    fn free_with_av_freep(self) {
+        freep_raw(self.into_raw_parts().0.cast());
+    }
+}
+
+impl sealed::Sealed for CrustifyStr<AvFree> {}
+impl AvFreepTarget for CrustifyStr<AvFree> {
+    fn free_with_av_freep(self) {
+        freep_raw(self.into_raw().cast());
+    }
+}
+
+impl sealed::Sealed for CrustifyStr<AvFreeWithStrndup> {}
+impl AvFreepTarget for CrustifyStr<AvFreeWithStrndup> {
+    fn free_with_av_freep(self) {
+        freep_raw(self.into_raw().cast());
+    }
+}
+
+/// Wraps: av_freep
+///
+/// Consumes an allocator-matched owner and leaves its Rust option empty, the
+/// typed equivalent of freeing a C pointer slot and setting it to NULL.
+pub fn av_freep<T: AvFreepTarget>(slot: &mut Option<T>) {
+    if let Some(owner) = slot.take() {
+        owner.free_with_av_freep();
+    }
+}
+
+/// Wraps: av_malloc
+///
+/// Allocates an opaque, uniquely owned byte block. Its bytes remain inaccessible
+/// until a higher-level wrapper establishes their initialization and type.
+#[must_use]
+pub fn av_malloc(size: usize) -> Option<CVoidBox<AvFree>> {
+    // SAFETY: a non-null result is a fresh uniquely owned av_malloc-family
+    // allocation and `AvFree` is its matching destructor.
+    unsafe { CVoidBox::from_raw(ffi::av_malloc(size)) }
+}
+
+/// Wraps: av_malloc_array
+///
+/// Checks multiplication in C and returns an opaque owned allocation.
+#[must_use]
+pub fn av_malloc_array(count: usize, element_size: usize) -> Option<CVoidBox<AvFree>> {
+    // SAFETY: a non-null result is a fresh uniquely owned av_malloc-family
+    // allocation and `AvFree` is its matching destructor.
+    unsafe { CVoidBox::from_raw(ffi::av_malloc_array(count, element_size)) }
+}
+
+/// Wraps: av_mallocz
+///
+/// Allocates an opaque owned block whose requested extent is zero-filled.
+#[must_use]
+pub fn av_mallocz(size: usize) -> Option<CVoidBox<AvFree>> {
+    // SAFETY: a non-null result is a fresh uniquely owned av_malloc-family
+    // allocation and `AvFree` is its matching destructor.
+    unsafe { CVoidBox::from_raw(ffi::av_mallocz(size)) }
+}
+
+/// A failed [`av_realloc`]. A non-null input allocation is returned to the
+/// caller because the C failure path leaves it live and unchanged.
+#[derive(Debug)]
+pub struct ReallocError {
+    pub allocation: Option<CVoidBox<AvFree>>,
+}
+
+/// Wraps: av_realloc
+///
+/// Resizes opaque av_malloc-family storage while preserving ownership on both
+/// success and failure. Passing `None` models C's null allocation input.
+pub fn av_realloc(
+    allocation: Option<CVoidBox<AvFree>>,
+    size: usize,
+) -> Result<CVoidBox<AvFree>, ReallocError> {
+    let original = allocation.map_or(core::ptr::null_mut(), CVoidBox::into_raw);
+    // SAFETY: `original` is null or a uniquely owned av_malloc-family
+    // allocation surrendered for this call.
+    let resized = unsafe { ffi::av_realloc(original, size) };
+    if resized.is_null() {
+        // SAFETY: on realloc failure a non-null input remains live, uniquely
+        // owned and allocator-compatible; reconstructing restores its owner.
+        let allocation = unsafe { CVoidBox::from_raw(original) };
+        Err(ReallocError { allocation })
+    } else {
+        // SAFETY: success transfers the one resized allocation back, with
+        // `AvFree` still its matching destructor.
+        Ok(unsafe { CVoidBox::from_raw(resized) }.expect("non-null realloc result"))
+    }
+}
+
+#[cfg(test)]
+mod scheduled_symbol_tests {
+    use super::*;
+
+    #[test]
+    fn allocation_wrappers_own_and_resize_storage() {
+        let allocation = av_malloc(8).expect("av_malloc failed");
+        let allocation = av_realloc(Some(allocation), 32).expect("av_realloc failed");
+        drop(allocation);
+        drop(av_malloc_array(4, 8).expect("av_malloc_array failed"));
+        drop(av_mallocz(16).expect("av_mallocz failed"));
+    }
+
+    #[test]
+    fn freep_empties_owner_slot() {
+        let mut allocation = av_malloc(8);
+        assert!(allocation.is_some());
+        av_freep(&mut allocation);
+        assert!(allocation.is_none());
+        av_freep(&mut allocation);
+    }
+
+    #[test]
+    fn dynarray_grows_an_owned_pointer_table() {
+        let mut first = 1_i32;
+        let mut second = 2_i32;
+        let mut table = None;
+        av_dynarray_add(&mut table, Some(NonNull::from(&mut first))).expect("first add");
+        av_dynarray_add(&mut table, Some(NonNull::from(&mut second))).expect("second add");
+        let table = table.expect("allocated table");
+        assert_eq!(table.count(), 2);
+        assert_eq!(table.as_slice()[0], &raw mut first);
+        assert_eq!(table.as_slice()[1], &raw mut second);
     }
 }

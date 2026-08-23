@@ -1,10 +1,17 @@
 #include <libavutil/audio_fifo.h>
 #include <libavutil/avutil.h>
+#include <libavutil/avstring.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/dict.h>
+#include <libavutil/file.h>
 #include <libavutil/frame.h>
 #include <libavutil/hwcontext.h>
+#include <libavutil/log.h>
 #include <libavutil/md5.h>
 #include <libavutil/mem.h>
+#include <libavutil/opt.h>
+#include <libavutil/pixdesc.h>
+#include <libavutil/rational.h>
 #include <libavutil/samplefmt.h>
 #include <libavutil/pixfmt.h>
+#include <libavutil/time.h>

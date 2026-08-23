@@ -117,6 +117,18 @@ unsafe impl CDropped for AVMD5 {
     }
 }
 
+/// Wraps: av_md5_sum
+///
+/// Computes the digest without exposing the C output pointer.
+#[must_use]
+pub fn av_md5_sum(source: &[u8]) -> [u8; 16] {
+    let mut digest = [0_u8; 16];
+    // SAFETY: `digest` provides the required 16 writable bytes and `source`
+    // provides exactly `source.len()` readable bytes; neither is retained.
+    unsafe { ffi::av_md5_sum(digest.as_mut_ptr(), source.as_ptr(), source.len()) };
+    digest
+}
+
 #[cfg(test)]
 mod tests {
     use ffibox::CBox;
@@ -140,5 +152,16 @@ mod tests {
         }
 
         // Dropping `context` exercises the allocator-matched `av_free` path.
+    }
+
+    #[test]
+    fn hashes_known_input() {
+        assert_eq!(
+            av_md5_sum(b"abc"),
+            [
+                0x90, 0x01, 0x50, 0x98, 0x3c, 0xd2, 0x4f, 0xb0, 0xd6, 0x96, 0x3f, 0x7d, 0x28, 0xe1,
+                0x7f, 0x72
+            ]
+        );
     }
 }

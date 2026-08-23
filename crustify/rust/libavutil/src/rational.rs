@@ -76,6 +76,39 @@ impl AVRationalMut<'_> {
     }
 }
 
+/// Result of reducing a fraction with [`av_reduce`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReducedRational {
+    pub numerator: i32,
+    pub denominator: i32,
+    pub exact: bool,
+}
+
+/// Wraps: av_reduce
+///
+/// Returns both C out-parameters as one initialized Rust value.
+#[must_use]
+pub fn av_reduce(numerator: i64, denominator: i64, max: i64) -> ReducedRational {
+    let mut reduced_num = 0;
+    let mut reduced_den = 0;
+    // SAFETY: both out-pointers address distinct live `i32` slots and remain
+    // valid for the call; the remaining arguments are values.
+    let exact = unsafe {
+        ffi::av_reduce(
+            &raw mut reduced_num,
+            &raw mut reduced_den,
+            numerator,
+            denominator,
+            max,
+        ) != 0
+    };
+    ReducedRational {
+        numerator: reduced_num,
+        denominator: reduced_den,
+        exact,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use core::mem::{align_of, size_of};
@@ -105,5 +138,20 @@ mod tests {
         let raw = unsafe { view.as_ptr().read() };
         assert_eq!(raw.num, -3);
         assert_eq!(raw.den, 7);
+    }
+
+    #[test]
+    fn reduces_exactly_and_approximately() {
+        assert_eq!(
+            av_reduce(10, 20, 100),
+            ReducedRational {
+                numerator: 1,
+                denominator: 2,
+                exact: true
+            }
+        );
+        let approximate = av_reduce(1, 3, 2);
+        assert!(!approximate.exact);
+        assert!(approximate.numerator.abs() <= 2 && approximate.denominator <= 2);
     }
 }
