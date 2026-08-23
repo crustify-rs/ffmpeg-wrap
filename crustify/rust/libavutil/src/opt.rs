@@ -199,10 +199,27 @@ pub fn av_opt_set_int(
 ffibox::define_ctype!(
     /// Wraps: AVOptionArrayDef
     ///
-    /// Describes the limits, separator and serialized default for an array
-    /// option. The layout stays compatible with C so it can remain embedded in
-    /// libavutil's static option metadata. It has no destructor: neither the
-    /// structure nor its borrowed default string is owned by libavutil.
+    /// Describes the element-count limits, separator and serialized default of
+    /// an array option. C never stores one inline: an [`AVOption`] reaches it
+    /// by pointer through `default_val.arr`, and every definition in the tree
+    /// is a `static const` initializer, so the layout stays C-compatible. It
+    /// has no lifecycle operation — libavutil owns neither the structure nor
+    /// the string `def` points at, and never frees or mutates either.
+    ///
+    /// # Invariant
+    ///
+    /// A handle over a definition asserts that its `def` field is null or
+    /// addresses a NUL-terminated string that outlives the handle's borrow.
+    /// That is what makes the safe getter [`AVOptionArrayDefRef::def`] sound:
+    /// the unsafe `from_ptr` constructors are where a caller establishes it,
+    /// and [`AVOptionArrayDefMut::set_def`] preserves it by accepting only a
+    /// `&'static CStr`. C upholds it by initializing `def` from a string
+    /// literal or leaving it null.
+    ///
+    /// Libavutil documents `size_min`, `size_max` and `sep` as readable by
+    /// foreign code and `def` as native access only — that is an API-stability
+    /// contract, not a memory-safety one, so [`def`](AVOptionArrayDefRef::def)
+    /// is exposed but its meaning may change between libavutil versions.
     AVOptionArrayDef,
     AVOptionArrayDefRef,
     AVOptionArrayDefMut,
@@ -212,9 +229,11 @@ ffibox::define_ctype!(
 impl<'a> AVOptionArrayDefRef<'a> {
     /// Wraps: AVOptionArrayDef.def
     ///
-    /// Returns the serialized default, or `None` when no default is declared.
-    /// AVOptions are static metadata, so C keeps a non-null string live and
-    /// NUL-terminated for at least as long as this definition can be borrowed.
+    /// Returns the serialized default — the element list as `av_opt_get` would
+    /// render it, joined by [`sep`](Self::sep) — or `None` when the definition
+    /// declares no default. Native access only in libavutil's contract; see
+    /// the [type documentation](AVOptionArrayDef).
+    #[must_use]
     pub fn def(&self) -> Option<&'a CStr> {
         // SAFETY: the handle points to a live initialized definition. Reading
         // the pointer field forms no reference to the C object.
@@ -222,16 +241,22 @@ impl<'a> AVOptionArrayDefRef<'a> {
         if ptr.is_null() {
             None
         } else {
-            // SAFETY: the AVOption metadata contract requires a non-null `def`
-            // to be a NUL-terminated static string. The returned borrow is
-            // conservatively limited to the definition handle's lifetime.
+            // SAFETY: `AVOptionArrayDef`'s handle invariant makes a non-null
+            // `def` a NUL-terminated string outliving this borrow. Every
+            // producer of the handle carries that obligation: `from_ptr`'s
+            // caller asserts it, and `set_def` cannot break it because it
+            // accepts only `&'static CStr`. The result is further narrowed to
+            // `'a`, which the definition itself already outlives.
             Some(unsafe { CStr::from_ptr(ptr) })
         }
     }
 
     /// Wraps: AVOptionArrayDef.size_min
     ///
-    /// Returns the minimum number of array elements. Zero means no minimum.
+    /// Returns the minimum number of array elements. Zero means no minimum;
+    /// a non-zero minimum additionally requires [`def`](Self::def) to be
+    /// present and to list at least that many elements.
+    #[must_use]
     pub fn size_min(&self) -> c_uint {
         // SAFETY: the handle points to a live initialized definition. The raw
         // field projection and copy do not form a reference to the C object.
@@ -241,6 +266,7 @@ impl<'a> AVOptionArrayDefRef<'a> {
     /// Wraps: AVOptionArrayDef.size_max
     ///
     /// Returns the maximum number of array elements. Zero means unlimited.
+    #[must_use]
     pub fn size_max(&self) -> c_uint {
         // SAFETY: the handle points to a live initialized definition. The raw
         // field projection and copy do not form a reference to the C object.
@@ -250,7 +276,10 @@ impl<'a> AVOptionArrayDefRef<'a> {
     /// Wraps: AVOptionArrayDef.sep
     ///
     /// Returns the serialized array separator. Zero selects libavutil's
-    /// default separator, a comma.
+    /// default separator, a comma. The field is a C `char`, so a value above
+    /// 127 reads back negative where `c_char` is signed; the documented
+    /// separator grammar is printable ASCII, which never does.
+    #[must_use]
     pub fn sep(&self) -> c_char {
         // SAFETY: the handle points to a live initialized definition. The raw
         // field projection and copy do not form a reference to the C object.
@@ -260,15 +289,26 @@ impl<'a> AVOptionArrayDefRef<'a> {
 
 impl AVOptionArrayDefMut<'_> {
     /// Sets the serialized default to static string metadata, or clears it.
+    ///
+    /// The `'static` bound is what keeps this setter safe: it is the half of
+    /// [`AVOptionArrayDef`]'s handle invariant that safe Rust could otherwise
+    /// break, and it matches how C declares defaults, as string literals in a
+    /// `static const` initializer.
     pub fn set_def(&mut self, value: Option<&'static CStr>) {
         let ptr = value.map_or(core::ptr::null(), CStr::as_ptr);
         // SAFETY: the exclusive handle provides write access to a live
         // definition, and the stored string is static and therefore outlives
-        // every later observation of this metadata.
+        // every later observation of this metadata, re-establishing the type
+        // invariant that `AVOptionArrayDefRef::def` relies on.
         unsafe { addr_of_mut!((*self.as_mut_ptr()).def).write(ptr) }
     }
 
     /// Sets the minimum number of array elements. Zero disables the minimum.
+    ///
+    /// Libavutil requires a non-zero minimum to be paired with a
+    /// [`set_def`](Self::set_def) default listing at least that many elements.
+    /// Nothing here enforces that; a definition that violates it makes
+    /// `av_opt_set_array` reject writes that would leave the array short.
     pub fn set_size_min(&mut self, value: c_uint) {
         // SAFETY: the exclusive handle provides write access to this field of
         // a live definition; the raw projection forms no Rust reference.
@@ -282,8 +322,11 @@ impl AVOptionArrayDefMut<'_> {
         unsafe { addr_of_mut!((*self.as_mut_ptr()).size_max).write(value) }
     }
 
-    /// Sets the separator. Zero selects a comma; non-zero values should follow
-    /// libavutil's documented printable, non-alphanumeric separator grammar.
+    /// Sets the separator. Zero selects a comma; a non-zero value must be a
+    /// printable ASCII character that is neither alphanumeric nor a backslash.
+    /// Libavutil checks that grammar with `av_assert0` while applying option
+    /// defaults, so a definition outside it aborts the process inside C rather
+    /// than returning an error.
     pub fn set_sep(&mut self, value: c_char) {
         // SAFETY: the exclusive handle provides write access to this field of
         // a live definition; the raw projection forms no Rust reference.
@@ -293,10 +336,12 @@ impl AVOptionArrayDefMut<'_> {
 
 /// Wraps: AVOptionType
 ///
-/// Identifies the native representation and foreign access semantics of an
-/// option. This is an integer newtype rather than a Rust enum because C may
-/// combine a regular value with [`FLAG_ARRAY`](Self::FLAG_ARRAY), and because
-/// values introduced by newer libavutil versions must remain representable.
+/// Names the C type of the object field an option controls, and whether that
+/// field holds one value or an array of them. This is an integer newtype
+/// rather than a Rust enum because [`FLAG_ARRAY`](Self::FLAG_ARRAY) is a
+/// modifier rather than a type of its own — C ors it into a regular value, so
+/// the set of representable values is not the set of enumerators — and because
+/// values introduced by newer libavutil versions must survive a round trip.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AVOptionType(ffi::AVOptionType);
@@ -325,26 +370,36 @@ impl AVOptionType {
     pub const FLAG_ARRAY: Self = Self(ffi::AVOptionType_AV_OPT_TYPE_FLAG_ARRAY);
 
     /// Wraps a raw C value, including one unknown to this crate version.
+    #[must_use]
     pub const fn from_raw(raw: ffi::AVOptionType) -> Self {
         Self(raw)
     }
 
     /// Returns the ABI value accepted by libavutil.
+    #[must_use]
     pub const fn as_raw(self) -> ffi::AVOptionType {
         self.0
     }
 
-    /// Marks a regular option type as an array option.
+    /// Marks a regular option type as an array option. Applying it to
+    /// [`FLAG_ARRAY`](Self::FLAG_ARRAY) or to a value that already carries the
+    /// flag is idempotent.
+    #[must_use]
     pub const fn with_array(self) -> Self {
         Self(self.0 | Self::FLAG_ARRAY.0)
     }
 
-    /// Reports whether the array flag is present.
+    /// Reports whether the array flag is present, meaning the object field is
+    /// a pointer to the elements followed by an `unsigned` element count.
+    #[must_use]
     pub const fn is_array(self) -> bool {
         self.0 & Self::FLAG_ARRAY.0 != 0
     }
 
-    /// Removes the array flag while preserving every other raw bit.
+    /// Removes the array flag while preserving every other raw bit, giving the
+    /// element type of an array option. This is libavutil's internal
+    /// `TYPE_BASE`, which selects the per-type element size and parser.
+    #[must_use]
     pub const fn without_array(self) -> Self {
         Self(self.0 & !Self::FLAG_ARRAY.0)
     }
@@ -503,7 +558,10 @@ impl<'a> AVOptionRef<'a> {
             // the handle guarantees initialized metadata.
             let pointer = unsafe { addr_of!((*self.as_ptr()).default_val.arr).read() };
             // SAFETY: a non-null array definition is immutable metadata that
-            // remains live with the containing option table.
+            // remains live with the containing option table, so it outlives
+            // `'a`. It also satisfies `AVOptionArrayDef`'s handle invariant:
+            // C initializes `def` from a string literal or leaves it null, and
+            // this shared handle cannot write the field.
             let definition = unsafe { AVOptionArrayDefRef::from_ptr(pointer.cast_mut()) };
             return AVOptionDefault::Array(definition);
         }
@@ -615,6 +673,116 @@ mod tests {
         assert_eq!(shared.size_min(), 1);
         assert_eq!(shared.size_max(), 4);
         assert_eq!(shared.sep(), b'|' as c_char);
+    }
+
+    #[test]
+    fn zeroed_array_definition_declares_no_default_and_no_limits() {
+        let mut definition = AVOptionArrayDef::zeroed();
+        // SAFETY: `AVOptionArrayDef` is `#[repr(transparent)]` over the C
+        // struct, the local is live and initialized by `zeroed`, and this
+        // test holds no other handle to it.
+        let handle = unsafe {
+            AVOptionArrayDefMut::from_ptr(
+                addr_of_mut!(definition).cast::<ffi::AVOptionArrayDef>(),
+            )
+        }
+        .unwrap();
+
+        let shared = handle.as_ref();
+        // The all-zero definition is the one every C initializer that omits a
+        // member produces: no default, no bounds, and a comma separator.
+        assert_eq!(shared.def(), None);
+        assert_eq!(shared.size_min(), 0);
+        assert_eq!(shared.size_max(), 0);
+        assert_eq!(shared.sep(), 0);
+    }
+
+    #[test]
+    fn clearing_the_default_is_observable_as_none() {
+        let mut raw = ffi::AVOptionArrayDef {
+            def: c"a,b".as_ptr(),
+            size_min: 2,
+            size_max: 2,
+            sep: 0,
+        };
+        // SAFETY: `raw` is live and initialized, and this test keeps exclusive
+        // access to it for the whole lifetime of the handle.
+        let mut definition = unsafe { AVOptionArrayDefMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+
+        assert_eq!(definition.as_ref().def(), Some(c"a,b"));
+        definition.set_def(None);
+        assert_eq!(definition.as_ref().def(), None);
+        assert!(raw.def.is_null());
+    }
+
+    #[test]
+    fn every_option_type_constant_round_trips_and_is_scalar() {
+        const NAMED: [AVOptionType; 20] = [
+            AVOptionType::FLAGS,
+            AVOptionType::INT,
+            AVOptionType::INT64,
+            AVOptionType::DOUBLE,
+            AVOptionType::FLOAT,
+            AVOptionType::STRING,
+            AVOptionType::RATIONAL,
+            AVOptionType::BINARY,
+            AVOptionType::DICT,
+            AVOptionType::UINT64,
+            AVOptionType::CONST,
+            AVOptionType::IMAGE_SIZE,
+            AVOptionType::PIXEL_FMT,
+            AVOptionType::SAMPLE_FMT,
+            AVOptionType::VIDEO_RATE,
+            AVOptionType::DURATION,
+            AVOptionType::COLOR,
+            AVOptionType::BOOL,
+            AVOptionType::CHLAYOUT,
+            AVOptionType::UINT,
+        ];
+
+        for (index, &kind) in NAMED.iter().enumerate() {
+            assert_eq!(AVOptionType::from_raw(kind.as_raw()), kind);
+            // The enumerators are a dense 1..=20 run, disjoint from the array
+            // flag, so `with_array` never collides with a regular type.
+            assert_eq!(kind.as_raw(), index as ffi::AVOptionType + 1);
+            assert!(!kind.is_array());
+            assert!(kind.with_array().is_array());
+            assert_eq!(kind.with_array().without_array(), kind);
+            assert_eq!(kind.without_array(), kind);
+        }
+    }
+
+    #[test]
+    fn array_flag_is_idempotent_and_preserves_unknown_bits() {
+        assert!(AVOptionType::FLAG_ARRAY.is_array());
+        assert_eq!(
+            AVOptionType::FLAG_ARRAY.with_array(),
+            AVOptionType::FLAG_ARRAY
+        );
+
+        let unknown = AVOptionType::from_raw(1 << 20 | AVOptionType::INT.as_raw());
+        assert!(!unknown.is_array());
+        assert_eq!(unknown.without_array(), unknown);
+        assert_eq!(unknown.with_array().without_array(), unknown);
+        // An unrecognized base type must not be decoded as any union member.
+        let mut raw = ffi::AVOption {
+            name: c"future".as_ptr(),
+            help: core::ptr::null(),
+            offset: 0,
+            type_: unknown.as_raw(),
+            default_val: ffi::AVOption__bindgen_ty_1 { i64_: 7 },
+            min: 0.0,
+            max: 0.0,
+            flags: 0,
+            unit: core::ptr::null(),
+        };
+        // SAFETY: `raw` is initialized and exclusively borrowed for the
+        // lifetime of the handle.
+        let option = unsafe { AVOptionMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        assert!(matches!(
+            option.as_ref().default_value(),
+            AVOptionDefault::Unknown(kind) if kind == unknown
+        ));
     }
 
     #[test]
