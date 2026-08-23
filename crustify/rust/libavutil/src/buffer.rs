@@ -353,12 +353,16 @@ impl<'a> AVBufferReferenceRef<'a> {
     ///
     /// All `size` bytes of the current window must already have been written:
     /// by `av_buffer_allocz`, by
-    /// [`write_all`](AVBufferReferenceMut::write_all), by
-    /// `av_buffer_make_writable`'s copy, or by C code outside this crate.
-    /// `av_buffer_alloc` and the region `av_buffer_realloc` grows into do not
-    /// satisfy this, and neither does a window narrowed by
+    /// [`write_all`](AVBufferReferenceMut::write_all), or by C code outside
+    /// this crate. `av_buffer_alloc` and the region `av_buffer_realloc` grows
+    /// into do not satisfy this, and neither does a window narrowed by
     /// [`truncate`](AVBufferReferenceMut::truncate) or
     /// [`advance`](AVBufferReferenceMut::advance) out of an unwritten one.
+    ///
+    /// [`av_buffer_make_writable`] does not discharge it either, in itself:
+    /// its C body `memcpy`s `buf->size` bytes out of the window it was given,
+    /// so the copy carries whatever initialization the source had and no more.
+    /// It preserves this obligation's status rather than establishing it.
     #[must_use]
     pub unsafe fn data_assume_init(&self) -> Option<CSlice<'a, u8>> {
         let window = self.data()?;
@@ -568,6 +572,14 @@ pub fn av_buffer_is_writable(buffer: AVBufferReferenceRef<'_>) -> bool {
 /// Consumes a reference and returns a writable reference, which may identify
 /// a copied buffer. On allocation failure the original owner is returned with
 /// the negative libavutil error code.
+///
+/// The window's contents survive: C either keeps the reference untouched when
+/// it is already writable, or `memcpy`s all `size` bytes into a fresh
+/// `av_buffer_alloc` window. Because that copy is the only thing that writes
+/// the new window, it carries exactly the initialization the old one had — so
+/// this operation preserves whether
+/// [`AVBufferReferenceRef::data_assume_init`] is dischargeable, and never
+/// establishes it.
 pub fn av_buffer_make_writable(
     buffer: CBox<AVBufferReference>,
 ) -> Result<CBox<AVBufferReference>, (i32, CBox<AVBufferReference>)> {

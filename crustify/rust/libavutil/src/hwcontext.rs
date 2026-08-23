@@ -430,7 +430,12 @@ pub fn av_hwdevice_ctx_create(
 ) -> Result<HWDeviceContext, i32> {
     let mut raw = core::ptr::null_mut();
     // SAFETY: the output slot is writable and initially null; strings and the
-    // optional dictionary remain live for the call and are not retained.
+    // optional dictionary remain live for the call and are not retained. C's
+    // parameter is a non-const `AVDictionary *`, but a shared handle covers
+    // it: every backend `device_create` hook reads the caller's dictionary
+    // with `av_dict_get` only — the two that call `av_dict_set`
+    // (`hwcontext_opencl.c`, `hwcontext_qsv.c`) build their own dictionary
+    // first and set keys on that.
     let status = unsafe {
         ffi::av_hwdevice_ctx_create(
             addr_of_mut!(raw),
@@ -452,6 +457,17 @@ pub fn av_hwdevice_ctx_create(
 }
 
 /// Wraps: av_hwdevice_ctx_create_derived
+///
+/// Derives an initialized device of `device_type` from an existing one, which
+/// is `av_hwdevice_ctx_create_derived_opts` with no options.
+///
+/// The source is borrowed rather than consumed, and it stays alive for the
+/// result independently of this handle: C stores its own counted reference in
+/// the derived context's `source_device`, and walks that chain again on a
+/// later derivation. When the source hierarchy already contains
+/// `device_type`, C skips derivation entirely and answers with another
+/// reference to that existing context — so the result may share the source's
+/// underlying buffer rather than name a new device.
 pub fn av_hwdevice_ctx_create_derived(
     device_type: AVHWDeviceType,
     source: &HWDeviceContext,
@@ -477,6 +493,9 @@ pub fn av_hwdevice_ctx_create_derived(
 }
 
 /// Wraps: av_hwdevice_ctx_create_derived_opts
+///
+/// [`av_hwdevice_ctx_create_derived`] with backend-specific derivation
+/// options, and the same source-retention contract.
 pub fn av_hwdevice_ctx_create_derived_opts(
     device_type: AVHWDeviceType,
     source: &HWDeviceContext,
@@ -484,8 +503,10 @@ pub fn av_hwdevice_ctx_create_derived_opts(
     flags: i32,
 ) -> Result<HWDeviceContext, i32> {
     let mut raw = core::ptr::null_mut();
-    // SAFETY: the source is initialized and borrowed for the call; the
-    // dictionary is optional borrowed input, and the output slot is writable.
+    // SAFETY: the source is initialized and borrowed for the call; the output
+    // slot is writable. The optional dictionary is borrowed for the same
+    // reason as in `av_hwdevice_ctx_create`: no backend `device_derive` hook
+    // writes the caller's dictionary.
     let status = unsafe {
         ffi::av_hwdevice_ctx_create_derived_opts(
             addr_of_mut!(raw),
@@ -508,8 +529,13 @@ pub fn av_hwdevice_ctx_create_derived_opts(
 /// Wraps: av_hwdevice_ctx_init
 ///
 /// Promotes a construction-phase context only after libavutil reports that its
-/// device-specific initialization succeeded. On failure, ownership and the
-/// uninitialized state are returned for inspection or retry.
+/// device-specific initialization succeeded.
+///
+/// On failure the context comes back in its construction-phase state, so the
+/// caller keeps ownership and can release it or report the error. It is not a
+/// retry handle: C's body is a bare call to the backend's `device_init` hook,
+/// which libavutil never runs twice on one context — a second call would
+/// re-acquire whatever the first one had already acquired before failing.
 pub fn av_hwdevice_ctx_init(
     context: HWDeviceContextUninit,
 ) -> Result<HWDeviceContext, (i32, HWDeviceContextUninit)> {
@@ -537,6 +563,15 @@ pub fn av_hwframe_ctx_alloc(device: &HWDeviceContext) -> Option<HWFramesContextU
 }
 
 /// Wraps: av_hwframe_ctx_init
+///
+/// Validates the configured pixel format and dimensions, runs the backend's
+/// `frames_init` hook and preallocates the pool when `initial_pool_size` asks
+/// for it.
+///
+/// As with [`av_hwdevice_ctx_init`], a failure hands the construction-phase
+/// context back for release or error reporting rather than for a second
+/// attempt: C returns as soon as one of those steps fails, leaving the ones
+/// before it done, and re-entering would repeat them.
 pub fn av_hwframe_ctx_init(
     context: HWFramesContextUninit,
 ) -> Result<HWFramesContext, (i32, HWFramesContextUninit)> {
@@ -570,11 +605,22 @@ impl HWFrameTransferFormats {
         self.len == 0
     }
 
+    /// Returns the format at `index`, or `None` past the end of the list.
+    ///
+    /// The bound is [`len`](Self::len), not the length of the allocation: the
+    /// allocation also holds the `AV_PIX_FMT_NONE` terminator that
+    /// [`av_hwframe_transfer_get_formats`] scanned for, and handing that back
+    /// as a format would report a spurious extra entry — for a backend that
+    /// supports nothing, the only entry.
     #[must_use]
     pub fn get(&self, index: usize) -> Option<AVPixelFormat> {
+        if index >= self.len {
+            return None;
+        }
         self.allocation.as_slice().get(index).copied()
     }
 
+    /// Iterates the reported formats, terminator excluded.
     pub fn iter(&self) -> HWFrameTransferFormatIter<'_> {
         HWFrameTransferFormatIter {
             formats: self,
@@ -662,6 +708,67 @@ mod scheduled_context_tests {
         let clone = context.0.try_clone().expect("context reference clone");
         assert_eq!(av_buffer_get_ref_count(context.0.as_ref()), 2);
         drop(clone);
+    }
+
+    /// Builds a list the way [`av_hwframe_transfer_get_formats`] does — an
+    /// `av_malloc` allocation the backend terminated with `AV_PIX_FMT_NONE`,
+    /// plus the length the sentinel scan found — so the indexed view can be
+    /// checked in a build that compiles no hardware backend in.
+    fn transfer_formats(reported: &[AVPixelFormat]) -> HWFrameTransferFormats {
+        let allocation =
+            crate::mem::av_malloc_array(reported.len() + 1, size_of::<AVPixelFormat>())
+                .expect("format list allocation");
+        let raw = allocation.into_raw().cast::<AVPixelFormat>();
+        // SAFETY: `av_malloc_array` sized the block for `reported.len() + 1`
+        // formats and `into_raw` surrendered its sole owner, so every write
+        // below stays inside storage nothing else reaches. The loop writes
+        // each slot, and the last one takes the terminator a backend writes.
+        unsafe {
+            for (index, &format) in reported.iter().enumerate() {
+                raw.add(index).write(format);
+            }
+            raw.add(reported.len()).write(AVPixelFormat::NONE);
+        }
+        // SAFETY: a uniquely owned av_malloc-family allocation of
+        // `reported.len() + 1` now-initialized formats, whose matching
+        // destructor is the `AvFree` strategy this `CVec` carries.
+        let allocation = unsafe { CVec::from_raw_parts(raw, reported.len() + 1) }
+            .expect("non-null format list");
+        HWFrameTransferFormats {
+            allocation,
+            len: reported.len(),
+        }
+    }
+
+    #[test]
+    fn the_reported_format_list_stops_before_its_terminator() {
+        let formats = transfer_formats(&[AVPixelFormat::NV12, AVPixelFormat::YUV420P]);
+        assert_eq!(formats.len(), 2);
+        assert!(!formats.is_empty());
+        assert_eq!(formats.get(0), Some(AVPixelFormat::NV12));
+        assert_eq!(formats.get(1), Some(AVPixelFormat::YUV420P));
+        // The allocation still holds `AV_PIX_FMT_NONE` at index 2, because the
+        // owner frees the extent it was handed. Indexing the allocation rather
+        // than the scanned length would report it as a third supported format,
+        // and would make the iterator yield one more item than the
+        // `ExactSizeIterator` length it advertises.
+        assert_eq!(formats.get(2), None);
+        assert_eq!(formats.iter().len(), 2);
+        assert_eq!(formats.iter().count(), 2);
+        assert!(
+            formats
+                .iter()
+                .eq([AVPixelFormat::NV12, AVPixelFormat::YUV420P])
+        );
+
+        // A backend may support nothing — VA-API answers that way when the
+        // driver exposes no image format — and that is the case where the
+        // terminator would be the list's only visible entry.
+        let empty = transfer_formats(&[]);
+        assert_eq!(empty.len(), 0);
+        assert!(empty.is_empty());
+        assert_eq!(empty.get(0), None);
+        assert_eq!(empty.iter().count(), 0);
     }
 }
 

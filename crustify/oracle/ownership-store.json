@@ -1179,7 +1179,7 @@
     "is_disposer": false,
     "is_cloner": {
      "deep": true,
-     "upref": false
+     "upref": true
     }
    },
    "ptr_args": [
@@ -1197,7 +1197,7 @@
       },
       "nullable": false,
       "mutable": false,
-      "note": "Reads a live source reference for the duration of the call; the source remains valid and unchanged."
+      "note": "Read-only for the header itself: the body copies *buf into a fresh av_mallocz'd header and never writes through this pointer. It does mutate the object the header points at, atomically incrementing buf->buffer->refcount, so the source header stays valid and unchanged while the shared AVBuffer gains one count. buf must be a live header; NULL would fault on the *ret = *buf copy."
      }
     }
    ],
@@ -3363,7 +3363,7 @@
       },
       "nullable": false,
       "mutable": false,
-      "note": "Borrowed live initialized source device-context reference; traversed but not consumed or modified."
+      "note": "Borrowed live initialized source device-context reference: the header is read, never written, and never consumed. It is RETAINED past the call, though, by refcount rather than by pointer: the derived context stores dst_ctx->source_device = av_buffer_ref(src_ref), so the source AVBuffer outlives this call for as long as the derived context lives, and the chain is walked again by later derivations. The same-type fast path returns av_buffer_ref(tmp_ref) instead of deriving, so the result may be another reference to src_ref itself. A caller must therefore keep the source alive only for the call; the count C takes covers the rest."
      }
     }
    ]
@@ -3423,7 +3423,7 @@
       },
       "nullable": false,
       "mutable": false,
-      "note": "Borrowed live initialized source device-context reference; traversed but not consumed or modified."
+      "note": "Borrowed live initialized source device-context reference: the header is read, never written, and never consumed. It is RETAINED past the call, though, by refcount rather than by pointer: the derived context stores dst_ctx->source_device = av_buffer_ref(src_ref), so the source AVBuffer outlives this call for as long as the derived context lives, and the chain is walked again by later derivations. The same-type fast path returns av_buffer_ref(tmp_ref) instead of deriving, so the result may be another reference to src_ref itself. A caller must therefore keep the source alive only for the call; the count C takes covers the rest."
      }
     }
    ]
