@@ -75,6 +75,28 @@
      }
     }
    ]
+  },
+  {
+   "name": "AVDictionary",
+   "defined_in": "libavutil/dict.c",
+   "_comment_agent": "AVDictionary owns its elems array and the strings held by its inline entries; av_dict_free tears down that complete graph.",
+   "fields": [
+    {
+     "name": "elems",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "elems is the dictionary-owned growable array of count inline AVDictionaryEntry values. av_dict_set reallocates and writes it; an empty dictionary may hold NULL; av_dict_free releases every entry key/value and then the array."
+     }
+    }
+   ]
   }
  ],
  "symbols": [
@@ -1168,6 +1190,36 @@
       "nullable": true,
       "mutable": true,
       "note": "av_audio_fifo_free consumes one AVAudioFifo allocation, releases every owned AVFifo and the pointer table, then releases the object. NULL is explicitly accepted and is a no-op."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_dict_free",
+   "defined_in": "libavutil/dict.c",
+   "lifetime": {
+    "for": "pm",
+    "is_dropper": true,
+    "is_disposer": false,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "pm",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": false,
+      "mutable": true,
+      "note": "pm is a required mutable pointer slot containing a nullable owned AVDictionary. The call consumes and fully destroys a non-NULL inner dictionary and writes NULL back. The schema's top-level ownership marks that transfer so the lifecycle dropper can act on pm; callers retain only the now-empty slot."
      }
     }
    ]
