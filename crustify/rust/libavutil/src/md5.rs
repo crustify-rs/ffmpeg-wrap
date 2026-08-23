@@ -3,7 +3,7 @@
 use core::ffi::c_void;
 use core::ptr::NonNull;
 
-use ffibox::{CCell, CDropped, CPtr, CType};
+use ffibox::{CBox, CCell, CDropped, CPtr, CType};
 
 use crate::ffi;
 
@@ -163,5 +163,54 @@ mod tests {
                 0x7f, 0x72
             ]
         );
+    }
+}
+
+/// Wraps: av_md5_alloc
+///
+/// Allocates and initializes an MD5 context. Initializing before returning
+/// prevents safe code from observing libavutil's merely zero-filled state.
+#[must_use]
+pub fn av_md5_alloc() -> Option<CBox<AVMD5>> {
+    // SAFETY: a non-null result is a fresh av_malloc-family allocation whose
+    // ownership transfers to the matching AVMD5 destructor.
+    let mut context = unsafe { CBox::<AVMD5>::from_raw(ffi::av_md5_alloc()) }?;
+    av_md5_init(&mut context.as_mut());
+    Some(context)
+}
+
+/// Wraps: av_md5_final
+#[must_use]
+pub fn av_md5_final(context: &mut AVMD5Mut<'_>) -> [u8; 16] {
+    let mut digest = [0_u8; 16];
+    // SAFETY: the exclusive handle identifies a live context and `digest`
+    // supplies the required sixteen writable bytes; C retains neither.
+    unsafe { ffi::av_md5_final(context.as_mut_ptr(), digest.as_mut_ptr()) };
+    digest
+}
+
+/// Wraps: av_md5_init
+pub fn av_md5_init(context: &mut AVMD5Mut<'_>) {
+    // SAFETY: the exclusive handle identifies writable storage of av_md5_size.
+    unsafe { ffi::av_md5_init(context.as_mut_ptr()) }
+}
+
+/// Wraps: av_md5_update
+pub fn av_md5_update(context: &mut AVMD5Mut<'_>, source: &[u8]) {
+    // SAFETY: the exclusive handle is live and `source` provides exactly the
+    // readable byte count passed to C; the input is not retained.
+    unsafe { ffi::av_md5_update(context.as_mut_ptr(), source.as_ptr(), source.len()) }
+}
+
+#[cfg(test)]
+mod scheduled_tests {
+    use super::*;
+
+    #[test]
+    fn incremental_hash_matches_one_shot_hash() {
+        let mut context = av_md5_alloc().unwrap();
+        av_md5_update(&mut context.as_mut(), b"a");
+        av_md5_update(&mut context.as_mut(), b"bc");
+        assert_eq!(av_md5_final(&mut context.as_mut()), av_md5_sum(b"abc"));
     }
 }

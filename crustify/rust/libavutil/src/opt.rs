@@ -4,8 +4,13 @@ use core::ffi::{CStr, c_char, c_uint, c_void};
 use core::marker::PhantomData;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
+use ffibox::CBox;
+
+use crate::dict::AVDictionary;
 use crate::ffi;
+use crate::pixfmt::AVPixelFormat;
 use crate::rational::AVRationalRef;
+use crate::samplefmt::AVSampleFormat;
 
 /// Exclusive borrowed handle to an AVClass-bearing object whose concrete type
 /// has not yet been translated. It keeps the unavoidable erased pointer at one
@@ -680,4 +685,161 @@ mod tests {
         assert_eq!(legacy.num(), 3);
         assert_eq!(legacy.den(), 5);
     }
+}
+
+/// A homogeneous, ABI-compatible input array for [`av_opt_set_array`].
+pub enum OptArrayValues<'a> {
+    Int(&'a [i32]),
+    Int64(&'a [i64]),
+    Float(&'a [f32]),
+    Double(&'a [f64]),
+}
+
+impl OptArrayValues<'_> {
+    fn raw(&self) -> (AVOptionType, *const c_void, usize) {
+        match self {
+            Self::Int(v) => (AVOptionType::INT, v.as_ptr().cast(), v.len()),
+            Self::Int64(v) => (AVOptionType::INT64, v.as_ptr().cast(), v.len()),
+            Self::Float(v) => (AVOptionType::FLOAT, v.as_ptr().cast(), v.len()),
+            Self::Double(v) => (AVOptionType::DOUBLE, v.as_ptr().cast(), v.len()),
+        }
+    }
+}
+
+/// Wraps: av_opt_set_array
+pub fn av_opt_set_array(
+    object: &mut OptionObjectMut<'_>,
+    name: &CStr,
+    search_flags: i32,
+    start_element: u32,
+    values: OptArrayValues<'_>,
+) -> Result<(), OptSetError> {
+    let (kind, pointer, len) = values.raw();
+    let len = u32::try_from(len).map_err(|_| OptSetError::LengthOverflow)?;
+    // SAFETY: the exclusive object handle is live, `name` is terminated, and
+    // the enum couples the C element tag to a contiguous slice of that ABI.
+    result(unsafe {
+        ffi::av_opt_set_array(
+            object.as_mut_ptr(),
+            name.as_ptr(),
+            search_flags,
+            start_element,
+            len,
+            kind.as_raw(),
+            pointer,
+        )
+    })
+}
+
+/// Wraps: av_opt_set_array
+pub fn av_opt_remove_array(
+    object: &mut OptionObjectMut<'_>,
+    name: &CStr,
+    search_flags: i32,
+    start_element: u32,
+    count: u32,
+) -> Result<(), OptSetError> {
+    // SAFETY: a null value selects removal and makes the ignored type harmless;
+    // the object and name satisfy the ordinary setter contract.
+    result(unsafe {
+        ffi::av_opt_set_array(
+            object.as_mut_ptr(),
+            name.as_ptr(),
+            search_flags,
+            start_element,
+            count,
+            AVOptionType::INT.as_raw(),
+            core::ptr::null(),
+        )
+    })
+}
+
+/// Wraps: av_opt_set_dict
+pub fn av_opt_set_dict(
+    object: &mut OptionObjectMut<'_>,
+    options: &mut Option<CBox<AVDictionary>>,
+) -> Result<(), OptSetError> {
+    let mut raw = options.take().map_or(core::ptr::null_mut(), CBox::into_raw);
+    // SAFETY: ownership of the dictionary was surrendered to the writable
+    // local slot; C consumes it and leaves null or an independently owned
+    // dictionary of unrecognized options in the same slot.
+    let status = unsafe { ffi::av_opt_set_dict(object.as_mut_ptr(), &raw mut raw) };
+    // SAFETY: after the call, a non-null pointer is a uniquely owned, fully
+    // constructed dictionary which uses AVDictionary's matching destructor.
+    *options = unsafe { CBox::from_raw(raw) };
+    result(status)
+}
+
+/// Wraps: av_opt_set_pixel_fmt
+pub fn av_opt_set_pixel_fmt(
+    object: &mut OptionObjectMut<'_>,
+    name: &CStr,
+    value: AVPixelFormat,
+    search_flags: i32,
+) -> Result<(), OptSetError> {
+    // SAFETY: the object borrow and C string are live for the call; the value
+    // is an ABI-compatible open pixel-format integer.
+    result(unsafe {
+        ffi::av_opt_set_pixel_fmt(
+            object.as_mut_ptr(),
+            name.as_ptr(),
+            value.as_raw(),
+            search_flags,
+        )
+    })
+}
+
+/// Wraps: av_opt_set_q
+pub fn av_opt_set_q(
+    object: &mut OptionObjectMut<'_>,
+    name: &CStr,
+    value: AVRationalRef<'_>,
+    search_flags: i32,
+) -> Result<(), OptSetError> {
+    // SAFETY: the rational is copied by value and no input is retained.
+    result(unsafe {
+        ffi::av_opt_set_q(
+            object.as_mut_ptr(),
+            name.as_ptr(),
+            value.copy_ffi(),
+            search_flags,
+        )
+    })
+}
+
+/// Wraps: av_opt_set_sample_fmt
+pub fn av_opt_set_sample_fmt(
+    object: &mut OptionObjectMut<'_>,
+    name: &CStr,
+    value: AVSampleFormat,
+    search_flags: i32,
+) -> Result<(), OptSetError> {
+    // SAFETY: the object borrow and C string are live for the call; the value
+    // is an ABI-compatible open sample-format integer.
+    result(unsafe {
+        ffi::av_opt_set_sample_fmt(
+            object.as_mut_ptr(),
+            name.as_ptr(),
+            value.as_raw(),
+            search_flags,
+        )
+    })
+}
+
+/// Wraps: av_opt_set_video_rate
+pub fn av_opt_set_video_rate(
+    object: &mut OptionObjectMut<'_>,
+    name: &CStr,
+    value: AVRationalRef<'_>,
+    search_flags: i32,
+) -> Result<(), OptSetError> {
+    // SAFETY: the rational is copied by value and no input is retained.
+    result(unsafe {
+        ffi::av_opt_set_video_rate(
+            object.as_mut_ptr(),
+            name.as_ptr(),
+            value.copy_ffi(),
+            search_flags,
+        )
+    })
 }

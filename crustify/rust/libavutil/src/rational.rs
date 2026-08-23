@@ -35,6 +35,12 @@ impl AVRational {
 }
 
 impl AVRationalRef<'_> {
+    pub(crate) fn copy_ffi(&self) -> ffi::AVRational {
+        // SAFETY: the handle keeps an initialized rational live and the C
+        // representation is a pair of copyable integers.
+        unsafe { self.as_ptr().read() }
+    }
+
     /// Wraps: AVRational.num
     ///
     /// Returns the numerator.
@@ -153,5 +159,72 @@ mod tests {
         let approximate = av_reduce(1, 3, 2);
         assert!(!approximate.exact);
         assert!(approximate.numerator.abs() <= 2 && approximate.denominator <= 2);
+    }
+}
+
+/// Replaces: av_inv_q
+#[must_use]
+pub fn av_inv_q(q: AVRationalRef<'_>) -> CVal<AVRational> {
+    AVRational::new(q.den(), q.num())
+}
+
+/// Replaces: av_make_q
+#[must_use]
+pub fn av_make_q(num: i32, den: i32) -> CVal<AVRational> {
+    AVRational::new(num, den)
+}
+
+/// Wraps: av_mul_q
+#[must_use]
+pub fn av_mul_q(b: AVRationalRef<'_>, c: AVRationalRef<'_>) -> CVal<AVRational> {
+    // SAFETY: both by-value arguments were copied from live rational handles.
+    AVRational::from_ffi(unsafe { ffi::av_mul_q(b.copy_ffi(), c.copy_ffi()) })
+}
+
+/// Wraps: av_nearer_q
+#[must_use]
+pub fn av_nearer_q(q: AVRationalRef<'_>, q1: AVRationalRef<'_>, q2: AVRationalRef<'_>) -> i32 {
+    // SAFETY: all arguments are initialized by-value copies; C retains none.
+    unsafe { ffi::av_nearer_q(q.copy_ffi(), q1.copy_ffi(), q2.copy_ffi()) }
+}
+
+/// Replaces: av_q2d
+#[must_use]
+pub fn av_q2d(q: AVRationalRef<'_>) -> f64 {
+    f64::from(q.num()) / f64::from(q.den())
+}
+
+/// Wraps: av_q2intfloat
+#[must_use]
+pub fn av_q2intfloat(q: AVRationalRef<'_>) -> u32 {
+    // SAFETY: the argument is an initialized by-value copy and is not retained.
+    unsafe { ffi::av_q2intfloat(q.copy_ffi()) }
+}
+
+/// Wraps: av_sub_q
+#[must_use]
+pub fn av_sub_q(b: AVRationalRef<'_>, c: AVRationalRef<'_>) -> CVal<AVRational> {
+    // SAFETY: both by-value arguments were copied from live rational handles.
+    AVRational::from_ffi(unsafe { ffi::av_sub_q(b.copy_ffi(), c.copy_ffi()) })
+}
+
+#[cfg(test)]
+mod scheduled_tests {
+    use super::*;
+
+    #[test]
+    fn scheduled_rational_operations_use_typed_values() {
+        let half = av_make_q(1, 2);
+        let third = av_make_q(1, 3);
+        assert_eq!(av_q2d(half.as_ref()), 0.5);
+        let product = av_mul_q(half.as_ref(), third.as_ref());
+        assert_eq!((product.as_ref().num(), product.as_ref().den()), (1, 6));
+        let difference = av_sub_q(half.as_ref(), third.as_ref());
+        assert_eq!(
+            (difference.as_ref().num(), difference.as_ref().den()),
+            (1, 6)
+        );
+        let inverse = av_inv_q(half.as_ref());
+        assert_eq!((inverse.as_ref().num(), inverse.as_ref().den()), (2, 1));
     }
 }

@@ -1,6 +1,7 @@
 //! Wrappers for libavutil rescaling utilities.
 
 use crate::ffi;
+use crate::rational::AVRationalRef;
 
 /// Wraps: AVRounding
 ///
@@ -79,5 +80,49 @@ mod tests {
         );
         assert!(mode.passes_minmax());
         assert!(!AVRounding::UP.passes_minmax());
+    }
+}
+
+/// Wraps: av_rescale_q
+#[must_use]
+pub fn av_rescale_q(a: i64, bq: AVRationalRef<'_>, cq: AVRationalRef<'_>) -> i64 {
+    // SAFETY: the rationals are initialized by-value copies and C retains none.
+    unsafe { ffi::av_rescale_q(a, bq.copy_ffi(), cq.copy_ffi()) }
+}
+
+/// Wraps: av_rescale_q_rnd
+#[must_use]
+pub fn av_rescale_q_rnd(
+    a: i64,
+    bq: AVRationalRef<'_>,
+    cq: AVRationalRef<'_>,
+    rounding: AVRounding,
+) -> i64 {
+    // SAFETY: all inputs are valid by-value ABI values and C retains none.
+    unsafe { ffi::av_rescale_q_rnd(a, bq.copy_ffi(), cq.copy_ffi(), rounding.as_raw()) }
+}
+
+/// Wraps: av_rescale_rnd
+#[must_use]
+pub fn av_rescale_rnd(a: i64, b: i64, c: i64, rounding: AVRounding) -> i64 {
+    // SAFETY: `AVRounding` only constructs modes accepted by this C routine.
+    unsafe { ffi::av_rescale_rnd(a, b, c, rounding.as_raw()) }
+}
+
+#[cfg(test)]
+mod scheduled_tests {
+    use super::*;
+    use crate::rational::AVRational;
+
+    #[test]
+    fn rescaling_accepts_only_valid_rounding_modes() {
+        assert_eq!(av_rescale_rnd(3, 1, 2, AVRounding::UP), 2);
+        let ms = AVRational::new(1, 1000);
+        let seconds = AVRational::new(1, 1);
+        assert_eq!(av_rescale_q(1500, ms.as_ref(), seconds.as_ref()), 2);
+        assert_eq!(
+            av_rescale_q_rnd(1500, ms.as_ref(), seconds.as_ref(), AVRounding::DOWN),
+            1
+        );
     }
 }

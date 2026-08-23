@@ -639,6 +639,87 @@
    "defined_in": "libavutil/time.c"
   },
   {
+   "name": "av_image_copy_to_buffer",
+   "defined_in": "libavutil/imgutils.c",
+   "ptr_args": [
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_image_fill_arrays",
+   "defined_in": "libavutil/imgutils.c",
+   "ptr_args": [
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_image_fill_black",
+   "defined_in": "libavutil/imgutils.c"
+  },
+  {
+   "name": "av_image_fill_pointers",
+   "defined_in": "libavutil/imgutils.c",
+   "ptr_args": [
+    {
+     "name": "ptr",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ptr"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_image_get_buffer_size",
+   "defined_in": "libavutil/imgutils.c"
+  },
+  {
+   "name": "av_inv_q",
+   "defined_in": "libavutil/rational.h"
+  },
+  {
    "name": "av_log_get_flags",
    "defined_in": "libavutil/log.c"
   },
@@ -676,6 +757,10 @@
   {
    "name": "av_log_set_level",
    "defined_in": "libavutil/log.c"
+  },
+  {
+   "name": "av_make_q",
+   "defined_in": "libavutil/rational.h"
   },
   {
    "name": "av_malloc",
@@ -796,6 +881,69 @@
    }
   },
   {
+   "name": "av_md5_final",
+   "defined_in": "libavutil/md5.c",
+   "ptr_args": [
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ctx"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_md5_init",
+   "defined_in": "libavutil/md5.c",
+   "ptr_args": [
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ctx"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_md5_sum",
    "defined_in": "libavutil/md5.c",
    "ptr_args": [
@@ -831,6 +979,46 @@
       "nullable": false,
       "mutable": false,
       "note": "Borrowed input byte array of the separately supplied length; not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_md5_update",
+   "defined_in": "libavutil/md5.c",
+   "ptr_args": [
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ctx"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
      }
     }
    ]
@@ -884,6 +1072,14 @@
      "note": "Returns a fresh av_malloc allocation of size bytes holding a byte-exact copy; ownership transfers to the caller and av_free -- the recorded dropper of this family, and the same AvFree strategy in the Rust wrapper -- releases it. NULL means p was NULL or the allocation failed; av_malloc fails on OOM and on any request above the av_max_alloc limit (INT_MAX by default), which is why every caller checks the return (opt_copy_elem only when its len is non-zero, since a zero-length binary option legitimately yields NULL from a NULL source). A zero size with a non-NULL p is NOT the NULL case: av_malloc(0) retries at one byte, so the caller still receives, and still owns, a live allocation. INITIALISATION EXTENT, and it is av_memdup's doing rather than the allocator's: for size>0 the block is exactly size bytes and the memcpy writes every one of them, so the whole allocation arrives initialised and a caller may immediately read it as size/sizeof(T) values of the element type it copied. A bare av_malloc return carries no such guarantee -- its only write is the optional CONFIG_MEMORY_POISONING memset, which this campaign's configuration compiles out -- so the two are not interchangeable as the source of a counted, typed owner even though both are released by the same av_free. The one uninitialised byte in this function's output is the size==0 retry byte, which memcpy does not reach; it is unobservable because the matching element count is zero, and it is why a zero-length result must not be re-counted as holding an element. The copy is shallow, which the shape records as by_val rather than by_ref: where the source holds pointers (av_frame_ref's extended_data) the result aliases the same pointees, kept alive by the frame's AVBufferRefs and not by this allocation. Alignment is av_malloc's ALIGN (64/32/16 by SIMD config), so the copy is re-castable to whatever element type the source held. string is true for the av_bprint_finalize path, whose copy carries the source terminator."
     }
    }
+  },
+  {
+   "name": "av_mul_q",
+   "defined_in": "libavutil/rational.c"
+  },
+  {
+   "name": "av_nearer_q",
+   "defined_in": "libavutil/rational.c"
   },
   {
    "name": "av_opt_set",
@@ -943,6 +1139,63 @@
    ]
   },
   {
+   "name": "av_opt_set_array",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "val",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:val"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_opt_set_bin",
    "defined_in": "libavutil/opt.c",
    "ptr_args": [
@@ -995,6 +1248,51 @@
       "nullable": false,
       "mutable": false,
       "note": "Input byte array of len bytes copied into a fresh allocation; not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_set_dict",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "options",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": {
+         "lifetime": "arg:options"
+        }
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:options"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Outer slot is borrowed; the input dictionary is consumed and replaced by an owned remainder."
      }
     }
    ]
@@ -1120,6 +1418,174 @@
    ]
   },
   {
+   "name": "av_opt_set_pixel_fmt",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_set_q",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_set_sample_fmt",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_set_video_rate",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_q2d",
+   "defined_in": "libavutil/rational.h"
+  },
+  {
+   "name": "av_q2intfloat",
+   "defined_in": "libavutil/rational.c"
+  },
+  {
    "name": "av_realloc",
    "defined_in": "libavutil/mem.c",
    "ptr_args": [
@@ -1196,6 +1662,273 @@
       "nullable": false,
       "mutable": true,
       "note": "Borrowed scalar output slot written with the reduced numerator."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_rescale_q",
+   "defined_in": "libavutil/mathematics.c"
+  },
+  {
+   "name": "av_rescale_q_rnd",
+   "defined_in": "libavutil/mathematics.c"
+  },
+  {
+   "name": "av_rescale_rnd",
+   "defined_in": "libavutil/mathematics.c"
+  },
+  {
+   "name": "av_sample_fmt_is_planar",
+   "defined_in": "libavutil/samplefmt.c"
+  },
+  {
+   "name": "av_samples_alloc",
+   "defined_in": "libavutil/samplefmt.c",
+   "ptr_args": [
+    {
+     "name": "audio_data",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": {
+         "lifetime": "arg:audio_data"
+        }
+       }
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:audio_data"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Caller table is borrowed; element zero receives ownership of the allocation and later planes alias it."
+     }
+    },
+    {
+     "name": "linesize",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:linesize"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_samples_alloc_array_and_samples",
+   "defined_in": "libavutil/samplefmt.c",
+   "ptr_args": [
+    {
+     "name": "audio_data",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:audio_data"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Outer out-slot is borrowed and receives an owned pointer table whose first element owns the sample allocation."
+     }
+    },
+    {
+     "name": "linesize",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:linesize"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_samples_copy",
+   "defined_in": "libavutil/samplefmt.c",
+   "ptr_args": [
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": false,
+        "borrowed": {
+         "lifetime": "arg:dst"
+        }
+       }
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": false,
+        "borrowed": {
+         "lifetime": "arg:src"
+        }
+       }
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_samples_fill_arrays",
+   "defined_in": "libavutil/samplefmt.c",
+   "ptr_args": [
+    {
+     "name": "audio_data",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": false,
+        "borrowed": {
+         "lifetime": "arg:buf"
+        }
+       }
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:audio_data"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Caller table is borrowed and filled with plane pointers borrowed from buf."
+     }
+    },
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "linesize",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:linesize"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_samples_get_buffer_size",
+   "defined_in": "libavutil/samplefmt.c",
+   "ptr_args": [
+    {
+     "name": "linesize",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:linesize"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_samples_set_silence",
+   "defined_in": "libavutil/samplefmt.c",
+   "ptr_args": [
+    {
+     "name": "audio_data",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": false,
+        "borrowed": {
+         "lifetime": "arg:audio_data"
+        }
+       }
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:audio_data"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
      }
     }
    ]
@@ -1308,6 +2041,10 @@
      "note": "Returns NULL for a NULL source or allocation failure; otherwise returns a fresh, independently owned, writable av_realloc(NULL, prefix_len+1) allocation containing at most len source bytes followed by a terminator. It is always a NUL-terminated av_malloc-family string and must be released with av_free. When the bound is the source strlen, this is an exact independent clone suitable for CrustifyStr's length-recovering clone strategy."
     }
    }
+  },
+  {
+   "name": "av_sub_q",
+   "defined_in": "libavutil/rational.c"
   },
   {
    "name": "av_usleep",

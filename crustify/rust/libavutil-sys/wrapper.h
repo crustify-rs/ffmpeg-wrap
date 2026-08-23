@@ -7,7 +7,9 @@
 #include <libavutil/file.h>
 #include <libavutil/frame.h>
 #include <libavutil/hwcontext.h>
+#include <libavutil/imgutils.h>
 #include <libavutil/log.h>
+#include <libavutil/mathematics.h>
 #include <libavutil/md5.h>
 #include <libavutil/mem.h>
 #include <libavutil/opt.h>
