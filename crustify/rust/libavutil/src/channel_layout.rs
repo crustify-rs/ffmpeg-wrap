@@ -1,5 +1,11 @@
 //! Wrappers for libavutil channel layouts.
 
+use core::ffi::{c_char, c_void};
+use core::marker::PhantomData;
+use core::ptr::{NonNull, addr_of, addr_of_mut};
+
+use ffibox::define_ctype;
+
 use crate::ffi;
 
 /// Wraps: AVChannelOrder
@@ -206,5 +212,154 @@ mod avchannel_tests {
     fn unknown_c_values_round_trip_without_invalid_discriminants() {
         let value = AVChannel::from_raw(0x123);
         assert_eq!(value.as_raw(), 0x123);
+    }
+
+    #[test]
+    fn custom_channel_fields_round_trip_without_c_references() {
+        let mut raw = ffi::AVChannelCustom {
+            id: ffi::AVChannel_AV_CHAN_UNKNOWN,
+            name: [0; 16],
+            opaque: core::ptr::null_mut(),
+        };
+        // SAFETY: `raw` is live and initialized, and this is its only active
+        // handle for the duration of the test.
+        let mut custom = unsafe { AVChannelCustomMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        assert!(custom.set_name(b"dialogue"));
+        assert!(!custom.set_name(b"sixteen-byte-name"));
+        custom.set_id(AVChannel::FRONT_CENTER);
+        let cookie = NonNull::<u8>::dangling().cast::<c_void>();
+        // SAFETY: the non-null identity is never dereferenced, and is cleared
+        // before the temporary backing contract ends.
+        unsafe { custom.set_opaque(Some(cookie)) };
+
+        assert_eq!(custom.as_ref().id(), AVChannel::FRONT_CENTER);
+        assert_eq!(&custom.as_ref().name()[..9], b"dialogue\0");
+        assert!(custom.as_ref().opaque().is_some());
+        custom.clear_opaque();
+        assert!(custom.as_ref().opaque().is_none());
+
+        assert_eq!(
+            size_of::<AVChannelCustom>(),
+            size_of::<ffi::AVChannelCustom>()
+        );
+        assert_eq!(
+            align_of::<AVChannelCustom>(),
+            align_of::<ffi::AVChannelCustom>()
+        );
+    }
+}
+
+define_ctype!(
+    /// Wraps: AVChannelCustom
+    ///
+    /// One by-value element of an `AV_CHANNEL_ORDER_CUSTOM` channel map. It
+    /// owns no allocation: the enclosing layout owns the element array, while
+    /// `opaque` remains application-managed even when libavutil copies a map.
+    AVChannelCustom,
+    AVChannelCustomRef,
+    AVChannelCustomMut,
+    ffi::AVChannelCustom
+);
+
+/// A lifetime-bound identity token for application-managed channel metadata.
+///
+/// It intentionally exposes no dereference operation: C records and copies the
+/// erased address but neither knows nor manages the pointee type.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AVChannelCustomOpaque<'a> {
+    pointer: NonNull<c_void>,
+    _borrow: PhantomData<&'a c_void>,
+}
+
+impl AVChannelCustomRef<'_> {
+    /// Wraps: AVChannelCustom.opaque
+    ///
+    /// Returns an identity-only token for the application-managed cookie.
+    #[must_use]
+    pub fn opaque(&self) -> Option<AVChannelCustomOpaque<'_>> {
+        // SAFETY: the pointer value is copied through a raw projection; no
+        // reference to either the C object or the erased pointee is formed.
+        NonNull::new(unsafe { addr_of!((*self.as_ptr()).opaque).read() }).map(|pointer| {
+            AVChannelCustomOpaque {
+                pointer,
+                _borrow: PhantomData,
+            }
+        })
+    }
+
+    /// Wraps: AVChannelCustom.name
+    ///
+    /// Copies all 16 bytes of the fixed-size, NUL-terminated-or-zero name.
+    #[must_use]
+    pub fn name(&self) -> [u8; 16] {
+        let mut name = [0_u8; 16];
+        // SAFETY: the handle addresses a live initialized element; the field
+        // contains exactly 16 bytes and the destination is disjoint Rust
+        // storage. Copying forms no reference to the C object.
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                addr_of!((*self.as_ptr()).name).cast::<u8>(),
+                name.as_mut_ptr(),
+                name.len(),
+            );
+        }
+        name
+    }
+
+    /// Wraps: AVChannelCustom.id
+    #[must_use]
+    pub fn id(&self) -> AVChannel {
+        // SAFETY: the integer-backed C enum is copied through a raw projection
+        // and AVChannel preserves every possible ABI value.
+        AVChannel::from_raw(unsafe { addr_of!((*self.as_ptr()).id).read() })
+    }
+}
+
+impl AVChannelCustomMut<'_> {
+    /// Clears the application-managed metadata cookie.
+    pub fn clear_opaque(&mut self) {
+        // SAFETY: the exclusive handle permits replacing the pointer value;
+        // libavutil never owns or frees its pointee.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).opaque).write(core::ptr::null_mut()) }
+    }
+
+    /// Stores an application-managed, type-erased metadata address.
+    ///
+    /// # Safety
+    ///
+    /// The pointee must remain alive and permit any external access made
+    /// through this address until this element and every layout copy containing
+    /// it have either been cleared or destroyed. Libavutil copies but never
+    /// dereferences or frees the address.
+    pub unsafe fn set_opaque(&mut self, pointer: Option<NonNull<c_void>>) {
+        // SAFETY: the caller supplies the erased-pointee lifetime contract and
+        // the exclusive handle permits replacing this pointer field.
+        unsafe {
+            addr_of_mut!((*self.as_mut_ptr()).opaque)
+                .write(pointer.map_or(core::ptr::null_mut(), NonNull::as_ptr));
+        }
+    }
+
+    /// Sets the channel name, rejecting embedded NULs and payloads longer than
+    /// the 15 bytes available before the terminator.
+    pub fn set_name(&mut self, name: &[u8]) -> bool {
+        if name.len() >= 16 || name.contains(&0) {
+            return false;
+        }
+        let mut stored = [0 as c_char; 16];
+        for (dst, src) in stored.iter_mut().zip(name.iter().copied()) {
+            *dst = src as c_char;
+        }
+        // SAFETY: the exclusive handle permits replacing the complete array;
+        // `stored` is zero-filled after the payload and is therefore terminated.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).name).write(stored) }
+        true
+    }
+
+    /// Sets the channel identifier.
+    pub fn set_id(&mut self, id: AVChannel) {
+        // SAFETY: the exclusive handle permits replacing this integer-backed
+        // enum field, and AVChannel is ABI-transparent.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).id).write(id.as_raw()) }
     }
 }

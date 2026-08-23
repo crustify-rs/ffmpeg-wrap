@@ -36,7 +36,8 @@ fn main() {
         )
         .allowlist_function("^av_(image_(copy_to_buffer|fill_arrays|fill_black|fill_pointers|get_buffer_size)|md5_(alloc|final|init|update)|mul_q|nearer_q|opt_set_(array|dict|pixel_fmt|q|sample_fmt|video_rate)|q2intfloat|rescale_(q|q_rnd|rnd)|sample_fmt_is_planar|samples_(alloc|alloc_array_and_samples|copy|fill_arrays|get_buffer_size|set_silence)|sub_q)$")
         .allowlist_type("^AV(ComponentDescriptor|Dictionary|PixFmtDescriptor)$")
-        .allowlist_type("^(AVBuffer|AVChannel)$")
+        .allowlist_type("^(AVBuffer|AVBufferRef|AVChannel|AVChannelCustom)$")
+        .allowlist_function("^av_buffer_(allocz|is_writable|ref|unref)$")
         .generate()
         .expect("generate libavutil bindings");
     bindings

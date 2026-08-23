@@ -86,10 +86,73 @@
    ]
   },
   {
+   "name": "AVBufferRef",
+   "defined_in": "libavutil/buffer.h",
+   "_comment_agent": "buffer_create initializes both pointers; av_buffer_ref copies the header and increments buffer->refcount; buffer_replace/av_buffer_unref free the reference header and release the underlying buffer on the last count. data is a borrowed window whose extent is size and whose storage lifetime is kept by buffer.",
+   "fields": [
+    {
+     "name": "buffer",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": false,
+      "mutable": true,
+      "note": "This AVBufferRef owns one reference-count unit to the underlying AVBuffer. av_buffer_unref drops that unit; AVBuffer internals including the atomic refcount are mutated through the pointer."
+     }
+    },
+    {
+     "name": "data",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "field:buffer"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Points at a size-byte window into the allocation kept alive by buffer; references may select different subranges. It can be NULL for an empty/user-supplied zero-size buffer and is writable only under AVBuffer's public writability convention."
+     }
+    }
+   ]
+  },
+  {
    "name": "AVChannel",
    "defined_in": "libavutil/channel_layout.h",
    "_comment_agent": "AVChannel is a by-value C enum with no pointer or lifecycle slots. The inclusive ambisonic endpoint range contains values without individual enumerators, so the Rust surface must remain integer-representable.",
    "fields": []
+  },
+  {
+   "name": "AVChannelCustom",
+   "defined_in": "libavutil/channel_layout.h",
+   "_comment_agent": "The opaque field has no libavutil toucher. Custom maps are calloc'd, byte-copied by av_channel_layout_copy, and freed as arrays without per-element disposal, proving this cookie is borrowed and application-managed.",
+   "fields": [
+    {
+     "name": "opaque",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "other"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Application-owned, type-erased private data. libavutil never dereferences or frees it; av_channel_layout_copy copies the pointer value with the map, so the application must keep any pointee alive for every copied layout that retains it."
+     }
+    }
+   ]
   },
   {
    "name": "AVChannelOrder",
@@ -350,6 +413,84 @@
       "nullable": true,
       "mutable": true,
       "note": "av_audio_fifo_free consumes one AVAudioFifo allocation, releases every owned AVFifo and the pointer table, then releases the object. NULL is explicitly accepted and is a no-op."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_buffer_ref",
+   "defined_in": "libavutil/buffer.c",
+   "lifetime": {
+    "for": "buf",
+    "is_dropper": false,
+    "is_disposer": false,
+    "is_cloner": {
+     "deep": true,
+     "upref": false
+    }
+   },
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Reads a live source reference for the duration of the call; the source remains valid and unchanged."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns a freshly allocated AVBufferRef header owning an independently releasable count, or NULL on allocation failure."
+    }
+   }
+  },
+  {
+   "name": "av_buffer_unref",
+   "defined_in": "libavutil/buffer.c",
+   "lifetime": {
+    "for": "buf",
+    "is_dropper": true,
+    "is_disposer": false,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Borrows the outer AVBufferRef* slot, consumes its nullable owned inner reference, releases the header/count, and writes NULL. The outer pointer itself may also be NULL."
      }
     }
    ]
