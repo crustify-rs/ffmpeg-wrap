@@ -1,3 +1,4 @@
+#include <libavutil/audio_fifo.h>
 #include <libavutil/avutil.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/dict.h>
@@ -6,3 +7,4 @@
 #include <libavutil/md5.h>
 #include <libavutil/mem.h>
 #include <libavutil/samplefmt.h>
+#include <libavutil/pixfmt.h>

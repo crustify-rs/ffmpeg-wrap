@@ -51,6 +51,30 @@
    "defined_in": "libavutil/frame.h",
    "_comment_agent": "C enum has no pointer or lifecycle fields.",
    "fields": []
+  },
+  {
+   "name": "AVAudioFifo",
+   "defined_in": "libavutil/audio_fifo.c",
+   "fields": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "AVAudioFifo owns the av_calloc-allocated table and every AVFifo element. av_audio_fifo_free releases each non-null element through av_fifo_freep2, then releases and nulls the table through av_freep. The field may be NULL during failed construction, and the table and FIFO contents are mutated by allocation, read/write, grow, drain, and reset operations. It is an array of owned pointers, with nb_buffers supplying its element count."
+     }
+    }
+   ]
   }
  ],
  "symbols": [
@@ -315,6 +339,51 @@
       "nullable": false,
       "mutable": null,
       "note": "munmap consumes a whole mapped byte range; its separate size argument supplies the extent, so the pointer is array-shaped only and never a singleton or a string. Sole caller in scope is av_file_unmap, which returns early unless bufptr is non-null AND size is non-zero, so the range handed over is always a complete, non-empty MAP_PRIVATE mapping produced by av_file_map's mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0); the release is page-granular, covering ceil(size/pagesize) bytes. mutable is null, not false: munmap is an external symbol with no definition in this extraction, so no body inspection can decide it."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_audio_fifo_alloc",
+   "defined_in": "libavutil/audio_fifo.c",
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "On success av_audio_fifo_alloc returns a fresh, uniquely owned, fully initialized AVAudioFifo released by av_audio_fifo_free. Allocation or parameter-validation failure returns NULL."
+    }
+   }
+  },
+  {
+   "name": "av_audio_fifo_free",
+   "defined_in": "libavutil/audio_fifo.c",
+   "lifetime": {
+    "for": "af",
+    "is_dropper": true,
+    "is_disposer": false,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "af",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "av_audio_fifo_free consumes one AVAudioFifo allocation, releases every owned AVFifo and the pointer table, then releases the object. NULL is explicitly accepted and is a no-op."
      }
     }
    ]

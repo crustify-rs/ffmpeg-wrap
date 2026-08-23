@@ -274,11 +274,66 @@ impl From<AVColorTransferCharacteristic> for ffi::AVColorTransferCharacteristic 
     }
 }
 
+/// Wraps: AVAlphaMode
+///
+/// Describes how an alpha channel relates to its color channels. The
+/// transparent representation preserves unknown values introduced by newer
+/// libavutil versions instead of turning them into invalid Rust enum values.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AVAlphaMode(ffi::AVAlphaMode);
+
+impl AVAlphaMode {
+    /// Alpha handling is unknown, or the format has no alpha channel.
+    pub const UNSPECIFIED: Self = Self(ffi::AVAlphaMode_AVALPHA_MODE_UNSPECIFIED);
+
+    /// Color values have already been multiplied by alpha.
+    pub const PREMULTIPLIED: Self = Self(ffi::AVAlphaMode_AVALPHA_MODE_PREMULTIPLIED);
+
+    /// Alpha is independent of the color values.
+    pub const STRAIGHT: Self = Self(ffi::AVAlphaMode_AVALPHA_MODE_STRAIGHT);
+
+    /// Wraps a raw C enum value, including one unknown to this crate version.
+    pub const fn from_raw(raw: ffi::AVAlphaMode) -> Self {
+        Self(raw)
+    }
+
+    /// Returns the ABI value accepted by libavutil.
+    pub const fn as_raw(self) -> ffi::AVAlphaMode {
+        self.0
+    }
+}
+
+impl From<ffi::AVAlphaMode> for AVAlphaMode {
+    fn from(raw: ffi::AVAlphaMode) -> Self {
+        Self::from_raw(raw)
+    }
+}
+
+impl From<AVAlphaMode> for ffi::AVAlphaMode {
+    fn from(value: AVAlphaMode) -> Self {
+        value.as_raw()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use core::mem::{align_of, size_of};
 
     use super::*;
+
+    #[test]
+    fn alpha_mode_is_layout_compatible_and_round_trips() {
+        assert_eq!(size_of::<AVAlphaMode>(), size_of::<ffi::AVAlphaMode>());
+        assert_eq!(align_of::<AVAlphaMode>(), align_of::<ffi::AVAlphaMode>());
+        assert_eq!(
+            AVAlphaMode::PREMULTIPLIED.as_raw(),
+            ffi::AVAlphaMode_AVALPHA_MODE_PREMULTIPLIED
+        );
+
+        let unknown = ffi::AVAlphaMode::MAX;
+        assert_eq!(AVAlphaMode::from_raw(unknown).as_raw(), unknown);
+    }
 
     #[test]
     fn color_primaries_is_layout_compatible_and_round_trips() {
