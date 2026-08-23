@@ -13,6 +13,7 @@ fn main() {
         .header("wrapper.h")
         .clang_arg(format!("-I{}", repo.display()))
         .use_core()
+        .allowlist_type("^(AVColorPrimaries|AVColorRange)$")
         .allowlist_function("^av_(free|malloc|memdup|strdup|strndup)$")
         .allowlist_type("^AVHW(DeviceType|FrameTransferDirection)$")
         .generate()
