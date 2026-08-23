@@ -553,25 +553,115 @@ pub enum DynArrayAddError {
     AllocationFailed,
 }
 
+/// A table of opaque element pointers grown by [`av_dynarray_add`].
+///
+/// The element count is not the allocated capacity, and that is the whole
+/// reason this type exists rather than a bare
+/// [`CVec<*mut T, AvFree>`](ffibox::CVec). `FF_DYNARRAY_ADD` reallocates only
+/// when the count reaches a power of two, doubling it, so a table holding
+/// `count` elements is backed by `count.next_power_of_two()` slots and the
+/// next append writes into the spare one without asking the allocator. Hand
+/// C a buffer sized to its element count instead — a
+/// [`CVec::try_clone`](ffibox::CVec::try_clone) result, or any allocation the
+/// caller sized itself — and an append at a count that is not a power of two
+/// writes one element past the end. That is a heap overflow reached without
+/// writing `unsafe`, so the invariant has to be a property of the type rather
+/// than a sentence in the caller's documentation.
+///
+/// Every safe way to obtain one of these preserves the invariant: [`new`](Self::new)
+/// starts with no allocation at all, and [`av_dynarray_add`] hands back exactly
+/// the pointer and count C produced. Adopting one C grew elsewhere goes through
+/// the `unsafe` [`from_raw_parts`](Self::from_raw_parts), which states the
+/// capacity as a caller obligation. [`into_table`](Self::into_table) surrenders
+/// the buffer, which is safe in the other direction — nothing downstream of it
+/// appends.
+pub struct AvDynArray<T> {
+    table: Option<CVec<*mut T, AvFree>>,
+}
+
+impl<T> Default for AvDynArray<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> AvDynArray<T> {
+    /// Creates an empty table, which owns no allocation until the first add.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { table: None }
+    }
+
+    /// Adopts a table that C already grew, in the two halves C keeps it in.
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` is null, in which case `count` must be zero and the result owns
+    ///   nothing, or a uniquely owned allocation from the `av_malloc` family
+    ///   whose first `count` element slots hold initialized pointers.
+    /// - A non-null `ptr` must have the capacity `FF_DYNARRAY_ADD` assumes:
+    ///   at least `count.next_power_of_two()` element slots, which is what
+    ///   `av_dynarray_add` leaves behind and what a buffer sized to `count`
+    ///   does not have.
+    #[must_use]
+    pub unsafe fn from_raw_parts(ptr: *mut *mut T, count: usize) -> Self {
+        Self {
+            // SAFETY: the caller transferred a uniquely owned av_malloc-family
+            // allocation holding `count` initialized element pointers, which is
+            // what this owner requires; a null pointer becomes no owner at all.
+            table: unsafe { CVec::from_raw_parts(ptr, count) },
+        }
+    }
+
+    /// Surrenders the underlying buffer, which holds `count` elements.
+    #[must_use]
+    pub fn into_table(self) -> Option<CVec<*mut T, AvFree>> {
+        self.table
+    }
+
+    /// Number of elements appended so far.
+    #[must_use]
+    pub fn count(&self) -> usize {
+        self.table.as_ref().map_or(0, CVec::count)
+    }
+
+    /// Whether no element has been appended.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.count() == 0
+    }
+
+    /// The appended element pointers, in order.
+    #[must_use]
+    pub fn as_slice(&self) -> &[*mut T] {
+        self.table.as_ref().map_or(&[], CVec::as_slice)
+    }
+}
+
 /// Wraps: av_dynarray_add
 ///
-/// Grows an owned table of opaque element pointers. The table allocation is
-/// always owned by `AvFree`; element pointees are never dereferenced or freed.
-/// On allocation failure C frees the old table, so `table` becomes `None`.
+/// Appends one opaque element pointer, growing the owned table geometrically.
+/// The allocation is owned by [`AvFree`]; element pointees are never
+/// dereferenced or freed by C, and are only copied as values. On allocation
+/// failure C frees the old table and resets the count, so the array is left
+/// empty and the elements already in it are gone.
 pub fn av_dynarray_add<T>(
-    table: &mut Option<CVec<*mut T, AvFree>>,
+    array: &mut AvDynArray<T>,
     element: Option<NonNull<T>>,
 ) -> Result<(), DynArrayAddError> {
-    let count = table.as_ref().map_or(0, CVec::count);
+    let count = array.count();
     let mut count = i32::try_from(count).map_err(|_| DynArrayAddError::CountOverflow)?;
-    let mut pointer = table
+    let mut pointer = array
+        .table
         .take()
         .map_or(core::ptr::null_mut(), |owner| owner.into_raw_parts().0);
 
-    // SAFETY: `pointer` is null or the uniquely owned av_malloc-family pointer
-    // table paired with `count`; both local slots are writable, and `element`
-    // is only copied as an opaque value and never dereferenced or retained by
-    // C beyond its presence in the returned table.
+    // SAFETY: `pointer` is null, or the uniquely owned av_malloc-family table
+    // this type's invariant guarantees C itself grew — so it has the
+    // `count.next_power_of_two()` slots `FF_DYNARRAY_ADD` assumes before it
+    // writes element `count`. Both local slots are writable and distinct, and
+    // `element` is only copied as an opaque value: C never dereferences it and
+    // retains it no further than the table it hands back.
     unsafe {
         ffi::av_dynarray_add(
             (&raw mut pointer).cast::<c_void>(),
@@ -589,7 +679,7 @@ pub fn av_dynarray_add<T>(
     let count = usize::try_from(count).expect("av_dynarray_add returned a negative count");
     // SAFETY: on success C returns the uniquely owned av_malloc-family table
     // containing exactly `count` initialized pointer elements.
-    *table = unsafe { CVec::from_raw_parts(pointer, count) };
+    array.table = unsafe { CVec::from_raw_parts(pointer, count) };
     Ok(())
 }
 
@@ -736,12 +826,78 @@ mod scheduled_symbol_tests {
     fn dynarray_grows_an_owned_pointer_table() {
         let mut first = 1_i32;
         let mut second = 2_i32;
-        let mut table = None;
-        av_dynarray_add(&mut table, Some(NonNull::from(&mut first))).expect("first add");
-        av_dynarray_add(&mut table, Some(NonNull::from(&mut second))).expect("second add");
-        let table = table.expect("allocated table");
+        let mut array = AvDynArray::new();
+        assert!(array.is_empty());
+        av_dynarray_add(&mut array, Some(NonNull::from(&mut first))).expect("first add");
+        av_dynarray_add(&mut array, Some(NonNull::from(&mut second))).expect("second add");
+        assert_eq!(array.count(), 2);
+        assert_eq!(array.as_slice()[0], &raw mut first);
+        assert_eq!(array.as_slice()[1], &raw mut second);
+
+        let table = array.into_table().expect("allocated table");
         assert_eq!(table.count(), 2);
-        assert_eq!(table.as_slice()[0], &raw mut first);
-        assert_eq!(table.as_slice()[1], &raw mut second);
+    }
+
+    #[test]
+    fn dynarray_keeps_growing_past_a_non_power_of_two_count() {
+        // The reason [`AvDynArray`] exists. C reallocates only when the count
+        // reaches a power of two, so after three adds the table holds three
+        // elements in four slots and the fourth add writes the spare one with
+        // no allocator call at all. Routing every append through the owner C
+        // itself grew is what keeps that write in bounds; appending to a
+        // buffer sized to its element count — a `try_clone` result, say —
+        // overflows the allocation by one element, which the sanitiser run
+        // reports against `mem.c`.
+        let mut values = [1_i32, 2, 3, 4, 5];
+        let mut array = AvDynArray::new();
+        for value in &mut values {
+            av_dynarray_add(&mut array, Some(NonNull::from(value))).expect("add");
+        }
+
+        assert_eq!(array.count(), values.len());
+        for (slot, value) in array.as_slice().iter().zip(&mut values) {
+            assert_eq!(*slot, &raw mut *value);
+        }
+    }
+
+    #[test]
+    fn dynarray_survives_a_round_trip_through_the_raw_seam() {
+        // What a ported C caller holds: the `void **` and the `int`, which the
+        // adopting seam takes back apart and the owner reassembles. The
+        // capacity travels with the pointer, so appending after the round trip
+        // is the same in-bounds write it would have been without it.
+        let mut values = [1_i32, 2, 3];
+        let mut array = AvDynArray::new();
+        for value in &mut values {
+            av_dynarray_add(&mut array, Some(NonNull::from(value))).expect("add");
+        }
+
+        let (pointer, count) = array
+            .into_table()
+            .expect("allocated table")
+            .into_raw_parts();
+        assert_eq!(count, 3);
+
+        // SAFETY: `pointer` and `count` are the halves C itself produced and
+        // this test has not touched, so the allocation still holds three
+        // initialized element pointers in the four slots `FF_DYNARRAY_ADD`
+        // gave it, and ownership passes here exactly once.
+        let mut array = unsafe { AvDynArray::from_raw_parts(pointer, count) };
+        assert_eq!(array.count(), 3);
+
+        let mut extra = 4_i32;
+        av_dynarray_add(&mut array, Some(NonNull::from(&mut extra))).expect("add after adoption");
+        assert_eq!(array.count(), 4);
+        assert_eq!(array.as_slice()[3], &raw mut extra);
+    }
+
+    #[test]
+    fn dynarray_accepts_a_null_element() {
+        // `elem` is copied as an opaque value, so NULL is an ordinary entry
+        // rather than a failure: C stores it and increments the count.
+        let mut array = AvDynArray::<u8>::new();
+        av_dynarray_add(&mut array, None).expect("add");
+        assert_eq!(array.count(), 1);
+        assert!(array.as_slice()[0].is_null());
     }
 }

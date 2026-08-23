@@ -47,4 +47,18 @@ mod tests {
 
         assert!(av_strerror(0, &mut []).is_none());
     }
+
+    #[test]
+    fn truncates_into_a_buffer_too_small_for_the_description() {
+        // The claim the `Option` return rests on: every nonempty buffer comes
+        // back NUL-terminated, however short. A single byte can hold only the
+        // terminator, so the description is empty rather than missing.
+        let mut one = [0xff_u8; 1];
+        let one = av_strerror(-22, &mut one).expect("nonempty output");
+        assert!(one.text.to_bytes().is_empty());
+
+        let mut four = [0xff_u8; 4];
+        let four = av_strerror(-22, &mut four).expect("nonempty output");
+        assert!(four.text.to_bytes().len() < 4);
+    }
 }

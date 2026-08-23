@@ -2482,7 +2482,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Borrowed array-pointer slot; the inner pointer owns the av_malloc-family pointer table, which may be reallocated or freed and nulled on failure."
+      "note": "Borrowed array-pointer slot; the inner pointer owns the av_malloc-family pointer table, which may be reallocated or freed and nulled on failure. The table carries an unstated CAPACITY invariant, not just a count: FF_DYNARRAY_ADD reallocates only when *nb_ptr reaches a power of two and then doubles it, so an allocation holding n elements must have n.next_power_of_two() slots, and the append writes element n without consulting the allocator otherwise. Passing a buffer sized to its element count - an av_memdup copy, say - overflows it by one element (confirmed under ASan at mem.c:332), so a wrapper must only accept tables this function itself grew."
      }
     }
    ]
@@ -3825,7 +3825,7 @@
      "borrowed": null,
      "nullable": true,
      "mutable": true,
-     "note": "NULL on failure, otherwise a newly owned av_malloc-family raw allocation; bytes are uninitialized except that av_mallocz zeros the requested extent."
+     "note": "NULL on failure - OOM, or a size above the av_max_alloc cap (INT_MAX by default); otherwise a newly owned av_malloc-family allocation, aligned to ALIGN (16 at the weakest here), whose bytes are UNINITIALIZED apart from the CONFIG_MEMORY_POISONING memset this build compiles out. A zero size is not a failure: mem.c retries at one byte, so av_malloc(0) hands back live storage that still has to be freed."
     }
    }
   },
@@ -3845,7 +3845,7 @@
      "borrowed": null,
      "nullable": true,
      "mutable": true,
-     "note": "NULL on failure, otherwise a newly owned av_malloc-family raw allocation; bytes are uninitialized except that av_mallocz zeros the requested extent."
+     "note": "nmemb * size computed with an overflow check (size_mult), then av_malloc: NULL when the product overflows, on OOM, or above the av_max_alloc cap; otherwise a newly owned av_malloc-family allocation with the same uninitialized bytes and zero-size retry as av_malloc."
     }
    }
   },
@@ -3865,7 +3865,7 @@
      "borrowed": null,
      "nullable": true,
      "mutable": true,
-     "note": "NULL on failure, otherwise a newly owned av_malloc-family raw allocation; bytes are uninitialized except that av_mallocz zeros the requested extent."
+     "note": "As av_malloc - NULL on failure or above the av_max_alloc cap, a live one-byte allocation for a zero size - but the requested extent is zero-filled before it is returned, so every byte the caller asked for is initialized."
     }
    }
   },
@@ -4258,7 +4258,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Borrowed type-erased AVClass-bearing option object; selected option storage may be mutated but the object is not retained."
+      "note": "Borrowed type-erased AVClass-bearing option object; selected option storage may be mutated but the object is not retained. It must be a REAL object, never the AV_OPT_SEARCH_FAKE_OBJ shape: with that flag av_opt_find2 reports no target object, and opt_set_init then loads the class out of that NULL target (opt.c:195) before it can check state flags, so a found option turns into a NULL dereference. The flag can never do useful work in a setter either, since a fake object has no field to write, so the safe wrappers reject it before the call."
      }
     },
     {
@@ -4273,9 +4273,9 @@
       "borrowed": {
        "lifetime": "arg:val"
       },
-      "nullable": false,
+      "nullable": true,
       "mutable": false,
-      "note": "NUL-terminated value parsed or copied during the call; not retained."
+      "note": "NUL-terminated value parsed or copied during the call; not retained. NULL is an accepted VALUE rather than an absent argument: opt_set_elem (opt.c:734) admits it for exactly the STRING, PIXEL_FMT, SAMPLE_FMT, IMAGE_SIZE, DURATION, COLOR and BOOL types and returns EINVAL for every other one - notably BINARY, which is NOT in that set. Where it is accepted the meaning is per type: set_string av_freep's the old allocation and stores NULL, an image size becomes 0x0, a format becomes NONE, a duration becomes 0, and color/bool leave the field untouched. The wrapper therefore takes Option<&CStr>."
      }
     }
    ]
@@ -4372,7 +4372,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Borrowed type-erased AVClass-bearing option object; selected option storage may be mutated but the object is not retained."
+      "note": "Borrowed type-erased AVClass-bearing option object; selected option storage may be mutated but the object is not retained. It must be a REAL object, never the AV_OPT_SEARCH_FAKE_OBJ shape: with that flag av_opt_find2 reports no target object, and opt_set_init then loads the class out of that NULL target (opt.c:195) before it can check state flags, so a found option turns into a NULL dereference. The flag can never do useful work in a setter either, since a fake object has no field to write, so the safe wrappers reject it before the call."
      }
     },
     {
@@ -4387,9 +4387,9 @@
       "borrowed": {
        "lifetime": "arg:val"
       },
-      "nullable": false,
+      "nullable": true,
       "mutable": false,
-      "note": "Input byte array of len bytes copied into a fresh allocation; not retained."
+      "note": "Input byte array of len bytes copied into a fresh av_malloc allocation; not retained. Read ONLY when len > 0 (opt.c:973), so NULL with len == 0 is accepted and stores a NULL option value with a zero length - which is what a Rust empty slice's dangling pointer relies on."
      }
     }
    ]
@@ -4531,7 +4531,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Borrowed type-erased AVClass-bearing option object; selected option storage may be mutated but the object is not retained."
+      "note": "Borrowed type-erased AVClass-bearing option object; selected option storage may be mutated but the object is not retained. It must be a REAL object, never the AV_OPT_SEARCH_FAKE_OBJ shape: with that flag av_opt_find2 reports no target object, and opt_set_init then loads the class out of that NULL target (opt.c:195) before it can check state flags, so a found option turns into a NULL dereference. The flag can never do useful work in a setter either, since a fake object has no field to write, so the safe wrappers reject it before the call."
      }
     }
    ]
@@ -4571,7 +4571,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Borrowed type-erased AVClass-bearing option object; selected option storage may be mutated but the object is not retained."
+      "note": "Borrowed type-erased AVClass-bearing option object; selected option storage may be mutated but the object is not retained. It must be a REAL object, never the AV_OPT_SEARCH_FAKE_OBJ shape: with that flag av_opt_find2 reports no target object, and opt_set_init then loads the class out of that NULL target (opt.c:195) before it can check state flags, so a found option turns into a NULL dereference. The flag can never do useful work in a setter either, since a fake object has no field to write, so the safe wrappers reject it before the call."
      }
     }
    ]
@@ -4611,7 +4611,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Borrowed type-erased AVClass-bearing option object; selected option storage may be mutated but the object is not retained."
+      "note": "Borrowed type-erased AVClass-bearing option object; selected option storage may be mutated but the object is not retained. It must be a REAL object, never the AV_OPT_SEARCH_FAKE_OBJ shape: with that flag av_opt_find2 reports no target object, and opt_set_init then loads the class out of that NULL target (opt.c:195) before it can check state flags, so a found option turns into a NULL dereference. The flag can never do useful work in a setter either, since a fake object has no field to write, so the safe wrappers reject it before the call."
      }
     }
    ]

@@ -98,6 +98,11 @@ pub enum OptFindError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OptSetError {
     LengthOverflow,
+    /// The search flags asked for a fake-object lookup. No setter can carry
+    /// one out — a fake object is a bare class pointer with no storage behind
+    /// it — and reaching C with the flag would dereference the NULL target it
+    /// produces, so every setter refuses it before the call.
+    FakeObjectSearch,
     Library(i32),
 }
 
@@ -109,20 +114,54 @@ fn result(status: i32) -> Result<(), OptSetError> {
     }
 }
 
+/// Refuses a fake-object search before it reaches C.
+///
+/// Every setter resolves its option through `opt_set_init`, which honours
+/// `AV_OPT_SEARCH_FAKE_OBJ` far enough for `av_opt_find2` to report *no target
+/// object* — the flag's whole meaning is that the caller passed a bare class
+/// pointer with no storage behind it — and then loads the class out of that
+/// NULL target to look for state flags. So the flag turns a found option into
+/// a NULL dereference in `opt.c`, which this campaign's sanitiser build
+/// reports as a SEGV at `opt_set_init`, and it can never turn into a write,
+/// because a fake object has no field to write to. Rejecting it here costs a
+/// caller nothing and keeps the setters safe for every value of a flag word
+/// that safe code is free to compose.
+///
+/// [`av_opt_find2`] rejects the same flag for the same reason: its normal
+/// search cannot hand back an exclusive target handle it was never given.
+fn reject_fake_object(search_flags: i32) -> Result<(), OptSetError> {
+    if search_flags & ffi::AV_OPT_SEARCH_FAKE_OBJ as i32 == 0 {
+        Ok(())
+    } else {
+        Err(OptSetError::FakeObjectSearch)
+    }
+}
+
 /// Wraps: av_opt_set
+///
+/// Sets an option from its string form. `None` is the C API's null value,
+/// which is not an absent argument but a request C tests for and acts on:
+/// `opt_set_elem` accepts it for exactly the string, pixel-format,
+/// sample-format, image-size, duration, color and boolean types and rejects
+/// every other type with `EINVAL`. What it means there is per type — a string
+/// option releases its allocation and becomes null, an image size becomes
+/// `0x0`, a format becomes `NONE`, a duration becomes zero, and a color or
+/// boolean is left as it stands.
 pub fn av_opt_set(
     object: &mut OptionObjectMut<'_>,
     name: &CStr,
-    value: &CStr,
+    value: Option<&CStr>,
     search_flags: i32,
 ) -> Result<(), OptSetError> {
+    reject_fake_object(search_flags)?;
     // SAFETY: the handle carries the live exclusive object borrow, and both
-    // `CStr`s remain live for the read-only duration of the call.
+    // `CStr`s remain live for the read-only duration of the call. A null value
+    // is a value C accepts and tests for, not a missing pointer.
     result(unsafe {
         ffi::av_opt_set(
             object.as_mut_ptr(),
             name.as_ptr(),
-            value.as_ptr(),
+            value.map_or(core::ptr::null(), CStr::as_ptr),
             search_flags,
         )
     })
@@ -135,6 +174,7 @@ pub fn av_opt_set_bin(
     value: &[u8],
     search_flags: i32,
 ) -> Result<(), OptSetError> {
+    reject_fake_object(search_flags)?;
     let length = i32::try_from(value.len()).map_err(|_| OptSetError::LengthOverflow)?;
     // SAFETY: the handle carries the live exclusive object borrow; `name` is
     // terminated and `value` supplies exactly `length` readable bytes.
@@ -156,6 +196,7 @@ pub fn av_opt_set_double(
     value: f64,
     search_flags: i32,
 ) -> Result<(), OptSetError> {
+    reject_fake_object(search_flags)?;
     // SAFETY: the handle carries the live exclusive object borrow and `name`
     // remains live and NUL-terminated for the call.
     result(unsafe {
@@ -171,6 +212,7 @@ pub fn av_opt_set_image_size(
     height: i32,
     search_flags: i32,
 ) -> Result<(), OptSetError> {
+    reject_fake_object(search_flags)?;
     // SAFETY: the handle carries the live exclusive object borrow and `name`
     // remains live and NUL-terminated for the call.
     result(unsafe {
@@ -191,6 +233,7 @@ pub fn av_opt_set_int(
     value: i64,
     search_flags: i32,
 ) -> Result<(), OptSetError> {
+    reject_fake_object(search_flags)?;
     // SAFETY: the handle carries the live exclusive object borrow and `name`
     // remains live and NUL-terminated for the call.
     result(unsafe { ffi::av_opt_set_int(object.as_mut_ptr(), name.as_ptr(), value, search_flags) })
@@ -1190,4 +1233,356 @@ pub fn av_opt_set_chlayout(
             search_flags,
         )
     })
+}
+
+#[cfg(test)]
+mod scheduled_set_tests {
+    use core::mem::offset_of;
+
+    use ffibox::{CVec, CrustifyStr};
+
+    use super::*;
+    use crate::mem::AvFree;
+
+    /// The smallest thing the option setters can act on: a struct whose first
+    /// field is a class pointer, with one field per scheduled setter behind
+    /// an option that names its offset. libavutil publishes no such object of
+    /// its own — every in-tree option table belongs to a library this campaign
+    /// does not build — so the target has to be assembled here, which is also
+    /// what makes the layout requirements explicit.
+    #[repr(C)]
+    struct TestObject {
+        class: *const ffi::AVClass,
+        integer: i64,
+        number: f64,
+        /// `AV_OPT_TYPE_IMAGE_SIZE` writes `dst[0]` and `dst[1]`, so the two
+        /// halves must be adjacent `int`s in this order.
+        width: i32,
+        height: i32,
+        text: *mut c_char,
+        /// `AV_OPT_TYPE_BINARY` writes the pointer at `dst` and the length at
+        /// `dst + 1`, so the count must directly follow the pointer.
+        binary: *mut u8,
+        binary_len: i32,
+    }
+
+    fn option(
+        name: &'static CStr,
+        offset: usize,
+        option_type: ffi::AVOptionType,
+        min: f64,
+        max: f64,
+    ) -> ffi::AVOption {
+        ffi::AVOption {
+            name: name.as_ptr(),
+            help: core::ptr::null(),
+            offset: i32::try_from(offset).expect("field offsets are small"),
+            type_: option_type,
+            default_val: ffi::AVOption__bindgen_ty_1 { i64_: 0 },
+            min,
+            max,
+            flags: 0,
+            unit: core::ptr::null(),
+        }
+    }
+
+    fn options() -> [ffi::AVOption; 6] {
+        [
+            option(
+                c"integer",
+                offset_of!(TestObject, integer),
+                ffi::AVOptionType_AV_OPT_TYPE_INT64,
+                0.0,
+                1000.0,
+            ),
+            option(
+                c"number",
+                offset_of!(TestObject, number),
+                ffi::AVOptionType_AV_OPT_TYPE_DOUBLE,
+                -1000.0,
+                1000.0,
+            ),
+            option(
+                c"size",
+                offset_of!(TestObject, width),
+                ffi::AVOptionType_AV_OPT_TYPE_IMAGE_SIZE,
+                0.0,
+                0.0,
+            ),
+            option(
+                c"text",
+                offset_of!(TestObject, text),
+                ffi::AVOptionType_AV_OPT_TYPE_STRING,
+                0.0,
+                0.0,
+            ),
+            option(
+                c"binary",
+                offset_of!(TestObject, binary),
+                ffi::AVOptionType_AV_OPT_TYPE_BINARY,
+                0.0,
+                0.0,
+            ),
+            // `av_opt_next` stops at the first entry whose name is NULL, so
+            // the terminator cannot go through `option` — an empty C string
+            // is a name, and iteration would run off the end of the array.
+            ffi::AVOption {
+                name: core::ptr::null(),
+                ..option(c"", 0, ffi::AVOptionType_AV_OPT_TYPE_INT64, 0.0, 0.0)
+            },
+        ]
+    }
+
+    fn class(options: &[ffi::AVOption; 6]) -> ffi::AVClass {
+        ffi::AVClass {
+            class_name: c"crustify-test".as_ptr(),
+            // NULL is the documented default: libavutil substitutes
+            // `av_default_item_name` when it needs a name for a log line.
+            item_name: None,
+            option: options.as_ptr(),
+            version: 0,
+            log_level_offset_offset: 0,
+            parent_log_context_offset: 0,
+            category: 0,
+            get_category: None,
+            query_ranges: None,
+            child_next: None,
+            child_class_iterate: None,
+            state_flags_offset: 0,
+        }
+    }
+
+    impl TestObject {
+        fn new(class: &ffi::AVClass) -> Self {
+            Self {
+                class: core::ptr::from_ref(class),
+                integer: 0,
+                number: 0.0,
+                width: 0,
+                height: 0,
+                text: core::ptr::null_mut(),
+                binary: core::ptr::null_mut(),
+                binary_len: 0,
+            }
+        }
+
+        /// Releases the two option values C allocated into this object, which
+        /// `av_opt_free` would do for a real one. Leaving them behind would
+        /// show up as a leak in the sanitiser run.
+        fn release_owned_options(&mut self) {
+            if !self.text.is_null() {
+                // SAFETY: `set_string` filled this field with an `av_strdup`
+                // result — a uniquely owned NUL-terminated av_malloc-family
+                // string, which is exactly what `CrustifyStr<AvFree>` adopts
+                // and frees. The field is emptied so no second owner forms.
+                drop(unsafe { CrustifyStr::<AvFree>::from_raw(self.text) });
+                self.text = core::ptr::null_mut();
+            }
+            if !self.binary.is_null() {
+                let count = usize::try_from(self.binary_len).expect("a non-negative length");
+                // SAFETY: `av_opt_set_bin` filled this field with an
+                // `av_malloc` allocation holding exactly `binary_len`
+                // initialized bytes copied from the caller's slice, uniquely
+                // owned and released by `av_free`.
+                drop(unsafe { CVec::<u8, AvFree>::from_raw_parts(self.binary, count) });
+                self.binary = core::ptr::null_mut();
+                self.binary_len = 0;
+            }
+        }
+    }
+
+    #[test]
+    fn setters_write_through_to_the_object() {
+        let options = options();
+        let class = class(&options);
+        let mut object = TestObject::new(&class);
+
+        {
+            // SAFETY: `object` is a live, initialized struct whose first field
+            // is a class pointer, and this handle is the only access to it for
+            // the block below.
+            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+
+            av_opt_set_int(&mut handle, c"integer", 7, 0).expect("set integer");
+            av_opt_set_double(&mut handle, c"number", 0.5, 0).expect("set number");
+            av_opt_set_image_size(&mut handle, c"size", 640, 480, 0).expect("set size");
+            av_opt_set(&mut handle, c"text", Some(c"crustify"), 0).expect("set text");
+            av_opt_set_bin(&mut handle, c"binary", &[1, 2, 3], 0).expect("set binary");
+
+            // A string setter reaches the numeric option too: C parses it with
+            // the same code path `av_opt_set_int` writes through.
+            av_opt_set(&mut handle, c"integer", Some(c"42"), 0).expect("parse integer");
+        }
+
+        assert_eq!(object.integer, 42);
+        assert!((object.number - 0.5).abs() < f64::EPSILON);
+        assert_eq!((object.width, object.height), (640, 480));
+        assert_eq!(object.binary_len, 3);
+        // SAFETY: `av_opt_set_bin` wrote three initialized bytes at this
+        // pointer, and nothing has freed or replaced them.
+        assert_eq!(unsafe { core::slice::from_raw_parts(object.binary, 3) }, [
+            1, 2, 3
+        ]);
+        // SAFETY: the string option holds an `av_strdup` result that is still
+        // live and NUL-terminated.
+        assert_eq!(unsafe { CStr::from_ptr(object.text) }, c"crustify");
+
+        object.release_owned_options();
+    }
+
+    #[test]
+    fn a_null_value_clears_a_string_option() {
+        // The contract a `&CStr` argument would hide: NULL is a value C tests
+        // for, not an absent argument, and for a string option it means
+        // "release what is there and store NULL".
+        let options = options();
+        let class = class(&options);
+        let mut object = TestObject::new(&class);
+
+        {
+            // SAFETY: as above — a live object exclusively borrowed for the
+            // duration of this block.
+            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            av_opt_set(&mut handle, c"text", Some(c"crustify"), 0).expect("set text");
+            assert!(!object_text_is_null(&handle));
+            av_opt_set(&mut handle, c"text", None, 0).expect("clear text");
+        }
+
+        assert!(object.text.is_null(), "the old allocation was released");
+        object.release_owned_options();
+    }
+
+    #[test]
+    fn a_null_value_is_accepted_or_refused_by_option_type() {
+        // The other half of the null contract, and the reason the wrapper does
+        // not simply forward `None` everywhere: C admits it for one fixed set
+        // of types and rejects the rest. An image size takes it and becomes
+        // 0x0; a binary or numeric option refuses it with EINVAL.
+        let options = options();
+        let class = class(&options);
+        let mut object = TestObject::new(&class);
+
+        {
+            // SAFETY: `object` is live and exclusively borrowed for the block.
+            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+
+            av_opt_set_image_size(&mut handle, c"size", 640, 480, 0).expect("set size");
+            av_opt_set(&mut handle, c"size", None, 0).expect("clear size");
+
+            assert!(matches!(
+                av_opt_set(&mut handle, c"binary", None, 0),
+                Err(OptSetError::Library(_))
+            ));
+            assert!(matches!(
+                av_opt_set(&mut handle, c"integer", None, 0),
+                Err(OptSetError::Library(_))
+            ));
+        }
+
+        assert_eq!((object.width, object.height), (0, 0));
+        assert!(object.binary.is_null());
+        assert_eq!(object.integer, 0);
+    }
+
+    /// Reads the string field back through the borrowed handle rather than
+    /// through `object`, so the exclusive borrow is not interrupted.
+    fn object_text_is_null(handle: &OptionObjectMut<'_>) -> bool {
+        // SAFETY: the handle addresses a live `TestObject`, and this reads one
+        // initialized pointer field out of it without forming a reference.
+        unsafe {
+            addr_of!((*handle.pointer.as_ptr().cast::<TestObject>()).text)
+                .read()
+                .is_null()
+        }
+    }
+
+    #[test]
+    fn every_setter_rejects_a_fake_object_search() {
+        // With `AV_OPT_SEARCH_FAKE_OBJ` set, C resolves the option, finds no
+        // target object — that is what the flag means — and then loads the
+        // class out of that NULL target, which the sanitiser build reports as
+        // a SEGV inside `opt_set_init`. The flag can never do useful work in a
+        // setter, since a fake object has no storage to write to, so each one
+        // refuses it before the call.
+        let options = options();
+        let class = class(&options);
+        let mut object = TestObject::new(&class);
+        // SAFETY: `object` is live and exclusively borrowed for the block.
+        let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+
+        let fake = ffi::AV_OPT_SEARCH_FAKE_OBJ as i32;
+        assert_eq!(
+            av_opt_set(&mut handle, c"integer", Some(c"1"), fake),
+            Err(OptSetError::FakeObjectSearch)
+        );
+        assert_eq!(
+            av_opt_set_int(&mut handle, c"integer", 1, fake),
+            Err(OptSetError::FakeObjectSearch)
+        );
+        assert_eq!(
+            av_opt_set_double(&mut handle, c"number", 1.0, fake),
+            Err(OptSetError::FakeObjectSearch)
+        );
+        assert_eq!(
+            av_opt_set_image_size(&mut handle, c"size", 1, 1, fake),
+            Err(OptSetError::FakeObjectSearch)
+        );
+        assert_eq!(
+            av_opt_set_bin(&mut handle, c"binary", &[0], fake),
+            Err(OptSetError::FakeObjectSearch)
+        );
+
+        assert_eq!(object.integer, 0, "no setter reached the object");
+    }
+
+    #[test]
+    fn setters_report_library_errors_without_writing() {
+        let options = options();
+        let class = class(&options);
+        let mut object = TestObject::new(&class);
+        // SAFETY: `object` is live and exclusively borrowed for the block.
+        let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+
+        // An unknown name, a value outside the option's range, a negative
+        // image size and a type mismatch are all ordinary C failures, and each
+        // arrives as the negative code C returned.
+        assert!(matches!(
+            av_opt_set_int(&mut handle, c"missing", 1, 0),
+            Err(OptSetError::Library(_))
+        ));
+        assert!(matches!(
+            av_opt_set_int(&mut handle, c"integer", 100_000, 0),
+            Err(OptSetError::Library(_))
+        ));
+        assert!(matches!(
+            av_opt_set_image_size(&mut handle, c"size", -1, 1, 0),
+            Err(OptSetError::Library(_))
+        ));
+        assert!(matches!(
+            av_opt_set_bin(&mut handle, c"integer", &[0], 0),
+            Err(OptSetError::Library(_))
+        ));
+
+        assert_eq!(object.integer, 0);
+        assert_eq!((object.width, object.height), (0, 0));
+    }
+
+    #[test]
+    fn an_empty_binary_value_is_stored_as_no_allocation() {
+        // C reads the value pointer only when the length is nonzero, and
+        // stores NULL for an empty one. An empty Rust slice is a dangling
+        // pointer, so this pins that C never dereferences it.
+        let options = options();
+        let class = class(&options);
+        let mut object = TestObject::new(&class);
+
+        {
+            // SAFETY: `object` is live and exclusively borrowed for the block.
+            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            av_opt_set_bin(&mut handle, c"binary", &[], 0).expect("set empty binary");
+        }
+
+        assert!(object.binary.is_null());
+        assert_eq!(object.binary_len, 0);
+    }
 }

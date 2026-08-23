@@ -127,6 +127,14 @@ mod tests {
             Ok(crate::pixfmt::AVChromaLocation::BOTTOM_LEFT)
         );
         assert!(av_chroma_location_from_name(c"not-a-location").is_err());
+        // The name table and the parser are inverses, which is what makes the
+        // typed return the honest one.
+        assert_eq!(
+            av_chroma_location_name(
+                av_chroma_location_from_name(c"topleft").expect("a known location")
+            ),
+            Some(c"topleft")
+        );
     }
 
     #[test]

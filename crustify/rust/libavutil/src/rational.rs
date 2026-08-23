@@ -101,6 +101,13 @@ pub struct ReducedRational {
 /// returns 1. A non-positive `max` is rejected for the same reason — it is
 /// below every reachable denominator, so C's own
 /// `av_assert2(a1.num <= max && a1.den <= max)` cannot hold.
+///
+/// [`i64::MIN`] is refused for either half of the fraction. C starts by taking
+/// `FFABS` of both, which negates a negative input, and negating [`i64::MIN`]
+/// overflows — undefined behaviour this campaign's UBSan build reports against
+/// `rational.c` before the reduction produces anything. Nothing else is lost to
+/// the check: every other magnitude reduces normally, and `max` is never
+/// negated.
 pub fn av_reduce(
     numerator: i64,
     denominator: i64,
@@ -108,6 +115,9 @@ pub fn av_reduce(
 ) -> Result<ReducedRational, RationalError> {
     if max <= 0 {
         return Err(RationalError::NonPositiveMaximum);
+    }
+    if numerator == i64::MIN || denominator == i64::MIN {
+        return Err(RationalError::UnnegatableInput);
     }
     let mut reduced_num = 0;
     let mut reduced_den = 0;
@@ -174,6 +184,45 @@ mod tests {
         let approximate = av_reduce(1, 3, 2).unwrap();
         assert!(!approximate.exact);
         assert!(approximate.numerator.abs() <= 2 && approximate.denominator <= 2);
+
+        // The sign is carried separately from the reduced magnitude, and an
+        // undefined denominator survives the round trip rather than dividing
+        // by zero.
+        assert_eq!(
+            av_reduce(-10, 20, 100).unwrap(),
+            ReducedRational {
+                numerator: -1,
+                denominator: 2,
+                exact: true
+            }
+        );
+        assert_eq!(
+            av_reduce(1, 0, i32::MAX).unwrap(),
+            ReducedRational {
+                numerator: 1,
+                denominator: 0,
+                exact: true
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_the_one_magnitude_c_cannot_negate() {
+        // Reaching C with either of these makes `FFABS` negate `i64::MIN`,
+        // which the UBSan build reports as
+        // "negation of -9223372036854775808 cannot be represented in type
+        // 'long int'" at rational.c's `av_gcd(FFABS(num), FFABS(den))`.
+        assert_eq!(
+            av_reduce(i64::MIN, 1, i32::MAX),
+            Err(RationalError::UnnegatableInput)
+        );
+        assert_eq!(
+            av_reduce(1, i64::MIN, i32::MAX),
+            Err(RationalError::UnnegatableInput)
+        );
+        // The neighbouring magnitude is fine, so the guard is exactly one
+        // value wide.
+        assert!(av_reduce(i64::MIN + 1, 1, i32::MAX).is_ok());
     }
 
     #[test]
@@ -298,6 +347,8 @@ pub enum RationalError {
     /// Both operands of [`av_gcd_q`] had a zero denominator, which would make
     /// C divide by `av_gcd(0, 0) == 0`.
     BothDenominatorsZero,
+    /// `i64::MIN` was passed where C takes `FFABS` of the value.
+    UnnegatableInput,
 }
 
 /// Wraps: av_d2q
