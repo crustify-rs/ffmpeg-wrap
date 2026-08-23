@@ -4,7 +4,7 @@ use core::ffi::{c_char, c_void};
 use core::marker::PhantomData;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::define_ctype;
+use ffibox::{CSlice, CSliceMut, CValued, define_ctype};
 
 use crate::ffi;
 
@@ -440,5 +440,262 @@ mod scheduled_symbol_tests {
         let result = av_channel_description(&mut description, AVChannel::FRONT_LEFT).unwrap();
         assert_eq!(result.text, Some(c"front left"));
         assert!(result.required <= description.len());
+    }
+}
+
+define_ctype!(
+    /// Wraps: AVChannelLayout
+    ///
+    /// A public, by-value channel layout. Owned inline values use
+    /// `CVal<AVChannelLayout>` so a custom channel map is always released with
+    /// `av_channel_layout_uninit`; borrowed values use the generated handles.
+    AVChannelLayout,
+    AVChannelLayoutRef,
+    AVChannelLayoutMut,
+    ffi::AVChannelLayout
+);
+
+// SAFETY: `av_channel_layout_uninit` releases only resources owned by the
+// by-value layout (the CUSTOM map), retains the header storage, and resets the
+// complete header. `CVal` invokes it exactly once before releasing its inline
+// Rust storage.
+unsafe impl CValued for AVChannelLayout {
+    unsafe fn c_dispose(this: NonNull<Self>) {
+        // SAFETY: the trait contract supplies one live initialized layout; the
+        // transparent wrapper has the exact layout expected by C.
+        unsafe { ffi::av_channel_layout_uninit(this.as_ptr().cast()) }
+    }
+}
+
+/// A lifetime-bound identity token for an application-managed layout cookie.
+///
+/// Libavutil preserves the address but neither dereferences nor frees it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AVChannelLayoutOpaque<'a> {
+    pointer: NonNull<c_void>,
+    _borrow: PhantomData<&'a c_void>,
+}
+
+/// The union member selected by an `AVChannelLayout`'s channel order.
+#[derive(Clone, Copy)]
+pub enum AVChannelLayoutChannels<'a> {
+    /// `AV_CHANNEL_ORDER_UNSPEC`; the union bytes are intentionally unread.
+    Unspecified,
+    /// A native or ambisonic order using the union's mask member.
+    Mask { order: AVChannelOrder, mask: u64 },
+    /// A custom order owning `nb_channels` by-value map entries.
+    Custom(CSlice<'a, AVChannelCustom>),
+    /// An unknown order or an internally inconsistent custom layout.
+    Invalid,
+}
+
+impl<'a> AVChannelLayoutRef<'a> {
+    /// Wraps: AVChannelLayout.order
+    #[must_use]
+    pub fn order(&self) -> AVChannelOrder {
+        // SAFETY: the integer-backed enum is copied through a raw projection;
+        // AVChannelOrder preserves every possible ABI value.
+        AVChannelOrder::from_raw(unsafe { addr_of!((*self.as_ptr()).order).read() })
+    }
+
+    /// Wraps: AVChannelLayout.nb_channels
+    #[must_use]
+    pub fn nb_channels(&self) -> i32 {
+        // SAFETY: the scalar is copied through a raw field projection from the
+        // live layout; no reference to C storage is formed.
+        unsafe { addr_of!((*self.as_ptr()).nb_channels).read() }
+    }
+
+    /// Wraps: AVChannelLayout.opaque
+    ///
+    /// Returns the application-managed cookie as an identity-only token.
+    #[must_use]
+    pub fn opaque(&self) -> Option<AVChannelLayoutOpaque<'a>> {
+        // SAFETY: only the pointer value is copied. Libavutil never accesses
+        // the erased pointee and the returned token is tied to the layout view.
+        NonNull::new(unsafe { addr_of!((*self.as_ptr()).opaque).read() }).map(|pointer| {
+            AVChannelLayoutOpaque {
+                pointer,
+                _borrow: PhantomData,
+            }
+        })
+    }
+
+    /// Wraps: AVChannelLayout.u.mask
+    ///
+    /// Reads the union member only for orders that define it.
+    #[must_use]
+    pub fn mask(&self) -> Option<u64> {
+        let order = self.order();
+        if order != AVChannelOrder::NATIVE && order != AVChannelOrder::AMBISONIC {
+            return None;
+        }
+        // SAFETY: NATIVE and AMBISONIC layouts define the mask union member;
+        // copying it through a raw projection forms no C-memory reference.
+        Some(unsafe { addr_of!((*self.as_ptr()).u.mask).read() })
+    }
+
+    /// Wraps: AVChannelLayout.u.map
+    ///
+    /// Borrows the owned custom map when the discriminator and length are
+    /// valid. The view yields per-element handles rather than `&[T]`.
+    #[must_use]
+    pub fn custom_map(&self) -> Option<CSlice<'a, AVChannelCustom>> {
+        if self.order() != AVChannelOrder::CUSTOM {
+            return None;
+        }
+        let len = usize::try_from(self.nb_channels()).ok()?;
+        // SAFETY: CUSTOM selects the map union member. The layout owns a live
+        // `nb_channels`-element allocation for the duration of this borrow.
+        let map = unsafe { addr_of!((*self.as_ptr()).u.map).read() };
+        NonNull::new(map.cast::<AVChannelCustom>()).map(|map| {
+            // SAFETY: the CUSTOM layout invariant establishes `len`
+            // contiguous initialized entries kept alive by this layout.
+            unsafe { CSlice::from_raw_parts(map, len) }
+        })
+    }
+
+    /// Wraps: AVChannelLayout.u
+    ///
+    /// Interprets the union only through the active member selected by order.
+    #[must_use]
+    pub fn channels(&self) -> AVChannelLayoutChannels<'a> {
+        let order = self.order();
+        if order == AVChannelOrder::UNSPECIFIED {
+            AVChannelLayoutChannels::Unspecified
+        } else if order == AVChannelOrder::NATIVE || order == AVChannelOrder::AMBISONIC {
+            AVChannelLayoutChannels::Mask {
+                order,
+                // The order check above proves the union member is active.
+                mask: self.mask().expect("mask order has a mask member"),
+            }
+        } else if order == AVChannelOrder::CUSTOM {
+            self.custom_map().map_or(
+                AVChannelLayoutChannels::Invalid,
+                AVChannelLayoutChannels::Custom,
+            )
+        } else {
+            AVChannelLayoutChannels::Invalid
+        }
+    }
+}
+
+impl AVChannelLayoutMut<'_> {
+    /// Exclusively borrows the custom map when the layout is valid and custom.
+    #[must_use]
+    pub fn custom_map_mut(&mut self) -> Option<CSliceMut<'_, AVChannelCustom>> {
+        let shared = self.as_ref();
+        if shared.order() != AVChannelOrder::CUSTOM {
+            return None;
+        }
+        let len = usize::try_from(shared.nb_channels()).ok()?;
+        // SAFETY: the exclusive layout handle licenses reading the active map
+        // pointer and grants exclusive access to its owned entry array.
+        let map = unsafe { addr_of!((*self.as_mut_ptr()).u.map).read() };
+        NonNull::new(map.cast::<AVChannelCustom>()).map(|map| {
+            // SAFETY: CUSTOM guarantees `len` initialized entries and the view
+            // is bound to the exclusive borrow of this layout handle.
+            unsafe { CSliceMut::from_raw_parts(map, len) }
+        })
+    }
+
+    /// Clears the application-managed metadata cookie.
+    pub fn clear_opaque(&mut self) {
+        // SAFETY: the exclusive handle permits replacing the pointer value and
+        // neither this wrapper nor libavutil owns its pointee.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).opaque).write(core::ptr::null_mut()) }
+    }
+
+    /// Stores an application-managed, type-erased cookie address.
+    ///
+    /// # Safety
+    ///
+    /// The pointee must remain alive until this layout and every deep layout
+    /// copy retaining the cookie have been cleared or destroyed. Libavutil
+    /// copies the address but does not manage the pointee.
+    pub unsafe fn set_opaque(&mut self, pointer: Option<NonNull<c_void>>) {
+        // SAFETY: the caller supplies the external lifetime contract and the
+        // exclusive handle permits replacing this field.
+        unsafe {
+            addr_of_mut!((*self.as_mut_ptr()).opaque)
+                .write(pointer.map_or(core::ptr::null_mut(), NonNull::as_ptr));
+        }
+    }
+}
+
+#[cfg(test)]
+mod channel_layout_type_tests {
+    use core::mem::{align_of, size_of};
+
+    use ffibox::CVal;
+
+    use super::*;
+
+    #[test]
+    fn layout_union_is_discriminator_checked() {
+        let mut raw = ffi::AVChannelLayout {
+            order: ffi::AVChannelOrder_AV_CHANNEL_ORDER_NATIVE,
+            nb_channels: 2,
+            u: ffi::AVChannelLayout__bindgen_ty_1 { mask: 3 },
+            opaque: core::ptr::null_mut(),
+        };
+        // SAFETY: `raw` is live and initialized and this shared handle is the
+        // only access path used for its duration.
+        let layout = unsafe { AVChannelLayoutRef::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        assert_eq!(layout.order(), AVChannelOrder::NATIVE);
+        assert_eq!(layout.nb_channels(), 2);
+        assert_eq!(layout.mask(), Some(3));
+        assert!(layout.custom_map().is_none());
+        assert!(matches!(
+            layout.channels(),
+            AVChannelLayoutChannels::Mask { mask: 3, .. }
+        ));
+        assert_eq!(
+            size_of::<AVChannelLayout>(),
+            size_of::<ffi::AVChannelLayout>()
+        );
+        assert_eq!(
+            align_of::<AVChannelLayout>(),
+            align_of::<ffi::AVChannelLayout>()
+        );
+    }
+
+    #[test]
+    fn custom_map_uses_element_handles() {
+        let mut entries = [
+            ffi::AVChannelCustom {
+                id: ffi::AVChannel_AV_CHAN_FRONT_LEFT,
+                name: [0; 16],
+                opaque: core::ptr::null_mut(),
+            },
+            ffi::AVChannelCustom {
+                id: ffi::AVChannel_AV_CHAN_FRONT_RIGHT,
+                name: [0; 16],
+                opaque: core::ptr::null_mut(),
+            },
+        ];
+        let mut raw = ffi::AVChannelLayout {
+            order: ffi::AVChannelOrder_AV_CHANNEL_ORDER_CUSTOM,
+            nb_channels: 2,
+            u: ffi::AVChannelLayout__bindgen_ty_1 {
+                map: entries.as_mut_ptr(),
+            },
+            opaque: core::ptr::null_mut(),
+        };
+        // SAFETY: the layout and its two-entry stack map remain live, and the
+        // exclusive handle is the only access path during this scope.
+        let mut layout = unsafe { AVChannelLayoutMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        assert_eq!(layout.as_ref().custom_map().unwrap().len(), 2);
+        let mut map = layout.custom_map_mut().unwrap();
+        map.get_mut(1).unwrap().set_id(AVChannel::FRONT_CENTER);
+        assert_eq!(map.as_ref().get(1).unwrap().id(), AVChannel::FRONT_CENTER);
+    }
+
+    #[test]
+    fn zeroed_inline_layout_is_safely_disposed() {
+        let layout = CVal::new(AVChannelLayout::zeroed());
+        assert_eq!(layout.as_ref().order(), AVChannelOrder::UNSPECIFIED);
+        assert_eq!(layout.as_ref().nb_channels(), 0);
+        drop(layout);
     }
 }

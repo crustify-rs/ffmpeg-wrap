@@ -155,6 +155,45 @@
    ]
   },
   {
+   "name": "AVChannelLayout",
+   "defined_in": "libavutil/channel_layout.h",
+   "_comment_agent": "The order field discriminates u. NATIVE and AMBISONIC use the mask; CUSTOM owns the map; UNSPEC leaves u undefined. The opaque cookie is external application state and survives libavutil layout copies by address only.",
+   "fields": [
+    {
+     "name": "opaque",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "other"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Application-managed type-erased cookie. Libavutil preserves and copies the address but never dereferences or frees it; its lifetime must cover every layout copy retaining it."
+     }
+    },
+    {
+     "name": "u.map",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "When order is CUSTOM, the layout owns an nb_channels-element AVChannelCustom array allocated by libavutil and released by av_channel_layout_uninit. Other union variants do not carry a live map."
+     }
+    }
+   ]
+  },
+  {
    "name": "AVChannelOrder",
    "defined_in": "libavutil/channel_layout.h",
    "_comment_agent": "C enum has no pointer or lifecycle fields.",
@@ -217,6 +256,60 @@
       "nullable": false,
       "mutable": true,
       "note": "Every live entry owns one av_malloc-family NUL-terminated value; NULL requests deletion and is never inserted. AV_DICT_APPEND may realloc and write the stored value internally, while published borrowed entries forbid caller mutation. The containing dictionary frees it."
+     }
+    }
+   ]
+  },
+  {
+   "name": "AVFrameSideData",
+   "defined_in": "libavutil/frame.h",
+   "_comment_agent": "AVFrameSideData headers are owned by a frame/side-data array rather than independently by public callers. The buf owner keeps the data window alive; metadata is a separate nullable owner.",
+   "fields": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": false,
+      "mutable": true,
+      "note": "A valid side-data entry owns one independently releasable AVBufferRef header. free_side_data_entry consumes it with av_buffer_unref; mutation of its bytes additionally requires av_buffer_is_writable."
+     }
+    },
+    {
+     "name": "data",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "field:buf"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "A size-byte window into storage kept alive by buf, potentially at an interior offset. It is not independently freed; mutable access requires the backing AVBufferRef to be writable."
+     }
+    },
+    {
+     "name": "metadata",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Optional dictionary owned by the side-data entry and consumed by av_dict_free when the entry is replaced or destroyed."
      }
     }
    ]
@@ -879,6 +972,84 @@
       "nullable": false,
       "mutable": false,
       "note": "Read-only NUL-terminated input, used only during the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_channel_layout_copy",
+   "defined_in": "libavutil/channel_layout.c",
+   "lifetime": {
+    "for": "src",
+    "is_dropper": false,
+    "is_disposer": false,
+    "is_cloner": {
+     "deep": true,
+     "upref": false
+    }
+   },
+   "ptr_args": [
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Mutably borrows a destination layout, first disposing its old CUSTOM map, then installs a deep copy of src."
+     }
+    },
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient shared source borrow; a CUSTOM map is deep-copied while the application opaque pointer is copied by address."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_channel_layout_uninit",
+   "defined_in": "libavutil/channel_layout.c",
+   "lifetime": {
+    "for": "channel_layout",
+    "is_dropper": false,
+    "is_disposer": true,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "channel_layout",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:channel_layout"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Mutably borrows an initialized by-value layout, frees a CUSTOM map when present, then resets the retained header to all-zero."
      }
     }
    ]
