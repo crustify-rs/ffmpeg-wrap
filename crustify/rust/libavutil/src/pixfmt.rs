@@ -99,6 +99,126 @@ impl From<AVColorRange> for ffi::AVColorRange {
     }
 }
 
+/// Wraps: AVColorSpace
+///
+/// A YUV color-space identifier. The transparent integer representation is
+/// intentional: C callers may pass reserved or future values, so modelling
+/// this as a closed Rust `enum` would make otherwise valid FFI values invalid
+/// Rust values.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AVColorSpace(ffi::AVColorSpace);
+
+impl AVColorSpace {
+    pub const RGB: Self = Self(ffi::AVColorSpace_AVCOL_SPC_RGB);
+    pub const BT709: Self = Self(ffi::AVColorSpace_AVCOL_SPC_BT709);
+    pub const UNSPECIFIED: Self = Self(ffi::AVColorSpace_AVCOL_SPC_UNSPECIFIED);
+    pub const RESERVED: Self = Self(ffi::AVColorSpace_AVCOL_SPC_RESERVED);
+    pub const FCC: Self = Self(ffi::AVColorSpace_AVCOL_SPC_FCC);
+    pub const BT470BG: Self = Self(ffi::AVColorSpace_AVCOL_SPC_BT470BG);
+    pub const SMPTE170M: Self = Self(ffi::AVColorSpace_AVCOL_SPC_SMPTE170M);
+    pub const SMPTE240M: Self = Self(ffi::AVColorSpace_AVCOL_SPC_SMPTE240M);
+    pub const YCGCO: Self = Self(ffi::AVColorSpace_AVCOL_SPC_YCGCO);
+    pub const YCOCG: Self = Self(ffi::AVColorSpace_AVCOL_SPC_YCOCG);
+    pub const BT2020_NCL: Self = Self(ffi::AVColorSpace_AVCOL_SPC_BT2020_NCL);
+    pub const BT2020_CL: Self = Self(ffi::AVColorSpace_AVCOL_SPC_BT2020_CL);
+    pub const SMPTE2085: Self = Self(ffi::AVColorSpace_AVCOL_SPC_SMPTE2085);
+    pub const CHROMA_DERIVED_NCL: Self = Self(ffi::AVColorSpace_AVCOL_SPC_CHROMA_DERIVED_NCL);
+    pub const CHROMA_DERIVED_CL: Self = Self(ffi::AVColorSpace_AVCOL_SPC_CHROMA_DERIVED_CL);
+    pub const ICTCP: Self = Self(ffi::AVColorSpace_AVCOL_SPC_ICTCP);
+    pub const IPT_C2: Self = Self(ffi::AVColorSpace_AVCOL_SPC_IPT_C2);
+    pub const YCGCO_RE: Self = Self(ffi::AVColorSpace_AVCOL_SPC_YCGCO_RE);
+    pub const YCGCO_RO: Self = Self(ffi::AVColorSpace_AVCOL_SPC_YCGCO_RO);
+    /// Number of standard color-space identifiers; not part of the C ABI.
+    pub const NB: Self = Self(ffi::AVColorSpace_AVCOL_SPC_NB);
+
+    /// Preserves any value received from C, including reserved and future
+    /// identifiers.
+    pub const fn from_raw(raw: ffi::AVColorSpace) -> Self {
+        Self(raw)
+    }
+
+    /// Returns the ABI value accepted by libavutil.
+    pub const fn as_raw(self) -> ffi::AVColorSpace {
+        self.0
+    }
+}
+
+impl From<ffi::AVColorSpace> for AVColorSpace {
+    fn from(raw: ffi::AVColorSpace) -> Self {
+        Self::from_raw(raw)
+    }
+}
+
+impl From<AVColorSpace> for ffi::AVColorSpace {
+    fn from(value: AVColorSpace) -> Self {
+        value.as_raw()
+    }
+}
+
+/// Wraps: AVColorTransferCharacteristic
+///
+/// A color transfer characteristic. Like the corresponding C enum, this is
+/// an open integer value: reserved, custom-extension and future identifiers
+/// can cross the FFI boundary without creating an invalid Rust value.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AVColorTransferCharacteristic(ffi::AVColorTransferCharacteristic);
+
+impl AVColorTransferCharacteristic {
+    pub const RESERVED0: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_RESERVED0);
+    pub const BT709: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_BT709);
+    pub const UNSPECIFIED: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_UNSPECIFIED);
+    pub const RESERVED: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_RESERVED);
+    pub const GAMMA22: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_GAMMA22);
+    pub const GAMMA28: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_GAMMA28);
+    pub const SMPTE170M: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_SMPTE170M);
+    pub const SMPTE240M: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_SMPTE240M);
+    pub const LINEAR: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_LINEAR);
+    pub const LOG: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_LOG);
+    pub const LOG_SQRT: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_LOG_SQRT);
+    pub const IEC61966_2_4: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_IEC61966_2_4);
+    pub const BT1361_ECG: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_BT1361_ECG);
+    pub const IEC61966_2_1: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_IEC61966_2_1);
+    pub const BT2020_10: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_BT2020_10);
+    pub const BT2020_12: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_BT2020_12);
+    pub const SMPTE2084: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_SMPTE2084);
+    pub const SMPTEST2084: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_SMPTEST2084);
+    pub const SMPTE428: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_SMPTE428);
+    pub const SMPTEST428_1: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_SMPTEST428_1);
+    pub const ARIB_STD_B67: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_ARIB_STD_B67);
+    /// Number of standard transfer-characteristic identifiers; not part of
+    /// the C ABI.
+    pub const NB: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_NB);
+    pub const EXT_BASE: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_EXT_BASE);
+    pub const V_LOG: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_V_LOG);
+    /// End of the custom extension range; not part of the C ABI.
+    pub const EXT_NB: Self = Self(ffi::AVColorTransferCharacteristic_AVCOL_TRC_EXT_NB);
+
+    /// Preserves any value received from C, including reserved and future
+    /// identifiers.
+    pub const fn from_raw(raw: ffi::AVColorTransferCharacteristic) -> Self {
+        Self(raw)
+    }
+
+    /// Returns the ABI value accepted by libavutil.
+    pub const fn as_raw(self) -> ffi::AVColorTransferCharacteristic {
+        self.0
+    }
+}
+
+impl From<ffi::AVColorTransferCharacteristic> for AVColorTransferCharacteristic {
+    fn from(raw: ffi::AVColorTransferCharacteristic) -> Self {
+        Self::from_raw(raw)
+    }
+}
+
+impl From<AVColorTransferCharacteristic> for ffi::AVColorTransferCharacteristic {
+    fn from(value: AVColorTransferCharacteristic) -> Self {
+        value.as_raw()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use core::mem::{align_of, size_of};
@@ -137,6 +257,46 @@ mod tests {
 
         let unknown = ffi::AVColorRange::MAX;
         assert_eq!(AVColorRange::from_raw(unknown).as_raw(), unknown);
+    }
+
+    #[test]
+    fn color_space_is_layout_compatible_and_open() {
+        assert_eq!(size_of::<AVColorSpace>(), size_of::<ffi::AVColorSpace>());
+        assert_eq!(align_of::<AVColorSpace>(), align_of::<ffi::AVColorSpace>());
+        assert_eq!(AVColorSpace::YCOCG, AVColorSpace::YCGCO);
+
+        let future = ffi::AVColorSpace::MAX;
+        assert_eq!(AVColorSpace::from_raw(future).as_raw(), future);
+    }
+
+    #[test]
+    fn transfer_characteristic_is_layout_compatible_and_open() {
+        assert_eq!(
+            size_of::<AVColorTransferCharacteristic>(),
+            size_of::<ffi::AVColorTransferCharacteristic>()
+        );
+        assert_eq!(
+            align_of::<AVColorTransferCharacteristic>(),
+            align_of::<ffi::AVColorTransferCharacteristic>()
+        );
+        assert_eq!(
+            AVColorTransferCharacteristic::SMPTEST2084,
+            AVColorTransferCharacteristic::SMPTE2084
+        );
+        assert_eq!(
+            AVColorTransferCharacteristic::SMPTEST428_1,
+            AVColorTransferCharacteristic::SMPTE428
+        );
+        assert_eq!(
+            AVColorTransferCharacteristic::V_LOG,
+            AVColorTransferCharacteristic::EXT_BASE
+        );
+
+        let future = ffi::AVColorTransferCharacteristic::MAX;
+        assert_eq!(
+            AVColorTransferCharacteristic::from_raw(future).as_raw(),
+            future
+        );
     }
 }
 
