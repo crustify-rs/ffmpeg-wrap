@@ -463,9 +463,40 @@ impl From<AVOptionType> for ffi::AVOptionType {
 ffibox::define_ctype!(
     /// Wraps: AVOption
     ///
-    /// ABI-compatible view of one entry in an AVClass option table. Option
-    /// entries and the metadata they point at are immutable and have no
-    /// lifecycle operation; the final entry in a table has a null name.
+    /// ABI-compatible view of one entry in an AVClass option table: the name of
+    /// a settable field, the C type it holds, its byte offset in the object,
+    /// and its default value. Entries and the metadata they point at are
+    /// immutable and have no lifecycle operation — nothing in the tree
+    /// allocates, frees, clones or writes one, and every option table is a
+    /// `static const` array built from string literals. The final entry has a
+    /// null name, which is where `av_opt_next` stops iterating.
+    ///
+    /// # Invariant
+    ///
+    /// The unsafe `from_ptr` constructors promise only that the `AVOption`
+    /// itself is live, initialized and outlives `'a`. They say nothing about
+    /// the three string pointers or the untagged union inside it, so a handle
+    /// asserts the rest, and every safe getter below relies on it:
+    ///
+    /// - `name`, `help` and `unit` are each null or address a NUL-terminated
+    ///   string that outlives the borrow;
+    /// - `default_val` is initialized across its whole width, and `type` names
+    ///   its active member — the array flag selects `arr`, and otherwise the
+    ///   base type selects `i64`, `dbl` or `str` exactly as
+    ///   `av_opt_set_defaults2` and `read_number` read it in `opt.c`;
+    /// - a `str` default is null or a NUL-terminated string outliving the
+    ///   borrow, and an `arr` default is null or a live [`AVOptionArrayDef`]
+    ///   that also satisfies *that* type's invariant, both outliving it.
+    ///
+    /// The obligation is closed because only two kinds of producer exist.
+    /// `from_ptr` puts it on its caller. [`av_opt_find2`] and
+    /// [`av_opt_find2_fake`] discharge it from libavutil's side: they return an
+    /// entry of a table reached through the searched object's `AVClass`, which
+    /// is static metadata. No safe operation can break it either —
+    /// [`AVOptionMut`] deliberately exposes no setter, and
+    /// [`AVOption::zeroed`] leaves every pointer null and `type` zero, which
+    /// [`default_value`](AVOptionRef::default_value) reports as
+    /// [`Unknown`](AVOptionDefault::Unknown) without reading the union at all.
     AVOption,
     AVOptionRef,
     AVOptionMut,
@@ -519,6 +550,11 @@ impl<'a> AVOptionRef<'a> {
     }
 
     /// Wraps: AVOption.flags
+    ///
+    /// Returns the raw `AV_OPT_FLAG_*` word. It stays an integer because the
+    /// C constants are macros rather than an enum and libavutil keeps adding
+    /// to them; `av_opt_find2`'s `option_flags` argument takes the same word
+    /// and matches an entry only when every requested bit is present.
     #[must_use]
     pub fn flags(&self) -> i32 {
         // SAFETY: the handle guarantees a live initialized option; raw-place
@@ -537,8 +573,9 @@ impl<'a> AVOptionRef<'a> {
         if pointer.is_null() {
             None
         } else {
-            // SAFETY: a non-null option name is immutable, NUL-terminated
-            // metadata that lives for the option-table lifetime.
+            // SAFETY: `AVOption`'s handle invariant makes a non-null `name`
+            // a NUL-terminated string that outlives this borrow; the result
+            // is narrowed to `'a`, which the entry itself already outlives.
             Some(unsafe { CStr::from_ptr(pointer) })
         }
     }
@@ -568,8 +605,9 @@ impl<'a> AVOptionRef<'a> {
         if pointer.is_null() {
             None
         } else {
-            // SAFETY: a non-null unit is immutable, NUL-terminated metadata
-            // that lives for the option-table lifetime.
+            // SAFETY: `AVOption`'s handle invariant makes a non-null `unit`
+            // a NUL-terminated string that outlives this borrow; the result
+            // is narrowed to `'a`, which the entry itself already outlives.
             Some(unsafe { CStr::from_ptr(pointer) })
         }
     }
@@ -583,8 +621,9 @@ impl<'a> AVOptionRef<'a> {
         if pointer.is_null() {
             None
         } else {
-            // SAFETY: non-null help is immutable, NUL-terminated metadata that
-            // lives for the option-table lifetime.
+            // SAFETY: `AVOption`'s handle invariant makes a non-null `help`
+            // a NUL-terminated string that outlives this borrow; the result
+            // is narrowed to `'a`, which the entry itself already outlives.
             Some(unsafe { CStr::from_ptr(pointer) })
         }
     }
@@ -597,14 +636,14 @@ impl<'a> AVOptionRef<'a> {
     pub fn default_value(&self) -> AVOptionDefault<'a> {
         let option_type = self.option_type();
         if option_type.is_array() {
-            // SAFETY: the array flag makes `arr` the active union member, and
-            // the handle guarantees initialized metadata.
+            // SAFETY: `AVOption`'s handle invariant makes `arr` the active
+            // union member whenever the array flag is set, and the whole union
+            // initialized, so this reads an initialized pointer.
             let pointer = unsafe { addr_of!((*self.as_ptr()).default_val.arr).read() };
-            // SAFETY: a non-null array definition is immutable metadata that
-            // remains live with the containing option table, so it outlives
-            // `'a`. It also satisfies `AVOptionArrayDef`'s handle invariant:
-            // C initializes `def` from a string literal or leaves it null, and
-            // this shared handle cannot write the field.
+            // SAFETY: the same invariant makes a non-null `arr` a live
+            // `AVOptionArrayDef` outliving this borrow that itself satisfies
+            // `AVOptionArrayDef`'s handle invariant, which is exactly what
+            // `from_ptr` requires and what `AVOptionArrayDefRef::def` needs.
             let definition = unsafe { AVOptionArrayDefRef::from_ptr(pointer.cast_mut()) };
             return AVOptionDefault::Array(definition);
         }
@@ -623,8 +662,10 @@ impl<'a> AVOptionRef<'a> {
                 | AVOptionType::BOOL
                 | AVOptionType::UINT
         ) {
-            // SAFETY: these option types select the initialized `i64_` union
-            // member according to libavutil's AVOption contract.
+            // SAFETY: `AVOption`'s handle invariant makes `type` name the
+            // active union member, and this is the base-type set for which
+            // `opt.c` reads `default_val.i64`. Every bit pattern is a valid
+            // `i64`, so no further obligation attaches to the value.
             return AVOptionDefault::Integer(unsafe {
                 addr_of!((*self.as_ptr()).default_val.i64_).read()
             });
@@ -633,8 +674,11 @@ impl<'a> AVOptionRef<'a> {
             base,
             AVOptionType::DOUBLE | AVOptionType::FLOAT | AVOptionType::RATIONAL
         ) {
-            // SAFETY: these option types select the initialized `dbl` union
-            // member; rational defaults are represented as doubles in C.
+            // SAFETY: `AVOption`'s handle invariant makes `type` name the
+            // active union member, and this is the base-type set for which
+            // `opt.c` reads `default_val.dbl` — including RATIONAL, whose
+            // default C converts with `av_d2q`. Every bit pattern is a valid
+            // `f64`.
             return AVOptionDefault::Double(unsafe {
                 addr_of!((*self.as_ptr()).default_val.dbl).read()
             });
@@ -649,13 +693,17 @@ impl<'a> AVOptionRef<'a> {
                 | AVOptionType::COLOR
                 | AVOptionType::CHLAYOUT
         ) {
-            // SAFETY: these types select the initialized `str_` union member.
+            // SAFETY: `AVOption`'s handle invariant makes `type` name the
+            // active union member, and this is the base-type set for which
+            // `opt.c` reads `default_val.str`, so this reads an initialized
+            // pointer rather than reinterpreting another member's bytes.
             let pointer = unsafe { addr_of!((*self.as_ptr()).default_val.str_).read() };
             let value = if pointer.is_null() {
                 None
             } else {
-                // SAFETY: a non-null serialized default is immutable,
-                // NUL-terminated metadata live for the option-table lifetime.
+                // SAFETY: the same invariant makes a non-null `str` default
+                // a NUL-terminated string that outlives this borrow, narrowed
+                // here to `'a`.
                 Some(unsafe { CStr::from_ptr(pointer) })
             };
             return AVOptionDefault::String(value);
@@ -665,15 +713,26 @@ impl<'a> AVOptionRef<'a> {
 
     /// Wraps: AVOption.default_val.q
     ///
-    /// Returns the legacy rational union view. Libavutil does not currently
-    /// select this member for any option type (rational defaults use `dbl`),
-    /// but the public C layout retains it. Every bit pattern is valid for the
-    /// two integer fields, so viewing the initialized union storage is safe.
+    /// Returns the legacy rational view of the default-value union. Nothing in
+    /// the tree writes or reads this member — opt.h marks it unused and a
+    /// rational default is stored in `dbl` — but the public C layout retains
+    /// it, so a caller reading a foreign option table can still look. Unlike
+    /// [`default_value`](Self::default_value) this ignores `type`: it is a
+    /// reinterpretation of whichever member is active, not a decode.
+    ///
+    /// It is nonetheless safe, on two counts. Every bit pattern is a valid
+    /// `AVRational`, since both fields are plain `int`s, so no value read back
+    /// can be invalid — only meaningless. And `AVOption`'s invariant makes the
+    /// union initialized across its whole width, which matters because reading
+    /// padding would be undefined rather than merely useless; on this ABI no
+    /// member is narrower than the union, which
+    /// `every_default_union_member_covers_the_whole_union` pins.
     #[must_use]
     pub fn legacy_rational_default(&self) -> AVRationalRef<'a> {
-        // SAFETY: `q` starts at the initialized union storage and consists of
-        // two integers, for which every bit pattern is valid. The returned
-        // shared handle remains bounded by the AVOption handle lifetime.
+        // SAFETY: `q` addresses the union storage, which `AVOption`'s handle
+        // invariant makes initialized across its whole width, and every bit
+        // pattern of two `int`s is a valid `AVRational`. The returned shared
+        // handle is bounded by `'a`, which the entry outlives.
         unsafe { AVRationalRef::from_ptr(addr_of!((*self.as_ptr()).default_val.q).cast_mut()) }
             .expect("an AVOption union field is never null")
     }
@@ -854,8 +913,23 @@ mod tests {
 
     #[test]
     fn option_metadata_and_tagged_defaults_are_accessible() {
+        // `AVOption` is `#[repr(transparent)]` over the bindgen struct, so
+        // comparing the two sizes cannot fail. Assert the C ABI opt.h
+        // describes: two pointers, an `int` and the enum packed into one
+        // eight-byte slot, the eight-byte default union, two doubles, and a
+        // trailing `int` padded out before the last pointer.
+        assert_eq!(size_of::<ffi::AVOption>(), 64);
+        assert_eq!(align_of::<ffi::AVOption>(), 8);
+        assert_eq!(offset_of!(ffi::AVOption, name), 0);
+        assert_eq!(offset_of!(ffi::AVOption, help), 8);
+        assert_eq!(offset_of!(ffi::AVOption, offset), 16);
+        assert_eq!(offset_of!(ffi::AVOption, type_), 20);
+        assert_eq!(offset_of!(ffi::AVOption, default_val), 24);
+        assert_eq!(offset_of!(ffi::AVOption, min), 32);
+        assert_eq!(offset_of!(ffi::AVOption, max), 40);
+        assert_eq!(offset_of!(ffi::AVOption, flags), 48);
+        assert_eq!(offset_of!(ffi::AVOption, unit), 56);
         assert_eq!(size_of::<AVOption>(), size_of::<ffi::AVOption>());
-        assert_eq!(align_of::<AVOption>(), align_of::<ffi::AVOption>());
 
         let mut raw = ffi::AVOption {
             name: c"threads".as_ptr(),
@@ -885,6 +959,52 @@ mod tests {
             shared.default_value(),
             AVOptionDefault::Integer(4)
         ));
+    }
+
+    #[test]
+    fn every_default_union_member_covers_the_whole_union() {
+        // What `legacy_rational_default` needs beyond validity: `AVOption`'s
+        // invariant says the union is initialized, and reading it back as two
+        // `int`s is only defined because no member is narrower than the union
+        // itself. A narrower one would leave trailing bytes untouched by a C
+        // initializer, and reading those would be undefined rather than merely
+        // meaningless. Pin the ABI that makes the difference.
+        assert_eq!(size_of::<ffi::AVOption__bindgen_ty_1>(), 8);
+        assert_eq!(align_of::<ffi::AVOption__bindgen_ty_1>(), 8);
+        assert_eq!(size_of::<i64>(), 8);
+        assert_eq!(size_of::<f64>(), 8);
+        assert_eq!(size_of::<*const c_char>(), 8);
+        assert_eq!(size_of::<*const ffi::AVOptionArrayDef>(), 8);
+        assert_eq!(size_of::<ffi::AVRational>(), 8);
+    }
+
+    #[test]
+    fn a_zeroed_option_reads_no_pointer_field() {
+        // The other half of the invariant's closure argument: `zeroed` is the
+        // one safe constructor, so it must not be able to produce a handle
+        // whose getters dereference anything. Every string is null and the
+        // zero type is not a base type, so the union is never decoded.
+        let mut option = AVOption::zeroed();
+        // SAFETY: `AVOption` is `#[repr(transparent)]` over the C struct, the
+        // local is live and initialized by `zeroed`, and this test holds no
+        // other handle to it.
+        let handle =
+            unsafe { AVOptionMut::from_ptr(addr_of_mut!(option).cast::<ffi::AVOption>()) }.unwrap();
+
+        let shared = handle.as_ref();
+        assert_eq!(shared.name(), None);
+        assert_eq!(shared.help(), None);
+        assert_eq!(shared.unit(), None);
+        assert_eq!(shared.offset(), 0);
+        assert_eq!(shared.flags(), 0);
+        assert!(!shared.option_type().is_array());
+        assert!(matches!(
+            shared.default_value(),
+            AVOptionDefault::Unknown(kind) if kind == AVOptionType::from_raw(0)
+        ));
+        // The union view is still readable, and reads back the zeros.
+        let legacy = shared.legacy_rational_default();
+        assert_eq!((legacy.num(), legacy.den()), (0, 0));
     }
 
     #[test]
@@ -1193,7 +1313,204 @@ pub fn av_opt_find2_fake<'a>(
 
 #[cfg(test)]
 mod scheduled_find_tests {
+    use core::mem::offset_of;
+
     use super::*;
+
+    /// An object whose first field is a class pointer — the only shape
+    /// `av_opt_find2` accepts — with one `int` per non-constant option.
+    #[repr(C)]
+    struct SearchObject {
+        class: *const ffi::AVClass,
+        first: i32,
+        second: i32,
+        flavour: i32,
+    }
+
+    /// opt.h numbers the enumerators densely from 1, so `AV_OPT_TYPE_INT` is 2
+    /// and `AV_OPT_TYPE_CONST` is 11. The table below writes the literals
+    /// rather than the bindings on purpose: `av_opt_find2` matches a named
+    /// constant only when C agrees the entry's type *is* CONST, so the search
+    /// result is evidence about the numbering, which comparing an
+    /// `AVOptionType` constant against the binding that defines it is not.
+    const TYPE_INT: ffi::AVOptionType = 2;
+    const TYPE_CONST: ffi::AVOptionType = 11;
+
+    fn options() -> [ffi::AVOption; 5] {
+        let plain = |name: &'static CStr, offset: usize, flags: i32| ffi::AVOption {
+            name: name.as_ptr(),
+            help: core::ptr::null(),
+            offset: i32::try_from(offset).expect("field offsets are small"),
+            type_: TYPE_INT,
+            default_val: ffi::AVOption__bindgen_ty_1 { i64_: 0 },
+            min: 0.0,
+            max: 255.0,
+            flags,
+            unit: core::ptr::null(),
+        };
+        [
+            plain(c"first", offset_of!(SearchObject, first), 0),
+            plain(c"second", offset_of!(SearchObject, second), 1 | 4),
+            ffi::AVOption {
+                unit: c"flavour".as_ptr(),
+                ..plain(c"flavour", offset_of!(SearchObject, flavour), 0)
+            },
+            // A named constant: offset 0, its value in the `i64` union member,
+            // and the unit that ties it to the option above.
+            ffi::AVOption {
+                name: c"spicy".as_ptr(),
+                help: c"the hot one".as_ptr(),
+                offset: 0,
+                type_: TYPE_CONST,
+                default_val: ffi::AVOption__bindgen_ty_1 { i64_: 7 },
+                min: -1.0,
+                max: 64.0,
+                flags: 2,
+                unit: c"flavour".as_ptr(),
+            },
+            // `av_opt_next` stops at the first entry with a NULL name.
+            ffi::AVOption {
+                name: core::ptr::null(),
+                ..plain(c"", 0, 0)
+            },
+        ]
+    }
+
+    fn class(options: &[ffi::AVOption; 5]) -> ffi::AVClass {
+        ffi::AVClass {
+            class_name: c"crustify-find-test".as_ptr(),
+            item_name: None,
+            option: options.as_ptr(),
+            version: 0,
+            log_level_offset_offset: 0,
+            parent_log_context_offset: 0,
+            category: 0,
+            get_category: None,
+            query_ranges: None,
+            child_next: None,
+            child_class_iterate: None,
+            state_flags_offset: 0,
+        }
+    }
+
+    #[test]
+    fn a_found_entry_reads_back_what_c_matched() {
+        // The round trip the wrapper's field getters need and a Rust-only test
+        // cannot give: C walks the table with its own `sizeof(AVOption)` and
+        // its own `name`/`type`/`unit`/`flags` offsets, and every field read
+        // back here comes out of the entry C stopped at. A stride or offset
+        // Rust disagreed with would surface as the wrong entry or none at all.
+        let options = options();
+        let class = class(&options);
+        let mut object = SearchObject {
+            class: core::ptr::from_ref(&class),
+            first: 0,
+            second: 0,
+            flavour: 0,
+        };
+        let address = NonNull::from(&mut object).cast::<c_void>();
+        // SAFETY: `object` is live, initialized, and exclusively borrowed for
+        // the rest of this test through this handle alone.
+        let mut handle = unsafe { OptionObjectMut::from_raw(address) };
+
+        let mut found = av_opt_find2(&mut handle, c"spicy", Some(c"flavour"), 0, 0)
+            .expect("a normal search")
+            .expect("the named constant is in the table");
+        let option = found.option();
+        assert_eq!(option.name(), Some(c"spicy"));
+        assert_eq!(option.help(), Some(c"the hot one"));
+        assert_eq!(option.unit(), Some(c"flavour"));
+        assert_eq!(option.offset(), 0);
+        assert_eq!(option.option_type(), AVOptionType::CONST);
+        assert!(!option.option_type().is_array());
+        assert_eq!(option.min(), -1.0);
+        assert_eq!(option.max(), 64.0);
+        assert_eq!(option.flags(), 2);
+        assert!(matches!(
+            option.default_value(),
+            AVOptionDefault::Integer(7)
+        ));
+        // The match also hands back the object the option applies to, which
+        // for a normal search is the object that was searched.
+        assert_eq!(found.target_mut().as_mut_ptr(), address.as_ptr());
+    }
+
+    #[test]
+    fn the_unit_argument_selects_constants_by_type() {
+        // Both directions of the C rule, and what makes `AVOptionType::CONST`
+        // pinned by behaviour: without a unit `av_opt_find2` skips CONST
+        // entries, and with one it accepts nothing else.
+        let options = options();
+        let class = class(&options);
+        let mut object = SearchObject {
+            class: core::ptr::from_ref(&class),
+            first: 0,
+            second: 0,
+            flavour: 0,
+        };
+        // SAFETY: `object` is live and exclusively borrowed through this
+        // handle for the remainder of the test.
+        let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+
+        assert!(
+            av_opt_find2(&mut handle, c"spicy", None, 0, 0)
+                .expect("a normal search")
+                .is_none(),
+            "a named constant is not reachable without its unit"
+        );
+        assert!(
+            av_opt_find2(&mut handle, c"flavour", Some(c"flavour"), 0, 0)
+                .expect("a normal search")
+                .is_none(),
+            "a unit search matches only CONST entries"
+        );
+        assert!(
+            av_opt_find2(&mut handle, c"flavour", None, 0, 0)
+                .expect("a normal search")
+                .is_some()
+        );
+
+        // `option_flags` is matched against the entry's own flag word, so it
+        // reads the field `AVOptionRef::flags` reports.
+        {
+            let matched = av_opt_find2(&mut handle, c"second", None, 4, 0)
+                .expect("a normal search")
+                .expect("the entry carries the requested flag");
+            assert_eq!(matched.option().flags(), 1 | 4);
+        }
+        assert!(
+            av_opt_find2(&mut handle, c"second", None, 8, 0)
+                .expect("a normal search")
+                .is_none(),
+            "a flag the entry lacks excludes it"
+        );
+    }
+
+    #[test]
+    fn found_metadata_outlives_the_match_handle() {
+        // `AVOptionRef<'a>`'s getters hand back `&'a CStr`, tied to the
+        // searched object rather than to the local handle. This would not
+        // compile if they were elided to `&self`.
+        let options = options();
+        let class = class(&options);
+        let mut object = SearchObject {
+            class: core::ptr::from_ref(&class),
+            first: 0,
+            second: 0,
+            flavour: 0,
+        };
+        // SAFETY: `object` is live and exclusively borrowed through the handle
+        // for the rest of the test.
+        let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+
+        let help = {
+            let found = av_opt_find2(&mut handle, c"spicy", Some(c"flavour"), 0, 0)
+                .expect("a normal search")
+                .expect("the named constant is in the table");
+            found.option().help()
+        };
+        assert_eq!(help, Some(c"the hot one"));
+    }
 
     #[test]
     fn fake_object_flag_is_rejected_before_ffi() {
