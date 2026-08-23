@@ -14,42 +14,59 @@ define_ctype!(
     /// exists for embedding and FFI-compatible storage; access goes through
     /// [`AVDictionaryEntryRef`] and [`AVDictionaryEntryMut`] handles, never through
     /// a Rust reference to the C object.
+    ///
+    /// # Handle invariant
+    ///
+    /// Both borrowed handles carry more than `from_ptr`'s generic "live and
+    /// initialised" contract: the entry must be one an `AVDictionary` holds, so
+    /// that `key` and `value` each address an av_malloc-family NUL-terminated
+    /// string. `av_dict_set` inserts an entry only once it has both, and
+    /// `av_dict_free` clears both when it drops one, so every entry published by
+    /// `av_dict_get` or `av_dict_iterate` satisfies this. A zeroed or otherwise
+    /// hand-built [`AVDictionaryEntry`] does not, and its handles' safe getters
+    /// would then read through a null pointer.
+    ///
+    /// No setters exist: the public dictionary API declares a published entry's
+    /// key and value read-only, and the dictionary is the only writer.
     AVDictionaryEntry,
     AVDictionaryEntryRef,
     AVDictionaryEntryMut,
     ffi::AVDictionaryEntry
 );
 
-impl AVDictionaryEntryRef<'_> {
+impl<'a> AVDictionaryEntryRef<'a> {
     /// Wraps: AVDictionaryEntry.value
     ///
-    /// The returned string is borrowed from the entry. Although libavutil may
-    /// replace or append to this allocation while mutating its dictionary, the
-    /// public dictionary API forbids mutation while a borrowed entry is in use.
+    /// The returned string is borrowed from the dictionary that owns the entry,
+    /// not from this handle. Although libavutil may replace or append to the
+    /// allocation while mutating its dictionary, the public dictionary API
+    /// forbids mutation while a borrowed entry is in use.
     #[must_use]
-    pub fn value(&self) -> &CStr {
-        // SAFETY: a live dictionary entry always owns a non-null,
-        // NUL-terminated value. The result is tied to the borrow of this
-        // handle, so it cannot outlive the entry borrow that made the handle.
-        unsafe {
-            let value = addr_of!((*self.as_ptr()).value).read();
-            CStr::from_ptr(value.cast_const())
-        }
+    pub fn value(&self) -> &'a CStr {
+        // SAFETY: the handle addresses a live initialised entry; raw-place
+        // projection copies the pointer field without forming a reference to
+        // the C object.
+        let value = unsafe { addr_of!((*self.as_ptr()).value).read() };
+        // SAFETY: by the handle invariant this entry belongs to a dictionary,
+        // so `value` is a non-null NUL-terminated string that dictionary keeps
+        // live for `'a` — the lifetime for which the entry itself is borrowed.
+        unsafe { CStr::from_ptr(value.cast_const()) }
     }
 
     /// Wraps: AVDictionaryEntry.key
     ///
-    /// The returned string is borrowed from the entry and is read-only, as
-    /// required by the public dictionary API.
+    /// The returned string is borrowed from the dictionary that owns the entry
+    /// and is read-only, as required by the public dictionary API.
     #[must_use]
-    pub fn key(&self) -> &CStr {
-        // SAFETY: a live dictionary entry always owns a non-null,
-        // NUL-terminated key. The result is tied to the borrow of this handle,
-        // so it cannot outlive the entry borrow that made the handle.
-        unsafe {
-            let key = addr_of!((*self.as_ptr()).key).read();
-            CStr::from_ptr(key.cast_const())
-        }
+    pub fn key(&self) -> &'a CStr {
+        // SAFETY: the handle addresses a live initialised entry; raw-place
+        // projection copies the pointer field without forming a reference to
+        // the C object.
+        let key = unsafe { addr_of!((*self.as_ptr()).key).read() };
+        // SAFETY: by the handle invariant this entry belongs to a dictionary,
+        // so `key` is a non-null NUL-terminated string that dictionary keeps
+        // live for `'a` — the lifetime for which the entry itself is borrowed.
+        unsafe { CStr::from_ptr(key.cast_const()) }
     }
 }
 
@@ -181,14 +198,18 @@ pub struct DictionaryEntry<'a> {
     dictionary: *const ffi::AVDictionary,
 }
 
-impl DictionaryEntry<'_> {
+impl<'a> DictionaryEntry<'a> {
+    /// The entry key, borrowed from the dictionary rather than from this
+    /// cursor, which is only a `Copy` handle to it.
     #[must_use]
-    pub fn key(&self) -> &CStr {
+    pub fn key(&self) -> &'a CStr {
         self.entry.key()
     }
 
+    /// The entry value, borrowed from the dictionary for as long as the shared
+    /// borrow that produced this cursor.
     #[must_use]
-    pub fn value(&self) -> &CStr {
+    pub fn value(&self) -> &'a CStr {
         self.entry.value()
     }
 }
@@ -407,5 +428,39 @@ mod scheduled_symbol_tests {
 
         av_dict_parse_string(&mut copied, Some(c"answer=42"), c"=", c",", 0).unwrap();
         assert!(av_dict_get(&copied, c"answer", None, 0).unwrap().is_some());
+    }
+
+    #[test]
+    fn entry_strings_outlive_the_cursor_that_produced_them() {
+        let mut dictionary = Dictionary::default();
+        av_dict_set(&mut dictionary, c"artist", Some(c"Crustify"), 0).unwrap();
+
+        // The strings belong to the dictionary, so they stay borrowable after
+        // the `Copy` cursor and its entry handle are gone.
+        let (key, value) = {
+            let entry = av_dict_get(&dictionary, c"artist", None, 0)
+                .unwrap()
+                .unwrap();
+            (entry.key(), entry.value())
+        };
+
+        assert_eq!(key, c"artist");
+        assert_eq!(value, c"Crustify");
+        assert_eq!(av_dict_count(&dictionary), 1);
+    }
+
+    #[test]
+    fn an_entry_from_another_dictionary_is_rejected_as_a_cursor() {
+        let mut first = Dictionary::default();
+        av_dict_set(&mut first, c"k", Some(c"v"), 0).unwrap();
+        let mut second = Dictionary::default();
+        av_dict_set(&mut second, c"k", Some(c"v"), 0).unwrap();
+
+        // C would subtract unrelated pointers to resume iteration, so the
+        // cursor's dictionary identity is checked before the call.
+        let foreign = av_dict_get(&first, c"k", None, 0).unwrap().unwrap();
+        assert!(av_dict_iterate(&second, Some(foreign)).is_err());
+        assert!(av_dict_get(&second, c"k", Some(foreign), 0).is_err());
+        assert!(av_dict_iterate(&first, Some(foreign)).is_ok());
     }
 }
