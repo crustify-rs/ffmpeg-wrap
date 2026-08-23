@@ -335,9 +335,7 @@ unsafe impl ffibox::CCloned for AVFrame {
 impl AVFrame {
     /// Allocates a frame initialized to libavutil's documented defaults.
     pub fn new() -> Option<ffibox::CBox<Self>> {
-        // SAFETY: a non-null result is a fully initialized unique allocation
-        // matched by AVFrame's destructor implementation.
-        unsafe { ffibox::CBox::from_raw(ffi::av_frame_alloc()) }
+        av_frame_alloc()
     }
 }
 
@@ -895,11 +893,9 @@ mod frame_type_tests {
         frame
             .as_mut()
             .set_format(crate::pixfmt::AVPixelFormat::RGBA.as_raw());
-        // SAFETY: the frame is newly allocated and has valid video dimensions
-        // and format; no buffers are already attached, and the owner adopts
-        // every allocation installed by the successful call.
-        let allocated = unsafe { ffi::av_frame_get_buffer(frame.as_mut().as_mut_ptr(), 32) };
-        assert_eq!(allocated, 0);
+        // The frame is newly allocated and has valid video dimensions and
+        // format, so it can adopt the buffers installed by the call.
+        av_frame_get_buffer(&mut frame.as_mut(), 32).expect("frame buffer allocation");
         let opaque_owner = frame
             .as_ref()
             .owned_buffer(0)
@@ -945,5 +941,197 @@ mod frame_type_tests {
             size_of::<*const ffi::AVFrame>()
         );
         assert_eq!(size_of::<AVFrameMut<'_>>(), size_of::<*mut ffi::AVFrame>());
+    }
+}
+
+/// Wraps: av_frame_alloc
+///
+/// Allocates a frame initialized to libavutil's defaults and adopts its unique
+/// header allocation.
+#[must_use]
+pub fn av_frame_alloc() -> Option<ffibox::CBox<AVFrame>> {
+    // SAFETY: a non-null result is a fully initialized unique allocation
+    // matched by AVFrame's destructor implementation.
+    unsafe { ffibox::CBox::from_raw(ffi::av_frame_alloc()) }
+}
+
+/// Wraps: av_frame_clone
+///
+/// Creates an independently releasable frame header that shares or copies the
+/// source frame's data according to libavutil's frame-reference rules.
+#[must_use]
+pub fn av_frame_clone(source: AVFrameRef<'_>) -> Option<ffibox::CBox<AVFrame>> {
+    // SAFETY: `source` is a live shared frame borrow and is retained only by
+    // creating independently owned references in the returned frame.
+    unsafe { ffibox::CBox::from_raw(ffi::av_frame_clone(source.as_ptr())) }
+}
+
+fn frame_status(status: i32) -> Result<(), i32> {
+    if status < 0 { Err(status) } else { Ok(()) }
+}
+
+/// Wraps: av_frame_copy
+///
+/// Copies frame data into buffers already allocated on `destination`.
+pub fn av_frame_copy(destination: &mut AVFrameMut<'_>, source: AVFrameRef<'_>) -> Result<(), i32> {
+    // SAFETY: the exclusive destination and shared source handles are live for
+    // the call. C retains neither header and reports incompatible layouts.
+    frame_status(unsafe { ffi::av_frame_copy(destination.as_mut_ptr(), source.as_ptr()) })
+}
+
+/// Wraps: av_frame_copy_props
+///
+/// Copies non-layout properties and installs independently owned metadata in
+/// `destination`.
+pub fn av_frame_copy_props(
+    destination: &mut AVFrameMut<'_>,
+    source: AVFrameRef<'_>,
+) -> Result<(), i32> {
+    // SAFETY: the destination is exclusively borrowed, the source is shared,
+    // and every installed pointer receives its own ownership count or copy.
+    frame_status(unsafe { ffi::av_frame_copy_props(destination.as_mut_ptr(), source.as_ptr()) })
+}
+
+/// Wraps: av_frame_free
+///
+/// Releases a nullable owned frame. Consuming the Rust owner prevents any
+/// handle from surviving the release.
+pub fn av_frame_free(frame: Option<ffibox::CBox<AVFrame>>) {
+    drop(frame);
+}
+
+/// Wraps: av_frame_get_buffer
+///
+/// Allocates audio or video buffers from the properties already configured on
+/// `frame`. An alignment of zero asks libavutil to choose its preferred value.
+pub fn av_frame_get_buffer(frame: &mut AVFrameMut<'_>, alignment: i32) -> Result<(), i32> {
+    // SAFETY: the exclusive handle supplies a live initialized frame. Any
+    // allocations installed on success become owned by the frame lifecycle.
+    frame_status(unsafe { ffi::av_frame_get_buffer(frame.as_mut_ptr(), alignment) })
+}
+
+/// Wraps: av_frame_get_side_data
+///
+/// Borrows the first side-data entry of `kind` from the owning frame.
+#[must_use]
+pub fn av_frame_get_side_data<'a>(
+    frame: AVFrameRef<'a>,
+    kind: AVFrameSideDataType,
+) -> Option<AVFrameSideDataRef<'a>> {
+    // SAFETY: the frame is live and shared for 'a; C returns null or an
+    // interior entry owned by that frame and does not mutate it.
+    let side_data = unsafe { ffi::av_frame_get_side_data(frame.as_ptr(), kind.as_raw()) };
+    // SAFETY: a non-null entry remains live for the frame borrow.
+    unsafe { AVFrameSideDataRef::from_ptr(side_data) }
+}
+
+/// Wraps: av_frame_is_writable
+///
+/// Reports whether every data buffer currently has a unique writable owner.
+#[must_use]
+pub fn av_frame_is_writable(frame: AVFrameRef<'_>) -> bool {
+    // SAFETY: despite its legacy non-const signature, the implementation only
+    // reads the live frame and its buffer reference counts and retains nothing.
+    unsafe { ffi::av_frame_is_writable(frame.as_ptr().cast_mut()) != 0 }
+}
+
+/// Wraps: av_frame_make_writable
+///
+/// Replaces shared or non-reference-counted data with uniquely writable
+/// buffers while preserving the frame's initialized state.
+pub fn av_frame_make_writable(frame: &mut AVFrameMut<'_>) -> Result<(), i32> {
+    // SAFETY: the exclusive frame handle permits C to replace its owned buffer
+    // fields. Both success and failure leave the frame initialized.
+    frame_status(unsafe { ffi::av_frame_make_writable(frame.as_mut_ptr()) })
+}
+
+/// Wraps: av_frame_new_side_data
+///
+/// Adds an owned, zero-initialized side-data buffer and exclusively borrows its
+/// header for the duration of the frame reborrow.
+#[must_use]
+pub fn av_frame_new_side_data<'a>(
+    frame: &'a mut AVFrameMut<'_>,
+    kind: AVFrameSideDataType,
+    size: usize,
+) -> Option<AVFrameSideDataMut<'a>> {
+    // SAFETY: the frame is exclusively borrowed. A non-null returned entry is
+    // installed in and kept alive by the frame, which owns its new buffer.
+    let side_data = unsafe { ffi::av_frame_new_side_data(frame.as_mut_ptr(), kind.as_raw(), size) };
+    // SAFETY: the exclusive frame reborrow prevents competing access to the
+    // newly installed non-null entry for the returned lifetime.
+    unsafe { AVFrameSideDataMut::from_ptr(side_data) }
+}
+
+/// Wraps: av_frame_remove_side_data
+///
+/// Removes and releases every side-data entry of `kind`.
+pub fn av_frame_remove_side_data(frame: &mut AVFrameMut<'_>, kind: AVFrameSideDataType) {
+    // SAFETY: the exclusive frame handle permits mutation of its side-data
+    // collection; the call retains no pointer.
+    unsafe { ffi::av_frame_remove_side_data(frame.as_mut_ptr(), kind.as_raw()) }
+}
+
+/// Wraps: av_frame_unref
+///
+/// Releases every owner held by the frame and restores its documented default
+/// values while retaining the reusable header allocation.
+pub fn av_frame_unref(frame: &mut AVFrameMut<'_>) {
+    // SAFETY: the exclusive handle identifies a live initialized frame. C
+    // disposes its fields and immediately restores a valid initialized state.
+    unsafe { ffi::av_frame_unref(frame.as_mut_ptr()) }
+}
+
+#[cfg(test)]
+mod scheduled_frame_function_tests {
+    use super::*;
+
+    fn configured_video_frame() -> ffibox::CBox<AVFrame> {
+        let mut frame = av_frame_alloc().expect("frame allocation");
+        frame.as_mut().set_width(8);
+        frame.as_mut().set_height(8);
+        frame
+            .as_mut()
+            .set_format(crate::pixfmt::AVPixelFormat::RGBA.as_raw());
+        av_frame_get_buffer(&mut frame.as_mut(), 0).expect("frame buffer allocation");
+        frame
+    }
+
+    #[test]
+    fn allocation_clone_copy_writability_and_release_are_typed() {
+        let source = configured_video_frame();
+        let mut destination = configured_video_frame();
+        av_frame_copy(&mut destination.as_mut(), source.as_ref()).expect("copy data");
+
+        destination.as_mut().set_pts(7);
+        av_frame_copy_props(&mut destination.as_mut(), source.as_ref()).expect("copy properties");
+        assert_eq!(destination.as_ref().pts(), source.as_ref().pts());
+
+        let mut clone = av_frame_clone(source.as_ref()).expect("frame clone");
+        assert!(!av_frame_is_writable(source.as_ref()));
+        av_frame_make_writable(&mut clone.as_mut()).expect("copy-on-write");
+        assert!(av_frame_is_writable(clone.as_ref()));
+        av_frame_unref(&mut clone.as_mut());
+        assert_eq!(clone.as_ref().format(), -1);
+        av_frame_free(Some(clone));
+    }
+
+    #[test]
+    fn side_data_borrow_tracks_the_frame_collection() {
+        let mut frame = av_frame_alloc().expect("frame allocation");
+        {
+            let mut frame_mut = frame.as_mut();
+            let side_data =
+                av_frame_new_side_data(&mut frame_mut, AVFrameSideDataType::SEI_UNREGISTERED, 16)
+                    .expect("side-data allocation");
+            assert_eq!(side_data.as_ref().size(), 16);
+        }
+        assert!(
+            av_frame_get_side_data(frame.as_ref(), AVFrameSideDataType::SEI_UNREGISTERED).is_some()
+        );
+        av_frame_remove_side_data(&mut frame.as_mut(), AVFrameSideDataType::SEI_UNREGISTERED);
+        assert!(
+            av_frame_get_side_data(frame.as_ref(), AVFrameSideDataType::SEI_UNREGISTERED).is_none()
+        );
     }
 }

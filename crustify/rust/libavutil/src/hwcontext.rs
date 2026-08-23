@@ -484,3 +484,53 @@ mod scheduled_context_tests {
         drop(clone);
     }
 }
+
+/// Wraps: av_hwframe_get_buffer
+///
+/// Allocates a hardware surface from an initialized frames context into an
+/// empty frame. The C API's currently-unused flags parameter is fixed to zero.
+pub fn av_hwframe_get_buffer(
+    context: &HWFramesContext,
+    frame: &mut crate::frame::AVFrameMut<'_>,
+) -> Result<(), i32> {
+    // SAFETY: the type state proves the context is initialized, the frame is
+    // exclusively borrowed, and zero is the only documented flags value. Any
+    // installed buffer references become owned by the destination frame.
+    let status = unsafe {
+        ffi::av_hwframe_get_buffer(
+            context.buffer_ref().as_ptr().cast_mut(),
+            frame.as_mut_ptr(),
+            0,
+        )
+    };
+    if status < 0 { Err(status) } else { Ok(()) }
+}
+
+/// Wraps: av_hwframe_transfer_data
+///
+/// Transfers image data between a hardware frame and another compatible
+/// frame. The C API's currently-unused flags parameter is fixed to zero.
+pub fn av_hwframe_transfer_data(
+    destination: &mut crate::frame::AVFrameMut<'_>,
+    source: crate::frame::AVFrameRef<'_>,
+) -> Result<(), i32> {
+    // SAFETY: the destination is exclusively borrowed and the source is shared
+    // for the call. C retains neither frame header and zero is the documented
+    // flags value.
+    let status =
+        unsafe { ffi::av_hwframe_transfer_data(destination.as_mut_ptr(), source.as_ptr(), 0) };
+    if status < 0 { Err(status) } else { Ok(()) }
+}
+
+#[cfg(test)]
+mod scheduled_hwframe_function_tests {
+    use super::*;
+    use crate::frame::av_frame_alloc;
+
+    #[test]
+    fn transfer_rejects_frames_without_a_hardware_context() {
+        let source = av_frame_alloc().expect("source frame");
+        let mut destination = av_frame_alloc().expect("destination frame");
+        assert!(av_hwframe_transfer_data(&mut destination.as_mut(), source.as_ref()).is_err());
+    }
+}

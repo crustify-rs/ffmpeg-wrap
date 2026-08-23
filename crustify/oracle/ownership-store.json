@@ -2644,6 +2644,86 @@
    }
   },
   {
+   "name": "av_frame_copy",
+   "defined_in": "libavutil/frame.c",
+   "ptr_args": [
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Transient exclusive borrow of an initialized destination frame; the call copies data into existing buffers without retaining the frame."
+     }
+    },
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient shared borrow of an initialized source frame; the call reads its data and retains nothing."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_frame_copy_props",
+   "defined_in": "libavutil/frame.c",
+   "ptr_args": [
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Transient exclusive borrow of a live destination frame; owned metadata installed by the call becomes part of the destination lifecycle."
+     }
+    },
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient shared borrow of a live source frame; referenced properties are duplicated or independently reference-counted rather than borrowed."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_frame_free",
    "defined_in": "libavutil/frame.c",
    "lifetime": {
@@ -2674,6 +2754,153 @@
      }
     }
    ]
+  },
+  {
+   "name": "av_frame_get_buffer",
+   "defined_in": "libavutil/frame.c",
+   "ptr_args": [
+    {
+     "name": "frame",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:frame"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Transient exclusive non-null borrow of an initialized frame; allocations installed on success become owned by the frame lifecycle."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_frame_get_side_data",
+   "defined_in": "libavutil/frame.c",
+   "ptr_args": [
+    {
+     "name": "frame",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:frame"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient shared non-null borrow of a live frame."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:frame"
+     },
+     "nullable": true,
+     "mutable": false,
+     "note": "Returns a nullable shared interior borrow of side-data storage owned by the frame."
+    }
+   }
+  },
+  {
+   "name": "av_frame_is_writable",
+   "defined_in": "libavutil/frame.c",
+   "ptr_args": [
+    {
+     "name": "frame",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:frame"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient shared non-null borrow; despite the legacy non-const C signature, the implementation only inspects buffer reference state."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_frame_make_writable",
+   "defined_in": "libavutil/frame.c",
+   "ptr_args": [
+    {
+     "name": "frame",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:frame"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Transient exclusive non-null borrow; the call may replace all data buffer owners while leaving the frame initialized."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_frame_new_side_data",
+   "defined_in": "libavutil/frame.c",
+   "ptr_args": [
+    {
+     "name": "frame",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:frame"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Transient exclusive non-null borrow; successful allocation installs a new side-data owner in the frame."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:frame"
+     },
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns a nullable exclusive interior borrow of the newly installed side-data entry, tied to the frame borrow."
+    }
+   }
   },
   {
    "name": "av_frame_ref",
@@ -2720,6 +2947,29 @@
       "nullable": false,
       "mutable": false,
       "note": "Transient shared source borrow; buffer reference units and owned properties are duplicated into dst."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_frame_remove_side_data",
+   "defined_in": "libavutil/frame.c",
+   "ptr_args": [
+    {
+     "name": "frame",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:frame"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Transient exclusive non-null borrow; matching side-data entries are removed and freed during the call."
      }
     }
    ]
@@ -3292,6 +3542,86 @@
       "nullable": false,
       "mutable": true,
       "note": "Exclusive construction-phase borrow of a frame-context reference and context; initializes hardware state without retaining the header pointer."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_hwframe_get_buffer",
+   "defined_in": "libavutil/hwcontext.c",
+   "ptr_args": [
+    {
+     "name": "frame",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:frame"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Transient exclusive non-null borrow of an empty initialized frame; installed references and buffers become owned by the frame lifecycle."
+     }
+    },
+    {
+     "name": "hwframe_ref",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:hwframe_ref"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient shared non-null borrow of an initialized hardware-frames context reference; the call may create an independent reference stored in the destination."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_hwframe_transfer_data",
+   "defined_in": "libavutil/hwcontext.c",
+   "ptr_args": [
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Transient exclusive non-null borrow of a live destination frame; buffers may be allocated and installed when it is clean."
+     }
+    },
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient shared non-null borrow of a live source frame; the call retains no borrow of the header."
      }
     }
    ]
