@@ -387,14 +387,20 @@ impl From<AVAlphaMode> for ffi::AVAlphaMode {
 
 #[cfg(test)]
 mod tests {
+    use core::ffi::c_uint;
     use core::mem::{align_of, size_of};
 
     use super::*;
+    use crate::pixdesc::{av_alpha_mode_from_name, av_alpha_mode_name};
 
     #[test]
     fn alpha_mode_is_layout_compatible_and_round_trips() {
-        assert_eq!(size_of::<AVAlphaMode>(), size_of::<ffi::AVAlphaMode>());
-        assert_eq!(align_of::<AVAlphaMode>(), align_of::<ffi::AVAlphaMode>());
+        // Compare against the C ABI type, not against `ffi::AVAlphaMode`:
+        // `repr(transparent)` already guarantees the latter, so asserting it
+        // proves nothing. `enum AVAlphaMode` has only non-negative enumerators,
+        // so the compiler gives it `unsigned int`.
+        assert_eq!(size_of::<AVAlphaMode>(), size_of::<c_uint>());
+        assert_eq!(align_of::<AVAlphaMode>(), align_of::<c_uint>());
 
         // Pin the wire values `libavutil/pixfmt.h` assigns explicitly, so a
         // renumbering or a new enumerator inserted ahead of them fails here
@@ -423,6 +429,23 @@ mod tests {
                 ffi::AVAlphaMode::from(AVAlphaMode::from_raw(unknown)),
                 unknown
             );
+            assert_eq!(av_alpha_mode_name(AVAlphaMode::from_raw(unknown)), None);
+        }
+    }
+
+    #[test]
+    fn alpha_mode_constants_round_trip_through_libavutil() {
+        // Cross the seam: ask the linked library to name each constant and to
+        // parse the name back. A constant bound to the wrong bindgen
+        // enumerator survives every assertion above but not this table, which
+        // is `alpha_mode_names[]` in `libavutil/pixdesc.c`.
+        for (mode, name) in [
+            (AVAlphaMode::UNSPECIFIED, c"unspecified"),
+            (AVAlphaMode::PREMULTIPLIED, c"premultiplied"),
+            (AVAlphaMode::STRAIGHT, c"straight"),
+        ] {
+            assert_eq!(av_alpha_mode_name(mode), Some(name));
+            assert_eq!(av_alpha_mode_from_name(name), mode);
         }
     }
 
