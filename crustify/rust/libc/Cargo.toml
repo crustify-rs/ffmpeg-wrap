@@ -1,0 +1,12 @@
+[package]
+name = "libc"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+ffibox = { path = "/opt/ffibox" }
+libc-sys = { path = "../libc-sys" }
+
+[lints]
+workspace = true

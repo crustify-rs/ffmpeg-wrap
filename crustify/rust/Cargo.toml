@@ -1,0 +1,23 @@
+[workspace]
+resolver = "3"
+members = [
+    "libavutil",
+    "libavutil-sys",
+    "libm",
+    "libm-sys",
+    "libatomic",
+    "libatomic-sys",
+    "libpthread",
+    "libpthread-sys",
+    "libc",
+    "libc-sys",
+]
+
+[workspace.package]
+edition = "2024"
+version = "0.0.0"
+publish = false
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+module_inception = "allow"

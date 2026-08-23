@@ -1,0 +1,44 @@
+{
+  "crates": {
+    "libavutil": {
+      "kind": "library",
+      "in_tree": true,
+      "crate_path": "crustify/rust/libavutil",
+      "sys_crate": "crustify/rust/libavutil-sys",
+      "depends_on": ["libm", "libatomic", "libpthread", "libc"],
+      "modules": {}
+    },
+    "libm": {
+      "kind": "library",
+      "in_tree": false,
+      "crate_path": "crustify/rust/libm",
+      "sys_crate": "crustify/rust/libm-sys",
+      "depends_on": ["libc"],
+      "modules": {}
+    },
+    "libatomic": {
+      "kind": "library",
+      "in_tree": false,
+      "crate_path": "crustify/rust/libatomic",
+      "sys_crate": "crustify/rust/libatomic-sys",
+      "depends_on": ["libc"],
+      "modules": {}
+    },
+    "libpthread": {
+      "kind": "library",
+      "in_tree": false,
+      "crate_path": "crustify/rust/libpthread",
+      "sys_crate": "crustify/rust/libpthread-sys",
+      "depends_on": ["libc"],
+      "modules": {}
+    },
+    "libc": {
+      "kind": "library",
+      "in_tree": false,
+      "crate_path": "crustify/rust/libc",
+      "sys_crate": "crustify/rust/libc-sys",
+      "depends_on": [],
+      "modules": {}
+    }
+  }
+}

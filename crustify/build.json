@@ -1,0 +1,190 @@
+{
+  "libraries": {
+    "libavutil": {
+      "kind": "shared",
+      "target": "libavutil/libavutil.so",
+      "source_dirs": ["libavutil/", "compat/"],
+      "include_dirs": ["libavutil/"],
+      "link_dependencies": ["libm", "libatomic", "libpthread", "libc"]
+    },
+    "libavcodec": {
+      "kind": "shared",
+      "target": "libavcodec/libavcodec.so",
+      "source_dirs": ["libavcodec/"],
+      "include_dirs": ["libavcodec/"],
+      "link_dependencies": ["libavutil", "libm", "libatomic", "libpthread", "libc"]
+    },
+    "libavformat": {
+      "kind": "shared",
+      "target": "libavformat/libavformat.so",
+      "source_dirs": ["libavformat/"],
+      "include_dirs": ["libavformat/"],
+      "link_dependencies": ["libavcodec", "libavutil", "libm", "libatomic", "libc"]
+    },
+    "libavfilter": {
+      "kind": "shared",
+      "target": "libavfilter/libavfilter.so",
+      "source_dirs": ["libavfilter/"],
+      "include_dirs": ["libavfilter/"],
+      "link_dependencies": ["libavutil", "libm", "libatomic", "libpthread", "libc"]
+    },
+    "libswscale": {
+      "kind": "shared",
+      "target": "libswscale/libswscale.so",
+      "source_dirs": ["libswscale/"],
+      "include_dirs": ["libswscale/"],
+      "link_dependencies": ["libavutil", "libm", "libatomic", "libc"]
+    },
+    "libswresample": {
+      "kind": "shared",
+      "target": "libswresample/libswresample.so",
+      "source_dirs": ["libswresample/"],
+      "include_dirs": ["libswresample/"],
+      "link_dependencies": ["libavutil", "libm", "libatomic", "libc"]
+    },
+    "libavdevice": {
+      "kind": "shared",
+      "target": "libavdevice/libavdevice.so",
+      "source_dirs": ["libavdevice/"],
+      "include_dirs": ["libavdevice/"],
+      "link_dependencies": ["libavformat", "libavcodec", "libavutil", "libm", "libatomic", "libc"]
+    },
+    "libm": {
+      "kind": "system",
+      "target": null,
+      "source_dirs": [],
+      "include_dirs": ["/usr/include/", "/usr/include/x86_64-linux-gnu/"],
+      "link_dependencies": ["libc"]
+    },
+    "libpthread": {
+      "kind": "system",
+      "target": null,
+      "source_dirs": [],
+      "include_dirs": ["/usr/include/", "/usr/include/x86_64-linux-gnu/"],
+      "link_dependencies": ["libc"]
+    },
+    "libatomic": {
+      "kind": "system",
+      "target": null,
+      "source_dirs": [],
+      "include_dirs": ["/usr/include/", "/usr/include/x86_64-linux-gnu/"],
+      "link_dependencies": ["libc"]
+    },
+    "libc": {
+      "kind": "system",
+      "target": null,
+      "source_dirs": [],
+      "include_dirs": ["/usr/include/", "/usr/include/x86_64-linux-gnu/"],
+      "link_dependencies": []
+    }
+  },
+  "executables": {
+    "ffmpeg": {
+      "source_dirs": ["fftools/"],
+      "link_dependencies": ["libavdevice", "libavfilter", "libswscale", "libavformat", "libavcodec", "libswresample", "libavutil", "libm", "libatomic", "libpthread", "libc"]
+    },
+    "ffplay": {
+      "source_dirs": ["fftools/"],
+      "link_dependencies": ["libavdevice", "libavfilter", "libswscale", "libavformat", "libavcodec", "libswresample", "libavutil", "libm", "libatomic", "libpthread", "libc"]
+    },
+    "ffprobe": {
+      "source_dirs": ["fftools/"],
+      "link_dependencies": ["libavformat", "libavcodec", "libavutil", "libm", "libatomic", "libpthread", "libc"]
+    }
+  },
+  "features": {
+    "all": [
+      {
+        "name": "CONFIG_SHARED",
+        "role": "Build shared libraries; selected by this campaign's configure command (configure --enable-shared).",
+        "default_value": false,
+        "enabled": true
+      },
+      {
+        "name": "CONFIG_STATIC",
+        "role": "Build static libraries; enabled by default and disabled here to keep one link artifact (configure --disable-static).",
+        "default_value": true,
+        "enabled": false
+      },
+      {
+        "name": "CONFIG_AUTODETECT",
+        "role": "Probe optional external SDKs; enabled by default and disabled here so vendor hwcontext implementations stay outside T1/T2 (configure --disable-autodetect).",
+        "default_value": true,
+        "enabled": false
+      },
+      {
+        "name": "CONFIG_ASM",
+        "role": "Build architecture assembly optimizations; enabled by default and disabled for source-level analysis (configure --disable-asm).",
+        "default_value": true,
+        "enabled": false
+      },
+      {
+        "name": "CONFIG_NETWORK",
+        "role": "Enable network support; enabled by default and unnecessary for the libavutil-only target (configure --disable-network).",
+        "default_value": true,
+        "enabled": false
+      },
+      {
+        "name": "CONFIG_AVUTIL",
+        "role": "Build libavutil; enabled by default and retained as the campaign target (configure and configure's LIBRARY_LIST).",
+        "default_value": true,
+        "enabled": true
+      },
+      {
+        "name": "CONFIG_AVCODEC",
+        "role": "Build libavcodec; enabled by default and disabled as excluded campaign surface (configure --disable-avcodec).",
+        "default_value": true,
+        "enabled": false
+      },
+      {
+        "name": "CONFIG_AVFORMAT",
+        "role": "Build libavformat; enabled by default and disabled as excluded campaign surface (configure --disable-avformat).",
+        "default_value": true,
+        "enabled": false
+      },
+      {
+        "name": "CONFIG_AVFILTER",
+        "role": "Build libavfilter; enabled by default and disabled as excluded campaign surface (configure --disable-avfilter).",
+        "default_value": true,
+        "enabled": false
+      },
+      {
+        "name": "CONFIG_AVDEVICE",
+        "role": "Build libavdevice; enabled by default and disabled as excluded campaign surface (configure --disable-avdevice).",
+        "default_value": true,
+        "enabled": false
+      },
+      {
+        "name": "CONFIG_SWSCALE",
+        "role": "Build libswscale; enabled by default and disabled as excluded campaign surface (configure --disable-swscale).",
+        "default_value": true,
+        "enabled": false
+      },
+      {
+        "name": "CONFIG_SWRESAMPLE",
+        "role": "Build libswresample; enabled by default and disabled as excluded campaign surface (configure --disable-swresample).",
+        "default_value": true,
+        "enabled": false
+      },
+      {
+        "name": "CONFIG_UBSAN",
+        "role": "Compile and link with undefined-behaviour sanitizer instrumentation (configure --toolchain=gcc-asan-ubsan).",
+        "default_value": false,
+        "enabled": true
+      },
+      {
+        "name": "CONFIG_ASAN",
+        "role": "Compile and link with address sanitizer instrumentation (configure --toolchain=gcc-asan-ubsan).",
+        "default_value": false,
+        "enabled": true
+      }
+    ]
+  },
+  "test_baseline": "60/60 fate-libavutil tests passed under ASan+UBSan; disabled tests: none.",
+  "build_commands": {
+    "configure": "./configure --toolchain=gcc-asan-ubsan --enable-shared --disable-static --disable-programs --disable-doc --disable-network --disable-autodetect --disable-asm --disable-everything --disable-avdevice --disable-avcodec --disable-avformat --disable-avfilter --disable-swscale --disable-swresample --disable-stripping --extra-cflags='-fno-omit-frame-pointer' --extra-ldflags='-fno-omit-frame-pointer' --extra-ldexeflags='-no-pie'",
+    "build": "make -j64",
+    "test": "make -j64 fate-libavutil",
+    "clean": "make distclean"
+  }
+}

@@ -1,0 +1,13 @@
+[package]
+name = "libm"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+ffibox = { path = "/opt/ffibox" }
+libm-sys = { path = "../libm-sys" }
+libc = { path = "../libc" }
+
+[lints]
+workspace = true
