@@ -12,6 +12,45 @@
    "defined_in": "libavutil/pixfmt.h",
    "_comment_agent": "C enum has no pointer or lifecycle fields.",
    "fields": []
+  },
+  {
+   "name": "AVDictionaryEntry",
+   "defined_in": "libavutil/dict.h",
+   "_comment_agent": "AVDictionaryEntry lives by value in AVDictionary.elems. It has no standalone public constructor or disposer; AVDictionary owns the entry array and disposes both owned strings. Public lookup/iteration returns borrowed entries whose fields remain valid only while the dictionary is unchanged.",
+   "fields": [
+    {
+     "name": "key",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": true,
+      "borrowed": null,
+      "nullable": false,
+      "mutable": false,
+      "note": "Every live entry owns one av_malloc-family NUL-terminated key. av_dict_set rejects NULL or allocation failure before insertion; no observed path writes through a stored key pointer. The containing dictionary frees it, and published borrowed entries forbid caller mutation."
+     }
+    },
+    {
+     "name": "value",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": true,
+      "borrowed": null,
+      "nullable": false,
+      "mutable": true,
+      "note": "Every live entry owns one av_malloc-family NUL-terminated value; NULL requests deletion and is never inserted. AV_DICT_APPEND may realloc and write the stored value internally, while published borrowed entries forbid caller mutation. The containing dictionary frees it."
+     }
+    }
+   ]
+  },
+  {
+   "name": "AVFrameSideDataType",
+   "defined_in": "libavutil/frame.h",
+   "_comment_agent": "C enum has no pointer or lifecycle fields.",
+   "fields": []
   }
  ],
  "symbols": [

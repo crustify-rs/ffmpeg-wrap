@@ -23,6 +23,7 @@ fn main() {
         .allowlist_type("^AVColor(Space|TransferCharacteristic)$")
         .allowlist_type("^AVSampleFormat$")
         .allowlist_type("^(AVMD5|AVMediaType)$")
+        .allowlist_type("^(AVDictionaryEntry|AVFrameSideDataType)$")
         .generate()
         .expect("generate libavutil bindings");
     bindings
