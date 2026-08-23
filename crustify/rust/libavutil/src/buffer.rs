@@ -14,8 +14,8 @@ define_ctype!(
     /// this wrapper exposes pointer identity and lifetime-carrying borrowed
     /// handles, but no fields or independent owner. In particular, an
     /// `AVBuffer` may be embedded in a pool entry, so freeing its storage from a
-    /// handle would be incorrect; the `AVBufferRef` lifecycle performs the
-    /// refcounted release instead.
+    /// handle would be incorrect; the [`AVBufferReference`] lifecycle performs
+    /// the refcounted release instead.
     ///
     /// [`AVBufferRef`] is the shared borrowed handle for this object. The safe
     /// wrapper for C's same-spelled `AVBufferRef` structure therefore uses a
@@ -49,24 +49,52 @@ mod tests {
     }
 
     #[test]
+    fn avbuffer_handles_carry_pointer_identity_only() {
+        let mut backing = AVBuffer::zeroed();
+        let raw = addr_of_mut!(backing).cast::<ffi::AVBuffer>();
+
+        {
+            // SAFETY: `backing` is a live, initialized all-zero `ffi::AVBuffer`
+            // that outlives this handle, which is the only one in use here.
+            let mut exclusive = unsafe { AVBufferMut::from_ptr(raw) }.expect("non-null AVBuffer");
+            assert_eq!(exclusive.as_mut_ptr(), raw);
+            assert_eq!(exclusive.as_ref().as_ptr(), raw.cast_const());
+        }
+
+        // SAFETY: as above; the shared handle borrows the same live object.
+        let shared = unsafe { AVBufferRef::from_ptr(raw) }.expect("non-null AVBuffer");
+        assert_eq!(shared.as_ptr(), raw.cast_const());
+        // The wrapper publishes no fields, so identity is the whole surface.
+        assert_eq!(shared.as_void_ptr(), raw.cast_const().cast());
+
+        // SAFETY: a null slot is the documented `None` case, not a violation.
+        assert!(unsafe { AVBufferRef::from_ptr(core::ptr::null_mut()) }.is_none());
+    }
+
+    #[test]
     fn reference_fields_use_copying_and_handle_views() {
+        // Declared first so it outlives every handle derived from `raw`.
+        // `AVBufferRef::from_ptr` requires a live, initialized `ffi::AVBuffer`
+        // behind the header's `buffer` slot, and an all-zero C struct is one;
+        // "the wrapper only ever compares this pointer" would not discharge
+        // that obligation, so a dangling address is not usable here.
+        let mut backing = AVBuffer::zeroed();
         let mut bytes = [10_u8, 20, 30, 40];
-        let opaque = NonNull::<ffi::AVBuffer>::dangling().as_ptr();
+        let buffer = addr_of_mut!(backing).cast::<ffi::AVBuffer>();
         let mut raw = ffi::AVBufferRef {
-            buffer: opaque,
+            buffer,
             data: bytes.as_mut_ptr(),
             size: bytes.len(),
         };
 
-        // SAFETY: `raw` and its byte array are live and initialized for the
-        // duration of the borrowed handle; the opaque buffer pointer is only
-        // compared and never dereferenced.
+        // SAFETY: `raw`, its byte array and its backing AVBuffer are live and
+        // initialized for the duration of the borrowed handle.
         let reference = unsafe { AVBufferReferenceRef::from_ptr(addr_of_mut!(raw)) }.unwrap();
         assert_eq!(reference.size(), 4);
         let mut copied = [0_u8; 4];
         assert!(reference.data().unwrap().copy_to_slice(&mut copied));
         assert_eq!(copied, bytes);
-        assert_eq!(reference.buffer().as_ptr(), opaque.cast_const());
+        assert_eq!(reference.buffer().as_ptr(), buffer.cast_const());
 
         {
             // SAFETY: `raw` is still live and no shared handle is used during
