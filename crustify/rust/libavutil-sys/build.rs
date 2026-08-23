@@ -16,6 +16,7 @@ fn main() {
         .allowlist_type("^(AVColorPrimaries|AVColorRange)$")
         .allowlist_function("^av_(free|malloc|memdup|strdup|strndup)$")
         .allowlist_type("^AVHW(DeviceType|FrameTransferDirection)$")
+        .allowlist_type("^(AVPictureType|AVPixelFormat)$")
         .generate()
         .expect("generate libavutil bindings");
     bindings
