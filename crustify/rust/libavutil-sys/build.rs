@@ -30,6 +30,7 @@ fn main() {
         .allowlist_type("^(AVMD5|AVMediaType)$")
         .allowlist_type("^(AVDictionaryEntry|AVFrameSideDataType)$")
         .allowlist_type("^AV(AlphaMode|AudioFifo)$")
+        .allowlist_type("^AVOption(ArrayDef|Type)$")
         .allowlist_function(
             "^(av_chroma_location_from_name|av_dynarray_add|av_file_map|av_file_unmap|av_free|av_freep|av_gettime|av_gettime_relative|av_gettime_relative_is_monotonic|av_log_get_flags|av_log_get_level|av_log_set_callback|av_log_set_flags|av_log_set_level|av_malloc|av_malloc_array|av_mallocz|av_match_name|av_md5_sum|av_memdup|av_opt_set|av_opt_set_bin|av_opt_set_double|av_opt_set_image_size|av_opt_set_int|av_realloc|av_reduce|av_strdup|av_strerror|av_strndup|av_usleep|av_version_info|avutil_configuration|avutil_license|avutil_version)$",
         )

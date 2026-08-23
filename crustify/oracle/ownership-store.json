@@ -2,6 +2,30 @@
  "_comment": "Authored analysis: ownership, lifecycle, refcount and locking judgements that no composer can derive, keyed to the C entities they describe. The structural half of each record (field layout, signatures, footprints, casts) is composed from the CodeQL tables on demand and merged in at read time, so a re-extract rewrites nothing here. Written only by `crustify-oracle <target> query {types,symbols} --update`; read through crustify.manifests. Hand-edit at your own risk: `--update` validates a submission against the composed skeleton (unknown field, wrong kind, ptr-invariant violation) and this file does not.",
  "types": [
   {
+   "name": "AVAudioFifo",
+   "defined_in": "libavutil/audio_fifo.c",
+   "fields": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "AVAudioFifo owns the av_calloc-allocated table and every AVFifo element. av_audio_fifo_free releases each non-null element through av_fifo_freep2, then releases and nulls the table through av_freep. The field may be NULL during failed construction, and the table and FIFO contents are mutated by allocation, read/write, grow, drain, and reset operations. It is an array of owned pointers, with nb_buffers supplying its element count."
+     }
+    }
+   ]
+  },
+  {
    "name": "AVChannelOrder",
    "defined_in": "libavutil/channel_layout.h",
    "_comment_agent": "C enum has no pointer or lifecycle fields.",
@@ -12,6 +36,28 @@
    "defined_in": "libavutil/pixfmt.h",
    "_comment_agent": "C enum has no pointer or lifecycle fields.",
    "fields": []
+  },
+  {
+   "name": "AVDictionary",
+   "defined_in": "libavutil/dict.c",
+   "_comment_agent": "AVDictionary owns its elems array and the strings held by its inline entries; av_dict_free tears down that complete graph.",
+   "fields": [
+    {
+     "name": "elems",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "elems is the dictionary-owned growable array of count inline AVDictionaryEntry values. av_dict_set reallocates and writes it; an empty dictionary may hold NULL; av_dict_free releases every entry key/value and then the array."
+     }
+    }
+   ]
   },
   {
    "name": "AVDictionaryEntry",
@@ -53,53 +99,74 @@
    "fields": []
   },
   {
-   "name": "AVAudioFifo",
-   "defined_in": "libavutil/audio_fifo.c",
+   "name": "AVOptionArrayDef",
+   "defined_in": "libavutil/opt.h",
+   "_comment_agent": "AVOptionArrayDef has no lifecycle operation. Its def slot is nullable borrowed read-only static string metadata, not an av_malloc-family owner.",
    "fields": [
     {
-     "name": "buf",
+     "name": "def",
      "ptr": {
       "scalar": null,
-      "array": {
-       "by_ref": {
-        "owned": true,
-        "borrowed": null
-       }
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
       },
-      "string": false,
-      "owned": true,
-      "borrowed": null,
       "nullable": true,
-      "mutable": true,
-      "note": "AVAudioFifo owns the av_calloc-allocated table and every AVFifo element. av_audio_fifo_free releases each non-null element through av_fifo_freep2, then releases and nulls the table through av_freep. The field may be NULL during failed construction, and the table and FIFO contents are mutated by allocation, read/write, grow, drain, and reset operations. It is an array of owned pointers, with nb_buffers supplying its element count."
-     }
-    }
-   ]
-  },
-  {
-   "name": "AVDictionary",
-   "defined_in": "libavutil/dict.c",
-   "_comment_agent": "AVDictionary owns its elems array and the strings held by its inline entries; av_dict_free tears down that complete graph.",
-   "fields": [
-    {
-     "name": "elems",
-     "ptr": {
-      "scalar": null,
-      "array": {
-       "by_val": true
-      },
-      "string": false,
-      "owned": true,
-      "borrowed": null,
-      "nullable": true,
-      "mutable": true,
-      "note": "elems is the dictionary-owned growable array of count inline AVDictionaryEntry values. av_dict_set reallocates and writes it; an empty dictionary may hold NULL; av_dict_free releases every entry key/value and then the array."
+      "mutable": false,
+      "note": "AVClass option is required to be a static AVOption array, and every AVOptionArrayDef initializer is static; its optional def is always a string literal. The struct never frees or mutates the NUL-terminated pointee, and consumers only read it through strlen/strcmp/logging."
      }
     }
    ]
   }
  ],
  "symbols": [
+  {
+   "name": "av_audio_fifo_alloc",
+   "defined_in": "libavutil/audio_fifo.c",
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "On success av_audio_fifo_alloc returns a fresh, uniquely owned, fully initialized AVAudioFifo released by av_audio_fifo_free. Allocation or parameter-validation failure returns NULL."
+    }
+   }
+  },
+  {
+   "name": "av_audio_fifo_free",
+   "defined_in": "libavutil/audio_fifo.c",
+   "lifetime": {
+    "for": "af",
+    "is_dropper": true,
+    "is_disposer": false,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "af",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "av_audio_fifo_free consumes one AVAudioFifo allocation, releases every owned AVFifo and the pointer table, then releases the object. NULL is explicitly accepted and is a no-op."
+     }
+    }
+   ]
+  },
   {
    "name": "av_chroma_location_from_name",
    "defined_in": "libavutil/pixdesc.c",
@@ -119,6 +186,36 @@
       "nullable": false,
       "mutable": false,
       "note": "NUL-terminated name read transiently by strcmp; NULL is not accepted."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_dict_free",
+   "defined_in": "libavutil/dict.c",
+   "lifetime": {
+    "for": "pm",
+    "is_dropper": true,
+    "is_disposer": false,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "pm",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": false,
+      "mutable": true,
+      "note": "pm is a required mutable pointer slot containing a nullable owned AVDictionary. The call consumes and fully destroys a non-NULL inner dictionary and writes NULL back. The schema's top-level ownership marks that transfer so the lifecycle dropper can act on pm; callers retain only the now-empty slot."
      }
     }
    ]
@@ -1145,81 +1242,6 @@
       "nullable": false,
       "mutable": null,
       "note": "munmap consumes a whole mapped byte range; its separate size argument supplies the extent, so the pointer is array-shaped only and never a singleton or a string. Sole caller in scope is av_file_unmap, which returns early unless bufptr is non-null AND size is non-zero, so the range handed over is always a complete, non-empty MAP_PRIVATE mapping produced by av_file_map's mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0); the release is page-granular, covering ceil(size/pagesize) bytes. mutable is null, not false: munmap is an external symbol with no definition in this extraction, so no body inspection can decide it."
-     }
-    }
-   ]
-  },
-  {
-   "name": "av_audio_fifo_alloc",
-   "defined_in": "libavutil/audio_fifo.c",
-   "ptr_ret": {
-    "ptr": {
-     "scalar": {
-      "by_val": true
-     },
-     "array": null,
-     "string": false,
-     "owned": true,
-     "borrowed": null,
-     "nullable": true,
-     "mutable": true,
-     "note": "On success av_audio_fifo_alloc returns a fresh, uniquely owned, fully initialized AVAudioFifo released by av_audio_fifo_free. Allocation or parameter-validation failure returns NULL."
-    }
-   }
-  },
-  {
-   "name": "av_audio_fifo_free",
-   "defined_in": "libavutil/audio_fifo.c",
-   "lifetime": {
-    "for": "af",
-    "is_dropper": true,
-    "is_disposer": false,
-    "is_cloner": null
-   },
-   "ptr_args": [
-    {
-     "name": "af",
-     "ptr": {
-      "scalar": {
-       "by_val": true
-      },
-      "array": null,
-      "string": false,
-      "owned": true,
-      "borrowed": null,
-      "nullable": true,
-      "mutable": true,
-      "note": "av_audio_fifo_free consumes one AVAudioFifo allocation, releases every owned AVFifo and the pointer table, then releases the object. NULL is explicitly accepted and is a no-op."
-     }
-    }
-   ]
-  },
-  {
-   "name": "av_dict_free",
-   "defined_in": "libavutil/dict.c",
-   "lifetime": {
-    "for": "pm",
-    "is_dropper": true,
-    "is_disposer": false,
-    "is_cloner": null
-   },
-   "ptr_args": [
-    {
-     "name": "pm",
-     "ptr": {
-      "scalar": {
-       "by_ref": {
-        "owned": true,
-        "borrowed": null
-       }
-      },
-      "array": null,
-      "string": false,
-      "owned": true,
-      "borrowed": null,
-      "nullable": false,
-      "mutable": true,
-      "note": "pm is a required mutable pointer slot containing a nullable owned AVDictionary. The call consumes and fully destroys a non-NULL inner dictionary and writes NULL back. The schema's top-level ownership marks that transfer so the lifecycle dropper can act on pm; callers retain only the now-empty slot."
      }
     }
    ]
