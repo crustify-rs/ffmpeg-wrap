@@ -165,6 +165,90 @@
    "fields": []
   },
   {
+   "name": "AVOption",
+   "defined_in": "libavutil/opt.h",
+   "_comment_agent": "AVOption is immutable persistent AVClass metadata and has no destructor, disposer, or cloner. Its string and array-definition pointers are nullable read-only borrows into static metadata; the default union discriminator is AVOption.type.",
+   "fields": [
+    {
+     "name": "default_val.arr",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Active only when AV_OPT_TYPE_FLAG_ARRAY is set. It optionally points to one static const AVOptionArrayDef; all observed initializers are static and consumers only read it."
+     }
+    },
+    {
+     "name": "default_val.str",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Active only for the string-encoded default option types (STRING, BINARY, DICT, IMAGE_SIZE, VIDEO_RATE, COLOR, CHLAYOUT). Source-tree option tables store a string literal or NULL; libavutil parses or copies but never frees this metadata pointer."
+     }
+    },
+    {
+     "name": "help",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional read-only help metadata. All source-tree initializers use a string literal or NULL, and no lifecycle operation frees or replaces it."
+     }
+    },
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "AVClass option tables are persistent metadata arrays terminated by an AVOption whose name is NULL. Every definition in the source tree is static and names are string literals; libavutil only reads the NUL-terminated string."
+     }
+    },
+    {
+     "name": "unit",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional read-only logical-unit metadata. Initializers use string literals or NULL and libavutil only compares/logs the NUL-terminated string."
+     }
+    }
+   ]
+  },
+  {
    "name": "AVOptionArrayDef",
    "defined_in": "libavutil/opt.h",
    "_comment_agent": "AVOptionArrayDef has no lifecycle operation. Its def slot is nullable borrowed read-only static string metadata, not an av_malloc-family owner.",
