@@ -515,3 +515,67 @@ mod scheduled_tests {
         assert_eq!(planes.linesize(), 8);
     }
 }
+
+use core::ffi::CStr;
+
+/// Wraps: av_get_bytes_per_sample
+#[must_use]
+pub fn av_get_bytes_per_sample(format: AVSampleFormat) -> i32 {
+    // SAFETY: the ABI-compatible format value is passed by value.
+    unsafe { ffi::av_get_bytes_per_sample(format.as_raw()) }
+}
+
+/// Wraps: av_get_packed_sample_fmt
+#[must_use]
+pub fn av_get_packed_sample_fmt(format: AVSampleFormat) -> AVSampleFormat {
+    // SAFETY: the format is passed and returned by value.
+    AVSampleFormat::from_raw(unsafe { ffi::av_get_packed_sample_fmt(format.as_raw()) })
+}
+
+/// Wraps: av_get_planar_sample_fmt
+#[must_use]
+pub fn av_get_planar_sample_fmt(format: AVSampleFormat) -> AVSampleFormat {
+    // SAFETY: the format is passed and returned by value.
+    AVSampleFormat::from_raw(unsafe { ffi::av_get_planar_sample_fmt(format.as_raw()) })
+}
+
+/// Wraps: av_get_sample_fmt
+#[must_use]
+pub fn av_get_sample_fmt(name: &CStr) -> AVSampleFormat {
+    // SAFETY: `name` is a readable NUL-terminated string and is not retained.
+    AVSampleFormat::from_raw(unsafe { ffi::av_get_sample_fmt(name.as_ptr()) })
+}
+
+/// Wraps: av_get_sample_fmt_name
+#[must_use]
+pub fn av_get_sample_fmt_name(format: AVSampleFormat) -> Option<&'static CStr> {
+    // SAFETY: C returns null or a pointer into its immutable process-lifetime
+    // sample-format table.
+    let pointer = unsafe { ffi::av_get_sample_fmt_name(format.as_raw()) };
+    if pointer.is_null() {
+        None
+    } else {
+        // SAFETY: the non-null result is a NUL-terminated static table entry.
+        Some(unsafe { CStr::from_ptr(pointer) })
+    }
+}
+
+#[cfg(test)]
+mod scheduled_symbol_tests {
+    use super::*;
+
+    #[test]
+    fn sample_format_queries_round_trip() {
+        assert_eq!(av_get_bytes_per_sample(AVSampleFormat::S16), 2);
+        assert_eq!(av_get_sample_fmt(c"s16"), AVSampleFormat::S16);
+        assert_eq!(av_get_sample_fmt_name(AVSampleFormat::S16P), Some(c"s16p"));
+        assert_eq!(
+            av_get_planar_sample_fmt(AVSampleFormat::S16),
+            AVSampleFormat::S16P
+        );
+        assert_eq!(
+            av_get_packed_sample_fmt(AVSampleFormat::S16P),
+            AVSampleFormat::S16
+        );
+    }
+}

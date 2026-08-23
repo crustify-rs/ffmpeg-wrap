@@ -389,3 +389,135 @@ mod pix_fmt_descriptor_tests {
         );
     }
 }
+
+fn static_name(pointer: *const core::ffi::c_char) -> Option<&'static CStr> {
+    if pointer.is_null() {
+        None
+    } else {
+        // SAFETY: all callers pass pointers returned from libavutil's immutable
+        // process-lifetime name tables; the null case was handled above.
+        Some(unsafe { CStr::from_ptr(pointer) })
+    }
+}
+
+/// Wraps: av_alpha_mode_from_name
+#[must_use]
+pub fn av_alpha_mode_from_name(name: &CStr) -> crate::pixfmt::AVAlphaMode {
+    // SAFETY: `name` is a live NUL-terminated read-only string and is not retained.
+    crate::pixfmt::AVAlphaMode::from_raw(unsafe { ffi::av_alpha_mode_from_name(name.as_ptr()) })
+}
+
+/// Wraps: av_alpha_mode_name
+#[must_use]
+pub fn av_alpha_mode_name(mode: crate::pixfmt::AVAlphaMode) -> Option<&'static CStr> {
+    // SAFETY: the argument is an ABI-compatible value; C returns null or a
+    // pointer into its immutable process-lifetime name table.
+    static_name(unsafe { ffi::av_alpha_mode_name(mode.as_raw()) })
+}
+
+/// Wraps: av_chroma_location_enum_to_pos
+pub fn av_chroma_location_enum_to_pos(
+    location: crate::pixfmt::AVChromaLocation,
+) -> Result<(i32, i32), i32> {
+    let mut x = 0;
+    let mut y = 0;
+    // SAFETY: the two output pointers address distinct live integer slots.
+    let status =
+        unsafe { ffi::av_chroma_location_enum_to_pos(&raw mut x, &raw mut y, location.as_raw()) };
+    if status < 0 { Err(status) } else { Ok((x, y)) }
+}
+
+/// Wraps: av_chroma_location_name
+#[must_use]
+pub fn av_chroma_location_name(location: crate::pixfmt::AVChromaLocation) -> Option<&'static CStr> {
+    // SAFETY: C returns null or a static table entry.
+    static_name(unsafe { ffi::av_chroma_location_name(location.as_raw()) })
+}
+
+/// Wraps: av_chroma_location_pos_to_enum
+#[must_use]
+pub fn av_chroma_location_pos_to_enum(x: i32, y: i32) -> crate::pixfmt::AVChromaLocation {
+    // SAFETY: the function accepts both coordinates by value.
+    crate::pixfmt::AVChromaLocation::from_raw(unsafe { ffi::av_chroma_location_pos_to_enum(x, y) })
+}
+
+/// Wraps: av_color_primaries_name
+#[must_use]
+pub fn av_color_primaries_name(value: crate::pixfmt::AVColorPrimaries) -> Option<&'static CStr> {
+    // SAFETY: C returns null or a static table entry.
+    static_name(unsafe { ffi::av_color_primaries_name(value.as_raw()) })
+}
+
+/// Wraps: av_color_range_name
+#[must_use]
+pub fn av_color_range_name(value: crate::pixfmt::AVColorRange) -> Option<&'static CStr> {
+    // SAFETY: C returns null or a static table entry.
+    static_name(unsafe { ffi::av_color_range_name(value.as_raw()) })
+}
+
+/// Wraps: av_color_space_name
+#[must_use]
+pub fn av_color_space_name(value: crate::pixfmt::AVColorSpace) -> Option<&'static CStr> {
+    // SAFETY: C returns null or a static table entry.
+    static_name(unsafe { ffi::av_color_space_name(value.as_raw()) })
+}
+
+/// Wraps: av_color_transfer_name
+#[must_use]
+pub fn av_color_transfer_name(
+    value: crate::pixfmt::AVColorTransferCharacteristic,
+) -> Option<&'static CStr> {
+    // SAFETY: C returns null or a static table entry.
+    static_name(unsafe { ffi::av_color_transfer_name(value.as_raw()) })
+}
+
+/// Wraps: av_get_pix_fmt
+#[must_use]
+pub fn av_get_pix_fmt(name: &CStr) -> crate::pixfmt::AVPixelFormat {
+    // SAFETY: `name` is NUL-terminated, readable, and not retained.
+    crate::pixfmt::AVPixelFormat::from_raw(unsafe { ffi::av_get_pix_fmt(name.as_ptr()) })
+}
+
+/// Wraps: av_get_pix_fmt_name
+#[must_use]
+pub fn av_get_pix_fmt_name(format: crate::pixfmt::AVPixelFormat) -> Option<&'static CStr> {
+    // SAFETY: C returns null or a static descriptor name.
+    static_name(unsafe { ffi::av_get_pix_fmt_name(format.as_raw()) })
+}
+
+#[cfg(test)]
+mod scheduled_symbol_tests {
+    use super::*;
+    use crate::pixfmt::{AVAlphaMode, AVChromaLocation, AVColorPrimaries, AVPixelFormat};
+
+    #[test]
+    fn names_and_reverse_lookups_round_trip() {
+        assert_eq!(
+            av_alpha_mode_from_name(c"premultiplied"),
+            AVAlphaMode::PREMULTIPLIED
+        );
+        assert_eq!(av_alpha_mode_name(AVAlphaMode::STRAIGHT), Some(c"straight"));
+        assert_eq!(
+            av_chroma_location_name(AVChromaLocation::LEFT),
+            Some(c"left")
+        );
+        assert_eq!(
+            av_color_primaries_name(AVColorPrimaries::BT709),
+            Some(c"bt709")
+        );
+        assert_eq!(av_get_pix_fmt(c"yuv420p"), AVPixelFormat::YUV420P);
+        assert_eq!(
+            av_get_pix_fmt_name(AVPixelFormat::YUV420P),
+            Some(c"yuv420p")
+        );
+    }
+
+    #[test]
+    fn chroma_positions_convert_in_both_directions() {
+        let position = av_chroma_location_enum_to_pos(AVChromaLocation::LEFT).unwrap();
+        assert_eq!(
+            av_chroma_location_pos_to_enum(position.0, position.1),
+            AVChromaLocation::LEFT
+        );
+    }
+}

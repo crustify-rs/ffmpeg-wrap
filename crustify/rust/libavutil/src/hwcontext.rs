@@ -134,3 +134,50 @@ mod tests {
         );
     }
 }
+
+use core::ffi::CStr;
+
+/// Wraps: av_hwdevice_find_type_by_name
+#[must_use]
+pub fn av_hwdevice_find_type_by_name(name: &CStr) -> AVHWDeviceType {
+    // SAFETY: `name` is a readable NUL-terminated string and is not retained.
+    AVHWDeviceType::from_raw(unsafe { ffi::av_hwdevice_find_type_by_name(name.as_ptr()) })
+}
+
+/// Wraps: av_hwdevice_get_type_name
+#[must_use]
+pub fn av_hwdevice_get_type_name(device_type: AVHWDeviceType) -> Option<&'static CStr> {
+    // SAFETY: C returns null or an immutable process-lifetime table string.
+    let pointer = unsafe { ffi::av_hwdevice_get_type_name(device_type.as_raw()) };
+    if pointer.is_null() {
+        None
+    } else {
+        // SAFETY: the checked pointer is a static NUL-terminated name.
+        Some(unsafe { CStr::from_ptr(pointer) })
+    }
+}
+
+/// Wraps: av_hwdevice_iterate_types
+#[must_use]
+pub fn av_hwdevice_iterate_types(previous: AVHWDeviceType) -> AVHWDeviceType {
+    // SAFETY: the device type is passed and returned by value.
+    AVHWDeviceType::from_raw(unsafe { ffi::av_hwdevice_iterate_types(previous.as_raw()) })
+}
+
+#[cfg(test)]
+mod scheduled_symbol_tests {
+    use super::*;
+
+    #[test]
+    fn device_type_names_round_trip_when_compiled_in() {
+        let first = av_hwdevice_iterate_types(AVHWDeviceType::NONE);
+        if first != AVHWDeviceType::NONE {
+            let name = av_hwdevice_get_type_name(first).expect("iterated type has a name");
+            assert_eq!(av_hwdevice_find_type_by_name(name), first);
+        }
+        assert_eq!(
+            av_hwdevice_find_type_by_name(c"not-a-device"),
+            AVHWDeviceType::NONE
+        );
+    }
+}

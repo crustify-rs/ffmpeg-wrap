@@ -38,6 +38,9 @@ fn main() {
         .allowlist_type("^AV(ComponentDescriptor|Dictionary|PixFmtDescriptor)$")
         .allowlist_type("^(AVBuffer|AVBufferRef|AVChannel|AVChannelCustom)$")
         .allowlist_function("^av_buffer_(allocz|is_writable|ref|unref)$")
+        .allowlist_function(
+            "^(av_add_q|av_alpha_mode_from_name|av_alpha_mode_name|av_audio_fifo_(drain|peek|peek_at|read|realloc|reset|size|space|write)|av_channel_(description|from_string|name)|av_chroma_location_(enum_to_pos|name|pos_to_enum)|av_color_(primaries|range|space|transfer)_name|av_d2q|av_dict_(copy|count|get|get_string|iterate|parse_string|set|set_int)|av_div_q|av_frame_side_data_name|av_gcd_q|av_get_bytes_per_sample|av_get_media_type_string|av_get_packed_sample_fmt|av_get_pix_fmt|av_get_pix_fmt_name|av_get_planar_sample_fmt|av_get_sample_fmt|av_get_sample_fmt_name|av_hwdevice_(find_type_by_name|get_type_name|iterate_types)|av_image_alloc)$",
+        )
         .generate()
         .expect("generate libavutil bindings");
     bindings

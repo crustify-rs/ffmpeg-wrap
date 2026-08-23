@@ -292,3 +292,111 @@ mod tests {
         ));
     }
 }
+
+use crate::mem::AvFree;
+use core::mem::MaybeUninit;
+use ffibox::CVec;
+
+/// A single av_malloc-owned image allocation and the plane metadata that
+/// points within it. Pixel bytes remain `MaybeUninit<u8>` because
+/// `av_image_alloc` allocates storage but does not initialize ordinary pixels.
+pub struct AllocatedImage {
+    storage: CVec<MaybeUninit<u8>, AvFree>,
+    plane_offsets: [Option<usize>; 4],
+    linesizes: [i32; 4],
+}
+
+impl AllocatedImage {
+    #[must_use]
+    pub fn storage(&self) -> &[MaybeUninit<u8>] {
+        self.storage.as_slice()
+    }
+
+    #[must_use]
+    pub fn storage_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+        self.storage.as_mut_slice()
+    }
+
+    #[must_use]
+    pub const fn plane_offset(&self, plane: usize) -> Option<usize> {
+        if plane < 4 {
+            self.plane_offsets[plane]
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn linesizes(&self) -> &[i32; 4] {
+        &self.linesizes
+    }
+}
+
+/// Wraps: av_image_alloc
+pub fn av_image_alloc(
+    width: i32,
+    height: i32,
+    format: AVPixelFormat,
+    align: i32,
+) -> Result<AllocatedImage, i32> {
+    if align <= 0 || !(align as u32).is_power_of_two() {
+        return Err(-22);
+    }
+    let mut pointers = [core::ptr::null_mut(); 4];
+    let mut linesizes = [0_i32; 4];
+    // SAFETY: both output arrays provide four writable elements as required by
+    // the API. On success C transfers one allocation through `pointers[0]` and
+    // makes the remaining non-null pointers interior to that same allocation.
+    let status = unsafe {
+        ffi::av_image_alloc(
+            pointers.as_mut_ptr(),
+            linesizes.as_mut_ptr(),
+            width,
+            height,
+            format.as_raw(),
+            align,
+        )
+    };
+    if status < 0 {
+        return Err(status);
+    }
+    let length = status as usize;
+    let base = pointers[0];
+    let mut offsets = [None; 4];
+    for (slot, pointer) in offsets.iter_mut().zip(pointers) {
+        if !pointer.is_null() {
+            // SAFETY: the successful C contract makes every non-null plane
+            // pointer interior to the one allocation beginning at `base`.
+            let offset = unsafe { pointer.offset_from(base) };
+            *slot = usize::try_from(offset).ok();
+        }
+    }
+    // SAFETY: success transfers the non-null av_malloc allocation beginning at
+    // `base`. Treating each byte as `MaybeUninit` accurately preserves that C
+    // initialized only format-specific metadata/padding, not ordinary pixels.
+    let storage = unsafe { CVec::<MaybeUninit<u8>, AvFree>::from_raw_parts(base.cast(), length) }
+        .expect("successful av_image_alloc returned a null base pointer");
+    Ok(AllocatedImage {
+        storage,
+        plane_offsets: offsets,
+        linesizes,
+    })
+}
+
+#[cfg(test)]
+mod scheduled_alloc_tests {
+    use super::*;
+
+    #[test]
+    fn allocated_image_owns_uninitialized_pixel_storage() {
+        let image = av_image_alloc(16, 16, AVPixelFormat::YUV420P, 32).unwrap();
+        assert!(!image.storage().is_empty());
+        assert_eq!(image.plane_offset(0), Some(0));
+        assert!(image.linesizes()[0] >= 16);
+    }
+
+    #[test]
+    fn invalid_dimensions_return_the_c_error() {
+        assert!(av_image_alloc(-1, 16, AVPixelFormat::YUV420P, 32).is_err());
+    }
+}

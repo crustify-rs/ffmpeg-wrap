@@ -363,3 +363,82 @@ impl AVChannelCustomMut<'_> {
         unsafe { addr_of_mut!((*self.as_mut_ptr()).id).write(id.as_raw()) }
     }
 }
+
+use core::ffi::CStr;
+
+#[derive(Clone, Copy, Debug)]
+pub struct ChannelText<'a> {
+    pub required: usize,
+    pub text: Option<&'a CStr>,
+}
+
+fn channel_text<'a>(
+    buffer: &'a mut [u8],
+    channel: AVChannel,
+    describe: bool,
+) -> Result<ChannelText<'a>, i32> {
+    // SAFETY: `buffer` supplies exactly its length writable bytes and remains
+    // exclusively borrowed. C writes at most that extent and retains nothing.
+    let status = unsafe {
+        if describe {
+            ffi::av_channel_description(
+                buffer.as_mut_ptr().cast::<c_char>(),
+                buffer.len(),
+                channel.as_raw(),
+            )
+        } else {
+            ffi::av_channel_name(
+                buffer.as_mut_ptr().cast::<c_char>(),
+                buffer.len(),
+                channel.as_raw(),
+            )
+        }
+    };
+    if status < 0 {
+        return Err(status);
+    }
+    let text = CStr::from_bytes_until_nul(buffer).ok();
+    Ok(ChannelText {
+        required: status as usize,
+        text,
+    })
+}
+
+/// Wraps: av_channel_description
+pub fn av_channel_description(
+    buffer: &mut [u8],
+    channel: AVChannel,
+) -> Result<ChannelText<'_>, i32> {
+    channel_text(buffer, channel, true)
+}
+
+/// Wraps: av_channel_from_string
+#[must_use]
+pub fn av_channel_from_string(name: &CStr) -> AVChannel {
+    // SAFETY: `name` is a live NUL-terminated string and is not retained.
+    AVChannel::from_raw(unsafe { ffi::av_channel_from_string(name.as_ptr()) })
+}
+
+/// Wraps: av_channel_name
+pub fn av_channel_name(buffer: &mut [u8], channel: AVChannel) -> Result<ChannelText<'_>, i32> {
+    channel_text(buffer, channel, false)
+}
+
+#[cfg(test)]
+mod scheduled_symbol_tests {
+    use super::*;
+
+    #[test]
+    fn channel_names_and_descriptions_are_bounded() {
+        assert_eq!(av_channel_from_string(c"FL"), AVChannel::FRONT_LEFT);
+
+        let mut name = [0_u8; 16];
+        let result = av_channel_name(&mut name, AVChannel::FRONT_LEFT).unwrap();
+        assert_eq!(result.text, Some(c"FL"));
+
+        let mut description = [0_u8; 64];
+        let result = av_channel_description(&mut description, AVChannel::FRONT_LEFT).unwrap();
+        assert_eq!(result.text, Some(c"front left"));
+        assert!(result.required <= description.len());
+    }
+}
