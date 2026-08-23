@@ -3703,7 +3703,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Borrowed only for the call and not retained."
+      "note": "Borrowed only for the call and not retained. dst_size alone does not bound the writes: C compares it against av_image_get_buffer_size(pix_fmt, width, height, align) and only then copies. That guard is defeated by align <= 0, because FFALIGN(x, a) is (x + a - 1) & ~(a - 1), which is >= x only for a >= 1 -- at align == 0 the mask is zero, the required size is reported as zero, and C then memcpy's a full unaligned linesize per row into dst regardless of dst_size (ASan heap-buffer-overflow at imgutils.c:529). A caller-supplied alignment must be at least 1; it need not be a power of two, since v & ~m is always >= v - m."
      }
     }
    ]
@@ -3726,7 +3726,7 @@
       },
       "nullable": true,
       "mutable": false,
-      "note": "Borrowed only for the call and not retained."
+      "note": "Borrowed only for the call and not retained; the plane pointers written into dst_data alias into it and outlive the call, so the buffer must stay live as long as they are used. C never reads src here and never checks its extent: a NULL src makes the call a pure size preflight, which is how a caller learns the extent it must supply. The return value is that extent, and it is only meaningful for align >= 1 -- at align == 0 every aligned stride is zero, so C reports an extent of zero bytes for a real image, accepts an empty buffer, and records strides that a later av_image_copy_to_buffer reads in full."
      }
     }
    ]
@@ -3753,7 +3753,7 @@
       },
       "nullable": true,
       "mutable": true,
-      "note": "Borrowed only for the call and not retained."
+      "note": "Borrowed only for the call and not retained; the plane pointers written into data alias into it and outlive the call. A NULL ptr is a size preflight: C returns the extent before deriving any pointer, so nothing is offset from NULL. Unlike av_image_fill_arrays, this entry point never reaches av_image_check_size, so the height it is given is unvalidated -- av_image_fill_plane_sizes then evaluates SIZE_MAX / height, which is a division by zero for height == 0 (UBSan, imgutils.c:122), and a negative height reaches the same division through AV_CEIL_RSHIFT rounding a subsampled plane height to zero. The caller-supplied linesizes need no such guard: C's own SIZE_MAX and INT_MAX checks reject every stride whose plane extent leaves the int return range, negative strides included."
      }
     }
    ]
@@ -4491,7 +4491,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Outer slot is borrowed; the input dictionary is consumed and replaced by an owned remainder."
+      "note": "Outer slot is borrowed; the input dictionary is consumed and replaced by an owned remainder. That is the SUCCESS path only: av_opt_set_dict2 frees the caller's dictionary and stores the accumulated unmatched entries, which may be NULL when every entry matched an option. On any failure it frees only its own partial remainder and returns WITHOUT touching the slot, so the caller's original dictionary is still there and still owned by the caller. A wrapper that moves the dictionary out for the call must therefore re-adopt whatever the slot holds unconditionally -- adopting only on success leaks it, and dropping the moved-out owner on failure double-frees."
      }
     }
    ]
@@ -4986,7 +4986,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Caller table is borrowed; element zero receives ownership of the allocation and later planes alias it."
+      "note": "Caller table is borrowed; element zero receives ownership of the allocation and later planes alias it. The table must have one slot per plane (nb_channels for a planar format, otherwise one), since av_samples_fill_arrays memsets and fills exactly that many. The allocation is av_malloc, i.e. UNINITIALIZED, and the av_samples_set_silence call before returning covers only nb_samples * block_align bytes per plane while the allocation is sized from FFALIGN(nb_samples * sample_size, align) -- and, for align == 0, from a sample count first rounded up to a multiple of 32. The inter-plane and trailing padding therefore comes back uninitialized: a Rust owner must not present the extent as initialized bytes without writing that padding itself."
      }
     },
     {
@@ -5029,7 +5029,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Outer out-slot is borrowed and receives an owned pointer table whose first element owns the sample allocation."
+      "note": "Outer out-slot is borrowed and receives an owned pointer table whose first element owns the sample allocation. The two allocations are independent: the table is av_calloc(nb_planes, sizeof(uint8_t*)) and is released by av_free on its own, while the samples it points at are the av_samples_alloc block. On EVERY failure path C has already released the table and stored NULL, so an early return leaks nothing; on success nb_planes is at least one, because av_samples_get_buffer_size rejects a non-positive channel count. The sample allocation inherits av_samples_alloc's partial initialization: the padding past the silenced window is uninitialized av_malloc storage."
      }
     },
     {
