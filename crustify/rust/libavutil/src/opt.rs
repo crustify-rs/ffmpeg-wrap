@@ -1561,13 +1561,21 @@ mod scheduled_find_tests {
 }
 
 /// Wraps: av_opt_set_chlayout
+///
+/// The option field is left owning an independent deep copy: C runs
+/// `av_channel_layout_copy`, which disposes whatever the field held before
+/// installing the new value, so setting twice frees the first copy rather than
+/// leaking it.
 pub fn av_opt_set_chlayout(
     object: &mut OptionObjectMut<'_>,
     name: &CStr,
     layout: AVChannelLayoutRef<'_>,
     search_flags: i32,
 ) -> Result<(), OptSetError> {
-    // SAFETY: the object is exclusively borrowed, the layout is shared, and
+    reject_fake_object(search_flags)?;
+    // SAFETY: the object is exclusively borrowed, the layout is shared and —
+    // by `AVChannelLayout`'s invariant — carries a readable map for every
+    // channel it claims, which is what `av_channel_layout_copy` memcpy's from.
     // `name` is NUL-terminated. C retains none of the pointers and deep-copies
     // the layout into the selected option storage.
     result(unsafe {
@@ -2251,5 +2259,204 @@ mod scheduled_set_tests {
         assert!(object.text.is_null());
 
         object.release_owned_options();
+    }
+}
+
+#[cfg(test)]
+mod scheduled_chlayout_tests {
+    use core::mem::offset_of;
+
+    use ffibox::CVal;
+
+    use super::*;
+    use crate::channel_layout::{
+        AVChannelLayout, AVChannelOrder, av_channel_layout_compare, av_channel_layout_from_string,
+    };
+
+    /// An option object carrying a single `AV_OPT_TYPE_CHLAYOUT` field.
+    ///
+    /// It is its own object rather than another field on `scheduled_set_tests`'
+    /// `TestObject` because this option type owns storage: C deep-copies the
+    /// caller's layout into the field, and something has to release it the way
+    /// `av_opt_free` would. `CVal<AVChannelLayout>` is `#[repr(transparent)]`
+    /// down to `ffi::AVChannelLayout`, so the field is exactly the layout C
+    /// writes at `offset_of!(.., ch_layout)` and dropping the object disposes
+    /// it — a leak here would show up in the campaign's LSan run.
+    #[repr(C)]
+    struct ChLayoutObject {
+        class: *const ffi::AVClass,
+        ch_layout: CVal<AVChannelLayout>,
+    }
+
+    fn options() -> [ffi::AVOption; 2] {
+        [
+            ffi::AVOption {
+                name: c"chlayout".as_ptr(),
+                help: core::ptr::null(),
+                offset: i32::try_from(offset_of!(ChLayoutObject, ch_layout))
+                    .expect("field offsets are small"),
+                type_: ffi::AVOptionType_AV_OPT_TYPE_CHLAYOUT,
+                default_val: ffi::AVOption__bindgen_ty_1 { i64_: 0 },
+                min: 0.0,
+                max: 0.0,
+                flags: 0,
+                unit: core::ptr::null(),
+            },
+            // `av_opt_next` stops at the first NULL name, so the terminator
+            // cannot carry one.
+            ffi::AVOption {
+                name: core::ptr::null(),
+                help: core::ptr::null(),
+                offset: 0,
+                type_: ffi::AVOptionType_AV_OPT_TYPE_CHLAYOUT,
+                default_val: ffi::AVOption__bindgen_ty_1 { i64_: 0 },
+                min: 0.0,
+                max: 0.0,
+                flags: 0,
+                unit: core::ptr::null(),
+            },
+        ]
+    }
+
+    fn class(options: &[ffi::AVOption; 2]) -> ffi::AVClass {
+        ffi::AVClass {
+            class_name: c"crustify-chlayout-test".as_ptr(),
+            item_name: None,
+            option: options.as_ptr(),
+            version: 0,
+            log_level_offset_offset: 0,
+            parent_log_context_offset: 0,
+            category: 0,
+            get_category: None,
+            query_ranges: None,
+            child_next: None,
+            child_class_iterate: None,
+            state_flags_offset: 0,
+        }
+    }
+
+    fn object(class: &ffi::AVClass) -> ChLayoutObject {
+        ChLayoutObject {
+            class: core::ptr::from_ref(class),
+            ch_layout: CVal::new(AVChannelLayout::zeroed()),
+        }
+    }
+
+    #[test]
+    fn a_layout_is_deep_copied_into_the_option_field() {
+        let options = options();
+        let class = class(&options);
+        let mut object = object(&class);
+
+        let stereo = av_channel_layout_from_string(c"stereo").expect("a named layout");
+        {
+            // SAFETY: `object` is live, initialized and exclusively borrowed
+            // through this handle for the block; its first field is the class
+            // pointer C reads.
+            let mut handle =
+                unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            av_opt_set_chlayout(&mut handle, c"chlayout", stereo.as_ref(), 0)
+                .expect("set the channel layout");
+        }
+
+        // The field holds an independently disposable copy, not the caller's.
+        assert_eq!(object.ch_layout.as_ref().order(), AVChannelOrder::NATIVE);
+        assert_eq!(object.ch_layout.as_ref().nb_channels(), 2);
+        assert_eq!(
+            av_channel_layout_compare(stereo.as_ref(), object.ch_layout.as_ref()),
+            Ok(true)
+        );
+
+        // Setting a second time makes C dispose the first copy before storing
+        // the next one, so exactly one owner exists at every point.
+        let mono = av_channel_layout_from_string(c"mono").expect("a named layout");
+        {
+            // SAFETY: as above.
+            let mut handle =
+                unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            av_opt_set_chlayout(&mut handle, c"chlayout", mono.as_ref(), 0)
+                .expect("replace the channel layout");
+        }
+        assert_eq!(object.ch_layout.as_ref().nb_channels(), 1);
+    }
+
+    #[test]
+    fn a_custom_layout_copy_is_owned_by_the_option_field() {
+        // The only layout shape whose copy allocates: the option field ends up
+        // owning a second map, which the object's `CVal` has to free.
+        let options = options();
+        let class = class(&options);
+        let mut object = object(&class);
+
+        let custom = av_channel_layout_from_string(c"FL@head+FR@tail").expect("a custom layout");
+        assert_eq!(custom.as_ref().order(), AVChannelOrder::CUSTOM);
+        {
+            // SAFETY: as above.
+            let mut handle =
+                unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            av_opt_set_chlayout(&mut handle, c"chlayout", custom.as_ref(), 0)
+                .expect("set the custom layout");
+        }
+
+        let stored = object
+            .ch_layout
+            .as_ref()
+            .custom_map()
+            .expect("a custom map");
+        let source = custom.as_ref().custom_map().expect("a custom map");
+        assert_eq!(stored.len(), 2);
+        assert_ne!(
+            stored.get(0).unwrap().as_ptr(),
+            source.get(0).unwrap().as_ptr()
+        );
+        assert_eq!(stored.get(1).unwrap().id(), source.get(1).unwrap().id());
+    }
+
+    #[test]
+    fn the_chlayout_setter_rejects_a_fake_object_search() {
+        // The twelfth setter, on the same terms as its eleven siblings:
+        // `opt_set_init` resolves the option, gets no target object back —
+        // that is what the flag means — and then loads the class out of that
+        // NULL, which the sanitiser build reports as a SEGV in `opt.c`.
+        let options = options();
+        let class = class(&options);
+        let mut object = object(&class);
+        let stereo = av_channel_layout_from_string(c"stereo").expect("a named layout");
+
+        {
+            // SAFETY: `object` is live and exclusively borrowed for the block.
+            let mut handle =
+                unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            assert_eq!(
+                av_opt_set_chlayout(
+                    &mut handle,
+                    c"chlayout",
+                    stereo.as_ref(),
+                    ffi::AV_OPT_SEARCH_FAKE_OBJ as i32,
+                ),
+                Err(OptSetError::FakeObjectSearch)
+            );
+        }
+
+        assert_eq!(
+            object.ch_layout.as_ref().order(),
+            AVChannelOrder::UNSPECIFIED,
+            "the setter did not reach the object"
+        );
+    }
+
+    #[test]
+    fn an_unknown_name_is_an_ordinary_library_error() {
+        let options = options();
+        let class = class(&options);
+        let mut object = object(&class);
+        let stereo = av_channel_layout_from_string(c"stereo").expect("a named layout");
+        // SAFETY: `object` is live and exclusively borrowed for the block.
+        let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+
+        assert!(matches!(
+            av_opt_set_chlayout(&mut handle, c"missing", stereo.as_ref(), 0),
+            Err(OptSetError::Library(_))
+        ));
     }
 }

@@ -188,7 +188,7 @@
       "borrowed": null,
       "nullable": true,
       "mutable": true,
-      "note": "When order is CUSTOM, the layout owns an nb_channels-element AVChannelCustom array allocated by libavutil and released by av_channel_layout_uninit. Other union variants do not carry a live map. Ownership is EXCLUSIVE: two layouts must never hold the same map, since uninit frees it. C keeps that true even when it fails: av_channel_layout_copy assigns *dst = *src (map pointer included) but stores the refused av_malloc_array result into dst->u.map before testing it, so a failed destination is CUSTOM with a NULL map, not one aliasing the source; the same holds for the av_calloc failure in av_channel_layout_from_string's ambisonic branch."
+      "note": "When order is CUSTOM, the layout owns an nb_channels-element AVChannelCustom array allocated by libavutil and released by av_channel_layout_uninit. Other union variants do not carry a live map. Ownership is EXCLUSIVE: two layouts must never hold the same map, since uninit frees it. C keeps that true even when it fails: av_channel_layout_copy assigns *dst = *src (map pointer included) but stores the refused av_malloc_array result into dst->u.map before testing it, so a failed destination is CUSTOM with a NULL map, not one aliasing the source; the same holds for the av_calloc failure in av_channel_layout_from_string's ambisonic branch. NULL is therefore reachable under CUSTOM, but it is only DISPOSABLE, not READABLE: av_channel_layout_check is the sole reader that tests the pointer (answering 0), while channel_from_index, index_from_channel, index_from_string, describe_bprint, ambisonic_order, masked_description, has_channel_names, retype and copy all walk u.map[i] for i < nb_channels unguarded. A safe wrapper over a CUSTOM layout must exclude NULL whenever nb_channels > 0; nb_channels is the element count, not a capacity, and is non-negative under CUSTOM."
      }
     }
    ]
@@ -1312,7 +1312,7 @@
       },
       "nullable": false,
       "mutable": false,
-      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained. Initialized is not the whole precondition: under AV_CHANNEL_ORDER_CUSTOM the callee walks u.map[i] for i < nb_channels with no null test of its own, so a CUSTOM header whose u.map is NULL while nb_channels > 0 dereferences NULL here. C produces exactly that header itself, on av_channel_layout_copy's refused av_malloc_array and on the refused av_calloc in av_channel_layout_from_string's ambisonic branch, and av_channel_layout_check is the only reader in channel_layout.c that tests for it (answering 0). A safe Rust wrapper must therefore exclude the shape, not merely carry the pointer and the count."
      }
     }
    ]
@@ -1335,7 +1335,7 @@
       },
       "nullable": false,
       "mutable": false,
-      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained. Initialized is not the whole precondition: under AV_CHANNEL_ORDER_CUSTOM the callee walks u.map[i] for i < nb_channels with no null test of its own, so a CUSTOM header whose u.map is NULL while nb_channels > 0 dereferences NULL here. C produces exactly that header itself, on av_channel_layout_copy's refused av_malloc_array and on the refused av_calloc in av_channel_layout_from_string's ambisonic branch, and av_channel_layout_check is the only reader in channel_layout.c that tests for it (answering 0). A safe Rust wrapper must therefore exclude the shape, not merely carry the pointer and the count."
      }
     },
     {
@@ -1398,7 +1398,7 @@
       },
       "nullable": false,
       "mutable": false,
-      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained. Initialized is not the whole precondition: under AV_CHANNEL_ORDER_CUSTOM the callee walks u.map[i] for i < nb_channels with no null test of its own, so a CUSTOM header whose u.map is NULL while nb_channels > 0 dereferences NULL here. C produces exactly that header itself, on av_channel_layout_copy's refused av_malloc_array and on the refused av_calloc in av_channel_layout_from_string's ambisonic branch, and av_channel_layout_check is the only reader in channel_layout.c that tests for it (answering 0). A safe Rust wrapper must therefore exclude the shape, not merely carry the pointer and the count."
      }
     },
     {
@@ -1415,7 +1415,7 @@
       },
       "nullable": false,
       "mutable": false,
-      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained. Initialized is not the whole precondition: under AV_CHANNEL_ORDER_CUSTOM the callee walks u.map[i] for i < nb_channels with no null test of its own, so a CUSTOM header whose u.map is NULL while nb_channels > 0 dereferences NULL here. C produces exactly that header itself, on av_channel_layout_copy's refused av_malloc_array and on the refused av_calloc in av_channel_layout_from_string's ambisonic branch, and av_channel_layout_check is the only reader in channel_layout.c that tests for it (answering 0). A safe Rust wrapper must therefore exclude the shape, not merely carry the pointer and the count."
      }
     }
    ]
@@ -1447,7 +1447,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Mutably borrows a destination layout, first disposing its old CUSTOM map, then installs a deep copy of src."
+      "note": "Mutably borrows a destination layout, first disposing its old CUSTOM map, then installs a deep copy of src. The slot must therefore hold an initialized, disposable layout, not raw storage. On its one failure (a refused av_malloc_array) it leaves dst holding a CUSTOM header with a NULL u.map and src's nb_channels: still disposable \u2014 the refused result is stored INTO dst->u.map before being tested, so the pointer *dst = *src copied out of src is overwritten with NULL and the two never alias \u2014 but no longer readable, since every other reader indexes u.map without a null test."
      }
     },
     {
@@ -1464,7 +1464,7 @@
       },
       "nullable": false,
       "mutable": false,
-      "note": "Transient shared source borrow; a CUSTOM map is deep-copied while the application opaque pointer is copied by address."
+      "note": "Transient shared source borrow; a CUSTOM map is deep-copied while the application opaque pointer is copied by address. Under AV_CHANNEL_ORDER_CUSTOM C memcpy's nb_channels entries out of src->u.map with no null test, so a CUSTOM header whose u.map is NULL while nb_channels > 0 reads from NULL here \u2014 the same precondition the indexing readers carry."
      }
     }
    ]
@@ -1487,7 +1487,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Exclusive borrow of an uninitialized channel-layout result slot initialized in place; not retained."
+      "note": "Exclusive borrow of a channel-layout result slot written in place; not retained. The slot must already hold an initialized layout rather than uninitialized storage: only the table-hit path assigns the whole struct (*ch_layout = channel_layout_map[i].layout), while the fallback writes just order and nb_channels and leaves u and opaque exactly as it found them. A negative or unknown nb_channels is not an error here \u2014 it yields an UNSPEC layout with that count. C does not dispose the previous value, so any map the slot held leaks."
      }
     }
    ]
@@ -1508,9 +1508,9 @@
       "borrowed": {
        "lifetime": "arg:buf"
       },
-      "nullable": false,
+      "nullable": true,
       "mutable": true,
-      "note": "Caller-owned output buffer of buf_size bytes; C writes a truncated NUL-terminated description when capacity permits and does not retain it."
+      "note": "Caller-owned output buffer of buf_size bytes; C writes a NUL-terminated description, truncated to fit, and does not retain it. NULL is accepted, but only together with buf_size == 0: C tests `if (!buf && buf_size) return EINVAL` and then hands the pair to av_bprint_init_for_buffer, which for size 0 switches to AV_BPRINT_SIZE_COUNT_ONLY and never touches the pointer. The return is the size the description needs including the terminator (bp.len + 1), so it may exceed buf_size and is not a written-byte count."
      }
     },
     {
@@ -1527,7 +1527,7 @@
       },
       "nullable": false,
       "mutable": false,
-      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained. Initialized is not the whole precondition: under AV_CHANNEL_ORDER_CUSTOM the callee walks u.map[i] for i < nb_channels with no null test of its own, so a CUSTOM header whose u.map is NULL while nb_channels > 0 dereferences NULL here. C produces exactly that header itself, on av_channel_layout_copy's refused av_malloc_array and on the refused av_calloc in av_channel_layout_from_string's ambisonic branch, and av_channel_layout_check is the only reader in channel_layout.c that tests for it (answering 0). A safe Rust wrapper must therefore exclude the shape, not merely carry the pointer and the count."
      }
     }
    ]
@@ -1550,7 +1550,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Exclusive borrow of an uninitialized channel-layout result slot initialized in place; not retained."
+      "note": "Exclusive borrow of a channel-layout result slot written in place; not retained. As with av_channel_layout_default the slot must already hold an initialized layout: C writes order, nb_channels and u.mask but never opaque, and on its one rejection (mask == 0) writes nothing at all. It does not dispose the previous value, so any map the slot held leaks."
      }
     }
    ]
@@ -1613,7 +1613,7 @@
       },
       "nullable": false,
       "mutable": false,
-      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained. Initialized is not the whole precondition: under AV_CHANNEL_ORDER_CUSTOM the callee walks u.map[i] for i < nb_channels with no null test of its own, so a CUSTOM header whose u.map is NULL while nb_channels > 0 dereferences NULL here. C produces exactly that header itself, on av_channel_layout_copy's refused av_malloc_array and on the refused av_calloc in av_channel_layout_from_string's ambisonic branch, and av_channel_layout_check is the only reader in channel_layout.c that tests for it (answering 0). A safe Rust wrapper must therefore exclude the shape, not merely carry the pointer and the count."
      }
     }
    ]
@@ -1636,7 +1636,7 @@
       },
       "nullable": false,
       "mutable": false,
-      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained. Initialized is not the whole precondition: under AV_CHANNEL_ORDER_CUSTOM the callee walks u.map[i] for i < nb_channels with no null test of its own, so a CUSTOM header whose u.map is NULL while nb_channels > 0 dereferences NULL here. C produces exactly that header itself, on av_channel_layout_copy's refused av_malloc_array and on the refused av_calloc in av_channel_layout_from_string's ambisonic branch, and av_channel_layout_check is the only reader in channel_layout.c that tests for it (answering 0). A safe Rust wrapper must therefore exclude the shape, not merely carry the pointer and the count."
      }
     },
     {
@@ -1743,7 +1743,7 @@
       },
       "nullable": false,
       "mutable": false,
-      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained. Initialized is not the whole precondition: under AV_CHANNEL_ORDER_CUSTOM the callee walks u.map[i] for i < nb_channels with no null test of its own, so a CUSTOM header whose u.map is NULL while nb_channels > 0 dereferences NULL here. C produces exactly that header itself, on av_channel_layout_copy's refused av_malloc_array and on the refused av_calloc in av_channel_layout_from_string's ambisonic branch, and av_channel_layout_check is the only reader in channel_layout.c that tests for it (answering 0). A safe Rust wrapper must therefore exclude the shape, not merely carry the pointer and the count."
      }
     }
    ]
@@ -4412,7 +4412,7 @@
       },
       "nullable": false,
       "mutable": false,
-      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained."
+      "note": "Required shared borrow of one initialized channel layout for the duration of the call; not retained. Initialized is not the whole precondition: under AV_CHANNEL_ORDER_CUSTOM the callee walks u.map[i] for i < nb_channels with no null test of its own, so a CUSTOM header whose u.map is NULL while nb_channels > 0 dereferences NULL here. C produces exactly that header itself, on av_channel_layout_copy's refused av_malloc_array and on the refused av_calloc in av_channel_layout_from_string's ambisonic branch, and av_channel_layout_check is the only reader in channel_layout.c that tests for it (answering 0). A safe Rust wrapper must therefore exclude the shape, not merely carry the pointer and the count."
      }
     },
     {
@@ -4446,7 +4446,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": "Exclusive borrow of a type-erased AVClass-bearing option object; selected option storage may be replaced but the object is not retained."
+      "note": "Exclusive borrow of a type-erased AVClass-bearing option object; the selected option's storage is replaced but the object is not retained. search_flags is an untyped mode selector on top of the pointer: with AV_OPT_SEARCH_FAKE_OBJ set, av_opt_find2 reports no target object \u2014 that is what the flag means \u2014 and opt_set_init then loads the class out of that NULL (opt.c:195), which the campaign's sanitiser build reports as a load of a null 'const struct AVClass *' followed by a SEGV. The flag can never do useful work in a setter, since a fake object has no field to write to, so a safe wrapper must refuse it before the call, as the other eleven av_opt_set* wrappers do."
      }
     }
    ]
