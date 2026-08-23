@@ -638,20 +638,23 @@ impl<'a> AVOptionRef<'a> {
 
 #[cfg(test)]
 mod tests {
-    use core::mem::{align_of, size_of};
+    use core::mem::{align_of, offset_of, size_of};
 
     use super::*;
 
     #[test]
     fn array_definition_is_layout_compatible_and_accessible() {
-        assert_eq!(
-            size_of::<AVOptionArrayDef>(),
-            size_of::<ffi::AVOptionArrayDef>()
-        );
-        assert_eq!(
-            align_of::<AVOptionArrayDef>(),
-            align_of::<ffi::AVOptionArrayDef>()
-        );
+        // `AVOptionArrayDef` is `#[repr(transparent)]` over the bindgen
+        // struct, so comparing the two sizes cannot fail. Assert the C ABI
+        // opt.h actually describes: a pointer, two `unsigned` and a `char`,
+        // padded to pointer alignment.
+        assert_eq!(size_of::<ffi::AVOptionArrayDef>(), 24);
+        assert_eq!(align_of::<ffi::AVOptionArrayDef>(), 8);
+        assert_eq!(offset_of!(ffi::AVOptionArrayDef, def), 0);
+        assert_eq!(offset_of!(ffi::AVOptionArrayDef, size_min), 8);
+        assert_eq!(offset_of!(ffi::AVOptionArrayDef, size_max), 12);
+        assert_eq!(offset_of!(ffi::AVOptionArrayDef, sep), 16);
+        assert_eq!(size_of::<AVOptionArrayDef>(), size_of::<ffi::AVOptionArrayDef>());
 
         let mut raw = ffi::AVOptionArrayDef {
             def: core::ptr::null(),
@@ -787,8 +790,12 @@ mod tests {
 
     #[test]
     fn option_type_preserves_raw_and_array_values() {
-        assert_eq!(size_of::<AVOptionType>(), size_of::<ffi::AVOptionType>());
-        assert_eq!(align_of::<AVOptionType>(), align_of::<ffi::AVOptionType>());
+        // Transparent over `ffi::AVOptionType`, so compare against the type C
+        // gives the enum instead: every enumerator is non-negative, so its
+        // underlying type is `unsigned int`.
+        assert_eq!(size_of::<AVOptionType>(), size_of::<c_uint>());
+        assert_eq!(align_of::<AVOptionType>(), align_of::<c_uint>());
+        assert_eq!(AVOptionType::FLAG_ARRAY.as_raw(), 1 << 16);
 
         let array = AVOptionType::STRING.with_array();
         assert!(array.is_array());
