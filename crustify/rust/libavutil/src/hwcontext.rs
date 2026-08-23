@@ -16,25 +16,51 @@ use crate::pixfmt::AVPixelFormat;
 /// Identifies the hardware API backing a device context. The transparent
 /// representation also preserves values introduced by newer libavutil
 /// versions rather than turning an unknown C value into an invalid Rust enum.
+///
+/// Holding an unrecognized value is safe at every libavutil entry point that
+/// takes this type: the name lookup range-checks its table, and the context
+/// constructors and derivations search the backend table by equality. An
+/// unknown value is therefore reported as "no such device" and never used as
+/// an unchecked index, which is what makes [`from_raw`](Self::from_raw) safe.
+///
+/// Each constant below names the string libavutil uses for it in
+/// [`av_hwdevice_get_type_name`] and [`av_hwdevice_find_type_by_name`].
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AVHWDeviceType(ffi::AVHWDeviceType);
 
 impl AVHWDeviceType {
+    /// No device. This is the value returned for an unrecognized device name
+    /// and the terminator of [`av_hwdevice_iterate_types`]; no context can be
+    /// allocated for it.
     pub const NONE: Self = Self(ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_NONE);
+    /// VDPAU (`vdpau`).
     pub const VDPAU: Self = Self(ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_VDPAU);
+    /// CUDA (`cuda`).
     pub const CUDA: Self = Self(ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_CUDA);
+    /// VA-API (`vaapi`).
     pub const VAAPI: Self = Self(ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_VAAPI);
+    /// DXVA2 (`dxva2`).
     pub const DXVA2: Self = Self(ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_DXVA2);
+    /// Intel Quick Sync Video (`qsv`).
     pub const QSV: Self = Self(ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_QSV);
+    /// VideoToolbox (`videotoolbox`).
     pub const VIDEOTOOLBOX: Self = Self(ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_VIDEOTOOLBOX);
+    /// Direct3D 11 video acceleration (`d3d11va`).
     pub const D3D11VA: Self = Self(ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_D3D11VA);
+    /// Linux DRM (`drm`).
     pub const DRM: Self = Self(ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_DRM);
+    /// OpenCL (`opencl`).
     pub const OPENCL: Self = Self(ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_OPENCL);
+    /// Android MediaCodec (`mediacodec`).
     pub const MEDIACODEC: Self = Self(ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_MEDIACODEC);
+    /// Vulkan (`vulkan`).
     pub const VULKAN: Self = Self(ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_VULKAN);
+    /// Direct3D 12 video acceleration (`d3d12va`).
     pub const D3D12VA: Self = Self(ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_D3D12VA);
+    /// AMD Advanced Media Framework (`amf`).
     pub const AMF: Self = Self(ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_AMF);
+    /// OpenHarmony codec (`ohcodec`).
     pub const OHCODEC: Self = Self(ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_OHCODEC);
 
     /// Wraps a raw C enum value, including one unknown to this crate version.
@@ -65,12 +91,21 @@ impl From<AVHWDeviceType> for ffi::AVHWDeviceType {
 /// Selects whether formats are queried as sources of, or targets for, a
 /// hardware-frame transfer. Unknown C values remain representable without
 /// creating an invalid Rust enum.
+///
+/// The value reaches a hardware backend's format query, where every in-tree
+/// backend either compares it against the two documented directions or
+/// ignores it. No backend indexes with it, so an unrecognized value selects a
+/// backend's default answer rather than reading out of bounds.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AVHWFrameTransferDirection(ffi::AVHWFrameTransferDirection);
 
 impl AVHWFrameTransferDirection {
+    /// Query the formats data can be transferred *from* the hardware frame
+    /// into.
     pub const FROM: Self = Self(ffi::AVHWFrameTransferDirection_AV_HWFRAME_TRANSFER_DIRECTION_FROM);
+    /// Query the formats data can be transferred *to* the hardware frame
+    /// from.
     pub const TO: Self = Self(ffi::AVHWFrameTransferDirection_AV_HWFRAME_TRANSFER_DIRECTION_TO);
 
     /// Wraps a raw C enum value, including one unknown to this crate version.
@@ -102,6 +137,98 @@ mod tests {
 
     use super::*;
 
+    /// Every device-type constant, the binding it must equal, and the name
+    /// libavutil publishes for it. The name table is compiled unconditionally,
+    /// so these names hold whatever backends this build enables.
+    const DEVICE_TYPES: &[(AVHWDeviceType, ffi::AVHWDeviceType, Option<&CStr>)] = &[
+        (
+            AVHWDeviceType::NONE,
+            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_NONE,
+            None,
+        ),
+        (
+            AVHWDeviceType::VDPAU,
+            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_VDPAU,
+            Some(c"vdpau"),
+        ),
+        (
+            AVHWDeviceType::CUDA,
+            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_CUDA,
+            Some(c"cuda"),
+        ),
+        (
+            AVHWDeviceType::VAAPI,
+            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_VAAPI,
+            Some(c"vaapi"),
+        ),
+        (
+            AVHWDeviceType::DXVA2,
+            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_DXVA2,
+            Some(c"dxva2"),
+        ),
+        (
+            AVHWDeviceType::QSV,
+            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_QSV,
+            Some(c"qsv"),
+        ),
+        (
+            AVHWDeviceType::VIDEOTOOLBOX,
+            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
+            Some(c"videotoolbox"),
+        ),
+        (
+            AVHWDeviceType::D3D11VA,
+            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_D3D11VA,
+            Some(c"d3d11va"),
+        ),
+        (
+            AVHWDeviceType::DRM,
+            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_DRM,
+            Some(c"drm"),
+        ),
+        (
+            AVHWDeviceType::OPENCL,
+            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_OPENCL,
+            Some(c"opencl"),
+        ),
+        (
+            AVHWDeviceType::MEDIACODEC,
+            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_MEDIACODEC,
+            Some(c"mediacodec"),
+        ),
+        (
+            AVHWDeviceType::VULKAN,
+            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_VULKAN,
+            Some(c"vulkan"),
+        ),
+        (
+            AVHWDeviceType::D3D12VA,
+            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_D3D12VA,
+            Some(c"d3d12va"),
+        ),
+        (
+            AVHWDeviceType::AMF,
+            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_AMF,
+            Some(c"amf"),
+        ),
+        (
+            AVHWDeviceType::OHCODEC,
+            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_OHCODEC,
+            Some(c"ohcodec"),
+        ),
+    ];
+
+    const TRANSFER_DIRECTIONS: &[(AVHWFrameTransferDirection, ffi::AVHWFrameTransferDirection)] = &[
+        (
+            AVHWFrameTransferDirection::FROM,
+            ffi::AVHWFrameTransferDirection_AV_HWFRAME_TRANSFER_DIRECTION_FROM,
+        ),
+        (
+            AVHWFrameTransferDirection::TO,
+            ffi::AVHWFrameTransferDirection_AV_HWFRAME_TRANSFER_DIRECTION_TO,
+        ),
+    ];
+
     #[test]
     fn device_type_is_layout_compatible_and_round_trips() {
         assert_eq!(
@@ -112,13 +239,39 @@ mod tests {
             align_of::<AVHWDeviceType>(),
             align_of::<ffi::AVHWDeviceType>()
         );
-        assert_eq!(
-            AVHWDeviceType::VULKAN.as_raw(),
-            ffi::AVHWDeviceType_AV_HWDEVICE_TYPE_VULKAN
-        );
 
         let unknown = ffi::AVHWDeviceType::MAX;
         assert_eq!(AVHWDeviceType::from_raw(unknown).as_raw(), unknown);
+    }
+
+    /// A constant bound to the wrong sibling would still compile and still
+    /// round-trip, so pin each one to its binding and to the name the linked
+    /// libavutil reports for that value.
+    #[test]
+    fn device_type_constants_match_the_c_enum_and_its_name_table() {
+        for (index, &(wrapped, raw, name)) in DEVICE_TYPES.iter().enumerate() {
+            assert_eq!(wrapped.as_raw(), raw);
+            assert_eq!(wrapped, AVHWDeviceType::from(raw));
+            assert_eq!(ffi::AVHWDeviceType::from(wrapped), raw);
+            assert_eq!(av_hwdevice_get_type_name(wrapped), name);
+            if let Some(name) = name {
+                assert_eq!(av_hwdevice_find_type_by_name(name), wrapped);
+            }
+            assert!(
+                DEVICE_TYPES[..index]
+                    .iter()
+                    .all(|&(earlier, ..)| earlier != wrapped)
+            );
+        }
+    }
+
+    /// Values libavutil does not know are the reason this is a newtype rather
+    /// than a Rust enum: they stay representable and stay nameless.
+    #[test]
+    fn unknown_device_type_has_no_name() {
+        let unknown = AVHWDeviceType::from_raw(ffi::AVHWDeviceType::MAX);
+        assert_eq!(av_hwdevice_get_type_name(unknown), None);
+        assert!(av_hwdevice_ctx_alloc(unknown).is_none());
     }
 
     #[test]
@@ -131,15 +284,24 @@ mod tests {
             align_of::<AVHWFrameTransferDirection>(),
             align_of::<ffi::AVHWFrameTransferDirection>()
         );
-        assert_eq!(
-            AVHWFrameTransferDirection::FROM.as_raw(),
-            ffi::AVHWFrameTransferDirection_AV_HWFRAME_TRANSFER_DIRECTION_FROM
-        );
 
         let unknown = ffi::AVHWFrameTransferDirection::MAX;
         assert_eq!(
             AVHWFrameTransferDirection::from_raw(unknown).as_raw(),
             unknown
+        );
+    }
+
+    #[test]
+    fn transfer_direction_constants_match_the_c_enum() {
+        for &(wrapped, raw) in TRANSFER_DIRECTIONS {
+            assert_eq!(wrapped.as_raw(), raw);
+            assert_eq!(wrapped, AVHWFrameTransferDirection::from(raw));
+            assert_eq!(ffi::AVHWFrameTransferDirection::from(wrapped), raw);
+        }
+        assert_ne!(
+            AVHWFrameTransferDirection::FROM,
+            AVHWFrameTransferDirection::TO
         );
     }
 }
@@ -370,9 +532,10 @@ pub fn av_hwframe_ctx_init(
     }
 }
 
-/// An owned, nonempty list of pixel formats returned by a hardware backend.
-/// The sentinel is retained inside the private allocation but omitted from the
-/// safe indexed view.
+/// An owned list of pixel formats returned by a hardware backend. A backend
+/// may report none — VA-API does so when the driver exposes no image format —
+/// so the list can be empty. The terminating sentinel is retained inside the
+/// private allocation but omitted from the safe indexed view.
 pub struct HWFrameTransferFormats {
     allocation: CVec<ffi::AVPixelFormat, AvFree>,
     len: usize,
