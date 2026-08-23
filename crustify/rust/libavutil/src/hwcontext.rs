@@ -407,6 +407,26 @@ impl HWFramesContext {
     fn buffer_ref(&self) -> AVBufferReferenceRef<'_> {
         self.0.as_ref()
     }
+
+    /// Adopts an owned reference header as this typed context.
+    ///
+    /// Crate-internal, for the one field libavutil stores a frames context in:
+    /// [`AVFrame.hw_frames_ctx`](crate::frame::AVFrameRef::hardware_frames_context).
+    ///
+    /// # Safety
+    ///
+    /// `reference` must own a count on a buffer whose data is an *initialized*
+    /// `AVHWFramesContext`. Every consumer of this type casts that data and
+    /// calls through the backend function table it finds there.
+    pub(crate) unsafe fn from_reference(reference: CBox<AVBufferReference>) -> Self {
+        Self(reference)
+    }
+
+    /// Surrenders the owned reference header, leaving its release to the
+    /// caller. The inbound dual of [`from_reference`](Self::from_reference).
+    pub(crate) fn into_reference(self) -> CBox<AVBufferReference> {
+        self.0
+    }
 }
 
 /// Wraps: av_hwdevice_ctx_alloc

@@ -548,14 +548,85 @@ define_ctype!(
     /// ABI-compatible frame storage. Owned frames use `CBox<AVFrame>`;
     /// borrowed access goes through pointer-carrying handles and never forms a
     /// Rust reference to memory libavutil may mutate.
+    ///
+    /// # Invariant
+    ///
+    /// `AVFrameRef::from_ptr` and `AVFrameMut::from_ptr` promise only that the
+    /// header itself is live and initialized. Every wrapped frame additionally
+    /// satisfies, and every unsafe constructor of one owes:
+    ///
+    /// - **Owners.** `buf[i]` is null, or one live [`AVBufferReference`] owned
+    ///   by this frame and satisfying that type's own invariant, with the
+    ///   non-null slots contiguous. `extended_buf` is null with
+    ///   `nb_extended_buf == 0`, or a frame-owned table of `nb_extended_buf`
+    ///   such references. `side_data` is null with `nb_side_data == 0`, or a
+    ///   frame-owned table of `nb_side_data` non-null entries, each satisfying
+    ///   [`AVFrameSideData`]'s invariant. `metadata` is null or one frame-owned
+    ///   dictionary, `opaque_ref` null or one frame-owned reference header, and
+    ///   `ch_layout` a layout owned by this frame satisfying
+    ///   [`AVChannelLayout`]'s invariant.
+    /// - **Planes and geometry.** `data[i]` is null, or a plane address inside
+    ///   one of those buffers — inside caller-managed storage when `buf[0]` is
+    ///   null — and `extended_data` is null, `data` itself, or a frame-owned
+    ///   table of `ch_layout.nb_channels` such addresses. Every non-null plane
+    ///   is valid for the extent the geometry describes: `format`, `width`,
+    ///   `height` and `linesize` for video, `format`, `nb_samples`, `ch_layout`
+    ///   and `linesize[0]` for audio. This half is a *relation*, not a
+    ///   per-field property. `av_frame_copy` (`frame.c:711`) checks only that
+    ///   the destination is no smaller than the source, then copies
+    ///   `src->width` bytes per row for `src->height` rows through `data`
+    ///   (`frame_copy_video`, `frame.c:684`), so a geometry that outruns its
+    ///   allocation is a heap overflow with no `unsafe` in the caller. That is
+    ///   why [`set_width`](AVFrameMut::set_width) and its siblings refuse a
+    ///   frame that already holds planes, and why
+    ///   [`set_line_size`](AVFrameMut::set_line_size) is `unsafe`.
+    /// - **Hardware frames.** `hw_frames_ctx` is null, or one frame-owned
+    ///   reference whose buffer holds the initialized hardware frames context
+    ///   these planes were allocated from. `av_frame_copy` routes either frame
+    ///   carrying one to `av_hwframe_transfer_data`, which loads
+    ///   `hw_frames_ctx->data->hw_type->transfer_data_from`
+    ///   (`hwcontext.c:490`) and hands it the planes, so both halves — that the
+    ///   buffer is a frames context at all, and that it describes these
+    ///   planes — are load-bearing. Neither is expressible in a signature, so
+    ///   [`replace_hardware_frames_context`](AVFrameMut::replace_hardware_frames_context)
+    ///   is `unsafe` and takes the typed context.
+    /// - **Internal and application slots.** `private_ref` is null or an
+    ///   internal RefStruct reference belonging to one libav\* library, which
+    ///   this crate only tests for presence; `opaque` carries identity only and
+    ///   libavutil never dereferences it.
+    ///
+    /// The producers discharge it. `av_frame_alloc` zeroes the header and
+    /// writes the documented defaults (`get_frame_defaults`, `frame.c:31`),
+    /// leaving every owner null and every geometry field describing nothing;
+    /// `av_frame_get_buffer` installs planes and buffers computed from the
+    /// geometry it reads; `av_frame_ref` and `av_frame_clone` re-reference or
+    /// copy a frame that already satisfies it; `av_frame_unref` restores the
+    /// unallocated state; and `av_hwframe_get_buffer` (`hwcontext.c:506`) is
+    /// what installs `hw_frames_ctx`, together with the surfaces it describes.
+    ///
+    /// The safe writers in this crate preserve it: the geometry setters refuse
+    /// a frame that holds planes, each `replace_*` exchanges one owner for
+    /// another of the same kind, `side_data_mut` and `metadata_mut` reach the
+    /// dependent types' own preserving surfaces, and the wrapped `av_frame_*`
+    /// entry points leave a frame libavutil considers valid on both their
+    /// success and failure paths.
+    ///
+    /// [`AVBufferReference`]: crate::buffer::AVBufferReference
+    /// [`AVChannelLayout`]: crate::channel_layout::AVChannelLayout
     AVFrame,
     AVFrameRef,
     AVFrameMut,
     ffi::AVFrame
 );
 
-// SAFETY: av_frame_free consumes one initialized, independently owned frame,
-// releases all of its fields and header storage, and nulls the local slot.
+// SAFETY: av_frame_free (frame.c:63) unrefs every owner the type invariant
+// names and then av_freeps the header, so the obligation this impl adds to the
+// trait's "fully constructed" is twofold: the frame satisfies that invariant,
+// and its header is one independent av_malloc-family allocation — what
+// av_frame_alloc returns. A frame embedded in other storage, or an
+// `AVFrame::zeroed()` on the stack, is fully constructed and still not a valid
+// payload for this destructor; only the unsafe `CBox::from_raw` seam can offer
+// one, and `av_frame_alloc` is this crate's only caller of it.
 unsafe impl ffibox::CDropped for AVFrame {
     unsafe fn c_drop(obj: NonNull<Self>) {
         let mut frame = obj.as_ptr().cast::<ffi::AVFrame>();
@@ -565,8 +636,17 @@ unsafe impl ffibox::CDropped for AVFrame {
     }
 }
 
-// SAFETY: av_frame_clone leaves its source live and returns either NULL or a
-// new frame header whose referenced resources can be independently released.
+// SAFETY: av_frame_clone is av_frame_alloc + av_frame_ref (frame.c:483). It
+// leaves the source frame's own header and slots in place: for a refcounted
+// source it takes an independent reference to each buffer, and for a source
+// with no buf[0] it allocates and copies, reading the planes through exactly
+// the geometry relation the type invariant pins. Either way the result owes one
+// independent av_frame_free.
+//
+// The failure return is NULL, and `Clone` turns that into an abort. Failure is
+// routine rather than only an allocation error — cloning a frame that holds no
+// data reaches av_frame_get_buffer with format -1 and comes back EINVAL — so
+// callers want `try_clone`.
 unsafe impl ffibox::CCloned for AVFrame {
     unsafe fn c_clone(obj: NonNull<Self>) -> Option<NonNull<Self>> {
         // SAFETY: the trait contract supplies a live initialized source.
@@ -631,6 +711,42 @@ macro_rules! frame_scalar {
     };
 }
 
+macro_rules! frame_geometry_scalar {
+    ($(#[$meta:meta])* $get:ident, $set:ident, $field:ident, $ty:ty) => {
+        impl AVFrameRef<'_> {
+            $(#[$meta])*
+            #[must_use]
+            pub fn $get(&self) -> $ty {
+                // SAFETY: the scalar is copied from a live frame through a raw
+                // projection, without forming a reference to C storage.
+                unsafe { addr_of!((*self.as_ptr()).$field).read() }
+            }
+        }
+        impl AVFrameMut<'_> {
+            $(#[$meta])*
+            ///
+            /// Refuses, returning `false` and writing nothing, unless the frame
+            /// [holds no planes](AVFrameRef::is_unallocated). This field is one
+            /// half of the geometry relation in [`AVFrame`]'s invariant: while
+            /// the frame describes no data it constrains nothing, and
+            /// `av_frame_get_buffer` re-establishes the relation from whatever
+            /// it then reads. Changing it under installed planes would leave
+            /// libavutil copying an extent the allocation does not cover.
+            /// `av_frame_unref` is how a frame becomes writable again.
+            pub fn $set(&mut self, value: $ty) -> bool {
+                if !self.as_ref().is_unallocated() {
+                    return false;
+                }
+                // SAFETY: the exclusive handle permits replacing this scalar,
+                // and the check above proves no plane or buffer currently
+                // depends on its value.
+                unsafe { core::ptr::addr_of_mut!((*self.as_mut_ptr()).$field).write(value) }
+                true
+            }
+        }
+    };
+}
+
 macro_rules! frame_scalar_readonly {
     ($(#[$meta:meta])* $get:ident, $field:ident, $ty:ty) => {
         impl AVFrameRef<'_> {
@@ -673,7 +789,9 @@ impl<'a> AVFrameRef<'a> {
         }
         // SAFETY: the initialized inline array is copied through a raw projection.
         let buffers = unsafe { addr_of!((*self.as_ptr()).buf).read() };
-        // SAFETY: a non-null header is owned and kept live by the frame.
+        // SAFETY: by this type's invariant a non-null slot is one live
+        // reference header owned by the frame, satisfying AVBufferReference's
+        // own invariant and kept alive for `'a` by the frame.
         unsafe { AVBufferReferenceRef::from_ptr(buffers[index]) }
     }
 
@@ -687,6 +805,41 @@ impl<'a> AVFrameRef<'a> {
         // SAFETY: the borrowed source header is live for this call; a non-null
         // result is a new independently releasable reference header.
         unsafe { ffibox::CBox::from_raw(ffi::av_buffer_ref(source.as_ptr().cast_mut())) }
+    }
+
+    /// Wraps: AVFrame.data
+    ///
+    /// Whether the frame currently describes no picture or sample data: every
+    /// `data` and `buf` slot is null, it owns no extended table, and
+    /// `extended_data` is either unset or the inline `data` array itself.
+    ///
+    /// This is the state `av_frame_alloc` produces and `av_frame_unref`
+    /// restores, and it is the one in which the geometry fields constrain
+    /// nothing, so the setters that write them are gated on it. It is also what
+    /// C's own `av_frame_get_buffer` warning asks for — "if frame already has
+    /// been allocated, calling this function will leak memory" — since the call
+    /// overwrites `data`, `linesize` and `buf` without releasing what was there.
+    #[must_use]
+    pub fn is_unallocated(&self) -> bool {
+        let frame = self.as_ptr();
+        // SAFETY: the inline arrays and scalars are copied through raw
+        // projections from the live frame, and `inline` is only the address of
+        // the `data` array, so no reference to C storage is formed.
+        let (planes, buffers, extended_data, extended_buf, nb_extended_buf, inline) = unsafe {
+            (
+                addr_of!((*frame).data).read(),
+                addr_of!((*frame).buf).read(),
+                addr_of!((*frame).extended_data).read(),
+                addr_of!((*frame).extended_buf).read(),
+                addr_of!((*frame).nb_extended_buf).read(),
+                addr_of!((*frame).data).cast::<*mut u8>(),
+            )
+        };
+        planes.iter().all(|plane| plane.is_null())
+            && buffers.iter().all(|buffer| buffer.is_null())
+            && (extended_data.is_null() || extended_data.cast_const() == inline)
+            && extended_buf.is_null()
+            && nb_extended_buf == 0
     }
 
     /// Wraps: AVFrame.data
@@ -712,14 +865,17 @@ impl<'a> AVFrameRef<'a> {
         if index >= len {
             return None;
         }
-        // SAFETY: a valid frame owns a `len`-entry table; index is checked.
+        // SAFETY: by this type's invariant a non-null `side_data` addresses
+        // `nb_side_data` entries, and `index` is checked against that count.
         let entry = unsafe {
             addr_of!((*self.as_ptr()).side_data)
                 .read()
                 .add(index)
                 .read()
         };
-        // SAFETY: a non-null entry remains owned and live with the frame.
+        // SAFETY: the same invariant makes every entry in that table a live
+        // header satisfying AVFrameSideData's own invariant, owned by the
+        // frame and so alive for `'a`.
         unsafe { AVFrameSideDataRef::from_ptr(entry) }
     }
 
@@ -784,13 +940,51 @@ impl<'a> AVFrameRef<'a> {
         unsafe { AVBufferReferenceRef::from_ptr(pointer) }
     }
 
+    /// Wraps: AVFrame.opaque_ref
+    ///
+    /// Clones an owned reference to the frame owner's reference-counted
+    /// private data, leaving the frame's own slot valid. Libavutil propagates
+    /// this field but never inspects the bytes behind it.
+    #[must_use]
+    pub fn owned_opaque_reference(&self) -> Option<ffibox::CBox<crate::buffer::AVBufferReference>> {
+        let source = self.opaque_reference()?;
+        // SAFETY: the borrowed source header is live for this call; a non-null
+        // result is a new independently releasable reference header.
+        unsafe { ffibox::CBox::from_raw(ffi::av_buffer_ref(source.as_ptr().cast_mut())) }
+    }
+
     /// Wraps: AVFrame.hw_frames_ctx
+    ///
+    /// The reference header itself. The frames context behind it comes out
+    /// typed through
+    /// [`owned_hardware_frames_context`](Self::owned_hardware_frames_context).
     #[must_use]
     pub fn hardware_frames_context(&self) -> Option<AVBufferReferenceRef<'a>> {
         // SAFETY: the pointer is copied from the live owning frame.
         let pointer = unsafe { addr_of!((*self.as_ptr()).hw_frames_ctx).read() };
         // SAFETY: a non-null header remains live for the frame borrow.
         unsafe { AVBufferReferenceRef::from_ptr(pointer) }
+    }
+
+    /// Wraps: AVFrame.hw_frames_ctx
+    ///
+    /// Clones an owned, typed reference to the hardware frames context these
+    /// planes were allocated from, leaving the frame's own slot valid. This is
+    /// the getter that pairs with
+    /// [`replace_hardware_frames_context`](AVFrameMut::replace_hardware_frames_context):
+    /// the context can be moved into another frame that holds surfaces from it,
+    /// which is the only use the setter's contract admits.
+    #[must_use]
+    pub fn owned_hardware_frames_context(&self) -> Option<crate::hwcontext::HWFramesContext> {
+        let source = self.hardware_frames_context()?;
+        // SAFETY: the borrowed source header is live for this call; a non-null
+        // result is a new independently releasable reference header.
+        let cloned =
+            unsafe { ffibox::CBox::from_raw(ffi::av_buffer_ref(source.as_ptr().cast_mut())) }?;
+        // SAFETY: by this type's invariant a non-null `hw_frames_ctx` addresses
+        // an initialized hardware frames context, which is what the typed
+        // wrapper claims; the clone above holds a count of its own on it.
+        Some(unsafe { crate::hwcontext::HWFramesContext::from_reference(cloned) })
     }
 
     /// Wraps: AVFrame.extended_buf
@@ -800,14 +994,16 @@ impl<'a> AVFrameRef<'a> {
         if index >= len {
             return None;
         }
-        // SAFETY: a valid frame owns a `len`-entry table; index is checked.
+        // SAFETY: by this type's invariant a non-null `extended_buf` addresses
+        // `nb_extended_buf` entries, and `index` is checked against that count.
         let pointer = unsafe {
             addr_of!((*self.as_ptr()).extended_buf)
                 .read()
                 .add(index)
                 .read()
         };
-        // SAFETY: a non-null header remains live for the frame borrow.
+        // SAFETY: the same invariant makes it one live reference header owned
+        // by the frame and alive for `'a`.
         unsafe { AVBufferReferenceRef::from_ptr(pointer) }
     }
 
@@ -859,6 +1055,12 @@ impl<'a> AVFrameRef<'a> {
                 addr_of!((*frame).data).cast::<*mut u8>(),
             )
         };
+        // By this type's invariant `extended_data` is either the inline array
+        // — eight slots, the video and packed-audio case — or a frame-owned
+        // table of `ch_layout.nb_channels` plane pointers, which is what
+        // get_audio_buffer (`frame.c:161`) allocates and av_frame_ref
+        // (`frame.c:358`) memdups for planar audio with more than eight
+        // channels.
         let len = if table.cast_const() == inline {
             8
         } else {
@@ -867,7 +1069,8 @@ impl<'a> AVFrameRef<'a> {
         if table.is_null() || index >= len {
             return None;
         }
-        // SAFETY: a valid frame has a `len`-entry table; index is checked.
+        // SAFETY: the invariant gives the table `len` entries and `index` is
+        // checked against that count.
         NonNull::new(unsafe { table.add(index).read() }).map(|pointer| AVFramePlane {
             pointer,
             _lifetime: core::marker::PhantomData,
@@ -911,7 +1114,8 @@ impl AVFrameMut<'_> {
         if index >= len {
             return None;
         }
-        // SAFETY: the exclusive frame owns a `len`-entry table; index is checked.
+        // SAFETY: by this type's invariant a non-null `side_data` addresses
+        // `nb_side_data` entries, and `index` is checked against that count.
         let entry = unsafe {
             addr_of!((*self.as_mut_ptr()).side_data)
                 .read()
@@ -958,18 +1162,44 @@ impl AVFrameMut<'_> {
         unsafe { ffibox::CBox::from_raw(previous) }
     }
 
-    /// Replaces the optional hardware-frames-context reference owner.
-    pub fn replace_hardware_frames_context(
+    /// Wraps: AVFrame.hw_frames_ctx
+    ///
+    /// Replaces the optional hardware frames context and returns the prior
+    /// owner. Normally libavutil installs this field itself, in
+    /// `av_hwframe_get_buffer` (`hwcontext.c:506`), together with the surfaces
+    /// it describes; this operation exists to move that pairing between frames.
+    ///
+    /// # Safety
+    ///
+    /// After the call the frame's planes must be surfaces belonging to
+    /// `replacement`, or `replacement` must be `None` and the frame must hold
+    /// no hardware surfaces. Neither direction is checkable here, and both are
+    /// load-bearing: `av_frame_copy` sends any frame carrying a context to
+    /// `av_hwframe_transfer_data`, which loads
+    /// `hw_frames_ctx->data->hw_type->transfer_data_from` (`hwcontext.c:490`)
+    /// and hands it these planes, while clearing the field on a frame that does
+    /// hold surfaces makes the same copy read opaque surface handles as
+    /// addressable rows. The typed argument carries only the first half of the
+    /// [invariant](AVFrame#invariant) — that the buffer is an initialized
+    /// frames context at all.
+    pub unsafe fn replace_hardware_frames_context(
         &mut self,
-        replacement: Option<ffibox::CBox<crate::buffer::AVBufferReference>>,
-    ) -> Option<ffibox::CBox<crate::buffer::AVBufferReference>> {
-        let replacement = replacement.map_or(core::ptr::null_mut(), ffibox::CBox::into_raw);
-        // SAFETY: the exclusive handle owns this pointer slot.
+        replacement: Option<crate::hwcontext::HWFramesContext>,
+    ) -> Option<crate::hwcontext::HWFramesContext> {
+        let replacement = replacement.map_or(core::ptr::null_mut(), |context| {
+            context.into_reference().into_raw()
+        });
+        // SAFETY: the exclusive handle owns this pointer slot, and the caller
+        // guarantees the replacement describes the frame's planes.
         let previous = unsafe {
             core::ptr::addr_of_mut!((*self.as_mut_ptr()).hw_frames_ctx).replace(replacement)
         };
-        // SAFETY: a non-null prior value was one frame-owned reference header.
-        unsafe { ffibox::CBox::from_raw(previous) }
+        // SAFETY: a non-null prior value was one frame-owned reference header
+        // over an initialized frames context, now removed from the frame.
+        let previous = unsafe { ffibox::CBox::from_raw(previous) }?;
+        // SAFETY: as above, the removed header is the frame's own initialized
+        // hardware frames context, which is what the typed wrapper claims.
+        Some(unsafe { crate::hwcontext::HWFramesContext::from_reference(previous) })
     }
 
     /// Replaces one extra owned buffer header and returns the prior owner.
@@ -1013,11 +1243,33 @@ impl AVFrameMut<'_> {
         }
     }
 
-    pub fn set_line_size(&mut self, index: usize, value: i32) -> bool {
-        if index >= 8 {
+    /// Wraps: AVFrame.linesize
+    ///
+    /// Overrides one plane's stride before the frame is allocated, which is the
+    /// only phase in which libavutil reads a caller-supplied one: with
+    /// `linesize[0]` already non-zero, `get_video_buffer` (`frame.c:91`) skips
+    /// its own computation and sizes the allocation from what it finds.
+    /// Returns `false` without writing for an out-of-range `index`, or for a
+    /// frame that [already holds planes](AVFrameRef::is_unallocated).
+    ///
+    /// # Safety
+    ///
+    /// The stride must be at least the format's byte width for the geometry the
+    /// frame carries when it is allocated — `av_image_get_linesize(format,
+    /// width, index)` for video, `nb_samples * block_align` for audio. C never
+    /// checks that relation: `av_image_fill_plane_sizes` derives the allocation
+    /// from the stride, while `av_image_copy2` derives each row's byte width
+    /// from `width`, so a stride below it leaves `av_frame_copy` writing past
+    /// the buffer C sized for it. The obligation cannot be discharged in this
+    /// setter because the geometry fields it depends on may be written after
+    /// it, in any order, while the frame stays unallocated.
+    pub unsafe fn set_line_size(&mut self, index: usize, value: i32) -> bool {
+        if index >= 8 || !self.as_ref().is_unallocated() {
             return false;
         }
-        // SAFETY: index is in bounds and the exclusive handle permits the write.
+        // SAFETY: index is in bounds, the exclusive handle permits the write,
+        // no installed plane currently depends on the stride, and the caller
+        // guarantees the value covers the geometry the frame is allocated with.
         unsafe {
             core::ptr::addr_of_mut!((*self.as_mut_ptr()).linesize)
                 .cast::<i32>()
@@ -1065,15 +1317,15 @@ impl AVFrameMut<'_> {
     }
 }
 
-frame_scalar!(/// Wraps: AVFrame.height
+frame_geometry_scalar!(/// Wraps: AVFrame.height
     height, set_height, height, i32);
-frame_scalar!(/// Wraps: AVFrame.format
+frame_geometry_scalar!(/// Wraps: AVFrame.format
     format, set_format, format, i32);
-frame_scalar!(/// Wraps: AVFrame.nb_samples
+frame_geometry_scalar!(/// Wraps: AVFrame.nb_samples
     sample_count, set_sample_count, nb_samples, i32);
 frame_scalar!(/// Wraps: AVFrame.flags
     flags, set_flags, flags, i32);
-frame_scalar!(/// Wraps: AVFrame.width
+frame_geometry_scalar!(/// Wraps: AVFrame.width
     width, set_width, width, i32);
 frame_enum!(/// Wraps: AVFrame.pict_type
     picture_type, set_picture_type, pict_type, crate::avutil::AVPictureType);
@@ -1120,8 +1372,23 @@ frame_scalar!(/// Wraps: AVFrame.pts
 
 #[cfg(test)]
 mod frame_type_tests {
+    use core::mem::size_of;
+
     use super::*;
-    use core::mem::{align_of, size_of};
+    use crate::pixfmt::{
+        AVAlphaMode, AVChromaLocation, AVColorPrimaries, AVColorRange, AVColorSpace,
+        AVColorTransferCharacteristic, AVPixelFormat,
+    };
+
+    /// A video frame whose planes libavutil allocated from its own geometry.
+    fn allocated_video_frame() -> ffibox::CBox<AVFrame> {
+        let mut frame = AVFrame::new().expect("frame allocation");
+        assert!(frame.as_mut().set_width(64));
+        assert!(frame.as_mut().set_height(32));
+        assert!(frame.as_mut().set_format(AVPixelFormat::GRAY8.as_raw()));
+        av_frame_get_buffer(&mut frame.as_mut(), 32).expect("frame buffer allocation");
+        frame
+    }
 
     #[test]
     fn owned_defaults_mutation_and_clone_use_typed_handles() {
@@ -1130,11 +1397,10 @@ mod frame_type_tests {
         assert_eq!(frame.as_ref().time_base().den(), 1);
         assert!(frame.as_ref().data_plane(0).is_none());
         assert!(frame.as_ref().buffer(0).is_none());
-        frame.as_mut().set_width(16);
-        frame.as_mut().set_height(16);
-        frame
-            .as_mut()
-            .set_format(crate::pixfmt::AVPixelFormat::RGBA.as_raw());
+        assert!(frame.as_ref().is_unallocated());
+        assert!(frame.as_mut().set_width(16));
+        assert!(frame.as_mut().set_height(16));
+        assert!(frame.as_mut().set_format(AVPixelFormat::RGBA.as_raw()));
         // The frame is newly allocated and has valid video dimensions and
         // format, so it can adopt the buffers installed by the call.
         av_frame_get_buffer(&mut frame.as_mut(), 32).expect("frame buffer allocation");
@@ -1149,9 +1415,22 @@ mod frame_type_tests {
                 .is_none()
         );
         assert!(frame.as_ref().opaque_reference().is_some());
+        // The owning getter reaches the same underlying buffer the frame still
+        // holds — a different reference *header*, since `av_buffer_ref`
+        // allocates one per reference, over the one `AVBuffer` both count.
+        let held = frame
+            .as_ref()
+            .owned_opaque_reference()
+            .expect("independent opaque reference");
+        let installed = frame.as_ref().opaque_reference().unwrap();
+        assert_ne!(held.as_ptr().cast_const(), installed.as_ptr());
+        assert_eq!(held.as_ref().buffer().as_ptr(), installed.buffer().as_ptr());
+        drop(held);
         drop(frame.as_mut().replace_opaque_reference(None));
         frame.as_mut().set_pts(42);
-        assert!(!frame.as_mut().set_line_size(8, 1));
+        // SAFETY: refused for the out-of-range index before the stride
+        // obligation could matter.
+        assert!(!unsafe { frame.as_mut().set_line_size(8, 1) });
         frame.as_mut().time_base_mut().set_num(1);
         frame.as_mut().time_base_mut().set_den(25);
         let cloned = frame.try_clone().expect("frame clone");
@@ -1175,9 +1454,191 @@ mod frame_type_tests {
     }
 
     #[test]
-    fn layout_and_handles_match_ffi() {
-        assert_eq!(size_of::<AVFrame>(), size_of::<ffi::AVFrame>());
-        assert_eq!(align_of::<AVFrame>(), align_of::<ffi::AVFrame>());
+    fn geometry_setters_refuse_a_frame_that_holds_planes() {
+        let mut source = allocated_video_frame();
+        let mut destination = allocated_video_frame();
+
+        // Each of these once wrote through. `av_frame_copy` then checked only
+        // that the destination was no smaller than the source and copied 64
+        // rows out of a 32-row allocation: a heap-buffer-overflow READ of 32
+        // bytes at `imgutils.c:353`, reached from `frame_copy_video`
+        // (`frame.c:684`) with no `unsafe` anywhere in this test.
+        assert!(!source.as_ref().is_unallocated());
+        assert!(!source.as_mut().set_height(64));
+        assert!(!destination.as_mut().set_height(64));
+        assert!(!source.as_mut().set_width(4096));
+        assert!(!source.as_mut().set_format(AVPixelFormat::RGBA.as_raw()));
+        assert!(!source.as_mut().set_sample_count(1024));
+        // SAFETY: refused before the write, so the stride obligation is not
+        // reached; a stride of 4 under a 64-byte row is exactly what it exists
+        // to forbid.
+        assert!(!unsafe { source.as_mut().set_line_size(0, 4) });
+
+        // Nothing moved, so the copy stays inside both allocations.
+        assert_eq!(source.as_ref().height(), 32);
+        assert_eq!(source.as_ref().line_size(0), Some(64));
+        av_frame_copy(&mut destination.as_mut(), source.as_ref()).expect("copy data");
+    }
+
+    #[test]
+    fn unreferencing_a_frame_makes_its_geometry_writable_again() {
+        let mut frame = allocated_video_frame();
+        assert!(!frame.as_mut().set_width(16));
+
+        av_frame_unref(&mut frame.as_mut());
+        assert!(frame.as_ref().is_unallocated());
+        assert_eq!(frame.as_ref().format(), -1);
+
+        // A stride below the row width is the caller's obligation, so ask for
+        // one above it: 128 bytes for a 64-pixel GRAY8 row.
+        assert!(frame.as_mut().set_width(64));
+        assert!(frame.as_mut().set_height(32));
+        assert!(frame.as_mut().set_format(AVPixelFormat::GRAY8.as_raw()));
+        // SAFETY: 128 >= av_image_get_linesize(GRAY8, 64, 0) == 64, which is
+        // the whole obligation, and the geometry above is already final.
+        assert!(unsafe { frame.as_mut().set_line_size(0, 128) });
+
+        // C adopts a non-zero linesize[0] verbatim (`frame.c:91`) and sizes the
+        // allocation from it, so the override survives into the frame.
+        av_frame_get_buffer(&mut frame.as_mut(), 32).expect("frame buffer allocation");
+        assert_eq!(frame.as_ref().line_size(0), Some(128));
+        assert!(!frame.as_ref().is_unallocated());
+    }
+
+    #[test]
+    fn a_hardware_frames_context_only_arrives_typed() {
+        let mut frame = allocated_video_frame();
+        // A software frame carries none, and the typed getter says so rather
+        // than handing out a bare reference header for a caller to interpret.
+        assert!(frame.as_ref().hardware_frames_context().is_none());
+        assert!(frame.as_ref().owned_hardware_frames_context().is_none());
+
+        // This is the compile-time half of the guard: the argument and result
+        // are `HWFramesContext`, so the plain `CBox<AVBufferReference>` that
+        // used to be accepted here — an `av_buffer_allocz(64)`, say — no longer
+        // type-checks. It was loaded as `hw_frames_ctx->data->hw_type` by
+        // `av_hwframe_transfer_data` (`hwcontext.c:490`) on the next
+        // `av_frame_copy`, an ASan heap-buffer-overflow read that a function
+        // pointer call followed.
+        let previous: Option<crate::hwcontext::HWFramesContext> =
+            // SAFETY: the frame holds no hardware surfaces, so clearing an
+            // already-null slot leaves nothing describing them.
+            unsafe { frame.as_mut().replace_hardware_frames_context(None) };
+        assert!(previous.is_none());
+    }
+
+    #[test]
+    fn c_and_this_wrapper_index_the_same_frame_fields() {
+        // A size assertion against `ffi::AVFrame` cannot fail — `AVFrame` is
+        // `repr(transparent)` over it. So let C do the indexing instead, in
+        // both directions: it allocates from geometry this crate wrote, and it
+        // fills a clone field by field from a frame this crate filled.
+        let mut frame = AVFrame::new().expect("frame allocation");
+        assert!(frame.as_mut().set_width(64));
+        assert!(frame.as_mut().set_height(32));
+        assert!(frame.as_mut().set_format(AVPixelFormat::GRAY8.as_raw()));
+        av_frame_get_buffer(&mut frame.as_mut(), 32).expect("frame buffer allocation");
+
+        // C computed these three from the fields above: one byte per GRAY8
+        // pixel, aligned to 32, is exactly 64.
+        assert_eq!(frame.as_ref().line_size(0), Some(64));
+        // The plane token borrows the frame, so keep only its address across
+        // the mutations below; holding the token itself would — correctly —
+        // refuse the `as_mut` that follows.
+        let plane = frame.as_ref().data_plane(0).expect("first plane");
+        assert!(frame.as_ref().buffer(0).is_some());
+        // `extended_data` points at the inline `data` array for video.
+        assert_eq!(frame.as_ref().extended_data_plane(0), Some(plane));
+        let plane = plane.as_non_null();
+
+        // One distinct value per scalar, so a getter reading its neighbour's
+        // storage cannot coincide with the expected answer.
+        {
+            let mut handle = frame.as_mut();
+            handle.set_pts(0x0102_0304_0506_0708);
+            handle.set_packet_dts(-9_000_000_001);
+            handle.set_duration(1_234_567);
+            handle.set_best_effort_timestamp(77);
+            handle.set_sample_rate(48_000);
+            handle.set_quality(13);
+            handle.set_repeat_picture(3);
+            handle.set_flags(0b1010);
+            handle.set_decode_error_flags(6);
+            handle.set_crop_top(1);
+            handle.set_crop_bottom(2);
+            handle.set_crop_left(3);
+            handle.set_crop_right(4);
+            handle.set_picture_type(crate::avutil::AVPictureType::B);
+            handle.set_color_range(AVColorRange::JPEG);
+            handle.set_color_primaries(AVColorPrimaries::BT709);
+            handle.set_color_transfer(AVColorTransferCharacteristic::SMPTE170M);
+            handle.set_color_space(AVColorSpace::BT709);
+            handle.set_chroma_location(AVChromaLocation::TOP_LEFT);
+            handle.set_alpha_mode(AVAlphaMode::PREMULTIPLIED);
+            handle.time_base_mut().set_num(1);
+            handle.time_base_mut().set_den(90_000);
+            handle.sample_aspect_ratio_mut().set_num(4);
+            handle.sample_aspect_ratio_mut().set_den(3);
+        }
+
+        // `frame_copy_props` (`frame.c:220`) and `av_frame_ref` assign these
+        // one by one at C's own offsets; reading them back at this crate's
+        // offsets is the crossing.
+        let clone = frame.try_clone().expect("frame clone");
+        let view = clone.as_ref();
+        assert_eq!(view.width(), 64);
+        assert_eq!(view.height(), 32);
+        assert_eq!(view.format(), AVPixelFormat::GRAY8.as_raw());
+        assert_eq!(view.line_size(0), Some(64));
+        assert_eq!(view.pts(), 0x0102_0304_0506_0708);
+        assert_eq!(view.packet_dts(), -9_000_000_001);
+        assert_eq!(view.duration(), 1_234_567);
+        assert_eq!(view.best_effort_timestamp(), 77);
+        assert_eq!(view.sample_rate(), 48_000);
+        assert_eq!(view.quality(), 13);
+        assert_eq!(view.repeat_picture(), 3);
+        assert_eq!(view.flags(), 0b1010);
+        assert_eq!(view.decode_error_flags(), 6);
+        assert_eq!(
+            (
+                view.crop_top(),
+                view.crop_bottom(),
+                view.crop_left(),
+                view.crop_right()
+            ),
+            (1, 2, 3, 4)
+        );
+        assert_eq!(view.picture_type(), crate::avutil::AVPictureType::B);
+        assert_eq!(view.color_range(), AVColorRange::JPEG);
+        assert_eq!(view.color_primaries(), AVColorPrimaries::BT709);
+        assert_eq!(
+            view.color_transfer(),
+            AVColorTransferCharacteristic::SMPTE170M
+        );
+        assert_eq!(view.color_space(), AVColorSpace::BT709);
+        assert_eq!(view.chroma_location(), AVChromaLocation::TOP_LEFT);
+        assert_eq!(view.alpha_mode(), AVAlphaMode::PREMULTIPLIED);
+        assert_eq!(
+            (view.time_base().num(), view.time_base().den()),
+            (1, 90_000)
+        );
+        assert_eq!(
+            (
+                view.sample_aspect_ratio().num(),
+                view.sample_aspect_ratio().den()
+            ),
+            (4, 3)
+        );
+        // The clone holds its own reference to the same buffer, which is what
+        // the plane pointer C memcpy'd into it points inside of.
+        assert_eq!(
+            view.data_plane(0).map(AVFramePlane::as_non_null),
+            Some(plane)
+        );
+        assert!(!av_frame_is_writable(view));
+
+        // Both handles stay one pointer wide, which is what lets them be
+        // passed and stored like the C pointer they stand for.
         assert_eq!(
             size_of::<AVFrameRef<'_>>(),
             size_of::<*const ffi::AVFrame>()
@@ -1333,11 +1794,15 @@ mod scheduled_frame_function_tests {
 
     fn configured_video_frame() -> ffibox::CBox<AVFrame> {
         let mut frame = av_frame_alloc().expect("frame allocation");
-        frame.as_mut().set_width(8);
-        frame.as_mut().set_height(8);
-        frame
-            .as_mut()
-            .set_format(crate::pixfmt::AVPixelFormat::RGBA.as_raw());
+        // The geometry setters answer `false` on a frame that already holds
+        // planes; this one is fresh from `av_frame_alloc`.
+        assert!(frame.as_mut().set_width(8));
+        assert!(frame.as_mut().set_height(8));
+        assert!(
+            frame
+                .as_mut()
+                .set_format(crate::pixfmt::AVPixelFormat::RGBA.as_raw())
+        );
         av_frame_get_buffer(&mut frame.as_mut(), 0).expect("frame buffer allocation");
         frame
     }
