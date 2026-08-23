@@ -342,6 +342,12 @@ impl From<AVColorTransferCharacteristic> for ffi::AVColorTransferCharacteristic 
 /// Describes how an alpha channel relates to its color channels. The
 /// transparent representation preserves unknown values introduced by newer
 /// libavutil versions instead of turning them into invalid Rust enum values.
+///
+/// The C enum's trailing `AVALPHA_MODE_NB` is a count, documented as not part
+/// of the ABI, so it is deliberately not exposed here. Values outside the three
+/// named modes — including `NB` itself and the negative `AVERROR` that
+/// `av_alpha_mode_from_name` returns for an unrecognized name — are
+/// representable and round-trip, but name no alpha mode.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AVAlphaMode(ffi::AVAlphaMode);
@@ -389,13 +395,35 @@ mod tests {
     fn alpha_mode_is_layout_compatible_and_round_trips() {
         assert_eq!(size_of::<AVAlphaMode>(), size_of::<ffi::AVAlphaMode>());
         assert_eq!(align_of::<AVAlphaMode>(), align_of::<ffi::AVAlphaMode>());
-        assert_eq!(
-            AVAlphaMode::PREMULTIPLIED.as_raw(),
-            ffi::AVAlphaMode_AVALPHA_MODE_PREMULTIPLIED
-        );
 
-        let unknown = ffi::AVAlphaMode::MAX;
-        assert_eq!(AVAlphaMode::from_raw(unknown).as_raw(), unknown);
+        // Pin the wire values `libavutil/pixfmt.h` assigns explicitly, so a
+        // renumbering or a new enumerator inserted ahead of them fails here
+        // rather than silently retagging pixel data.
+        assert_eq!(AVAlphaMode::UNSPECIFIED.as_raw(), 0);
+        assert_eq!(AVAlphaMode::PREMULTIPLIED.as_raw(), 1);
+        assert_eq!(AVAlphaMode::STRAIGHT.as_raw(), 2);
+
+        // `AVALPHA_MODE_NB` is a count, not a mode, and must stay unnamed.
+        let count = ffi::AVAlphaMode_AVALPHA_MODE_NB;
+        assert_eq!(count, 3);
+        for mode in [
+            AVAlphaMode::UNSPECIFIED,
+            AVAlphaMode::PREMULTIPLIED,
+            AVAlphaMode::STRAIGHT,
+        ] {
+            assert!(mode.as_raw() < count);
+        }
+
+        // Out-of-range values stay representable instead of becoming invalid
+        // discriminants: `NB`, a future mode, and the `AVERROR(EINVAL)` that
+        // `av_alpha_mode_from_name` returns through this unsigned enum.
+        for unknown in [count, ffi::AVAlphaMode::MAX, (-22_i32) as ffi::AVAlphaMode] {
+            assert_eq!(AVAlphaMode::from_raw(unknown).as_raw(), unknown);
+            assert_eq!(
+                ffi::AVAlphaMode::from(AVAlphaMode::from_raw(unknown)),
+                unknown
+            );
+        }
     }
 
     #[test]

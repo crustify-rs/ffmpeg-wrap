@@ -9,10 +9,21 @@ use crate::ffi;
 define_ctype!(
     /// Wraps: AVAudioFifo
     ///
-    /// An opaque audio sample FIFO. Owning pointers use
+    /// An audio sample FIFO. `struct AVAudioFifo` is defined in
+    /// `libavutil/audio_fifo.c` and only forward-declared in `audio_fifo.h`, so
+    /// it is opaque to every consumer: libavutil owns the layout, and this
+    /// wrapper deliberately carries no field accessors. Owning pointers use
     /// [`CBox<AVAudioFifo>`](ffibox::CBox); shared and exclusive borrows use
     /// [`AVAudioFifoRef`] and [`AVAudioFifoMut`] without ever forming a Rust
     /// reference over storage that libavutil may mutate.
+    ///
+    /// Because the FFI type is incomplete, this wrapper is zero-sized and the
+    /// [`zeroed`](Self::zeroed) constructor inherited from
+    /// [`define_ctype!`](ffibox::define_ctype) yields an inert value rather
+    /// than a usable FIFO: it allocates none of the storage `av_audio_fifo_*`
+    /// reads. Nothing safe consumes it — the only route to an owner or a
+    /// handle is an `unsafe` `from_raw` / `from_ptr` — but do not treat it as a
+    /// FIFO. Build one with `av_audio_fifo_alloc`.
     AVAudioFifo,
     AVAudioFifoRef,
     AVAudioFifoMut,
@@ -20,33 +31,63 @@ define_ctype!(
 );
 
 /// Wraps: av_audio_fifo_free
-// SAFETY: a fully constructed `AVAudioFifo` is uniquely released by
-// `av_audio_fifo_free`, including all AVFifo elements and the pointer table it
-// owns. `CBox` calls this operation exactly once for each adopted pointer.
+// SAFETY: `av_audio_fifo_free` is `AVAudioFifo`'s sole releaser (the type's
+// only lifecycle operation) and releases the whole object exactly once: every
+// non-null `AVFifo` element through `av_fifo_freep2`, then the `av_calloc`
+// table, then the header itself. It is idempotent for none of that, so it must
+// run once per object.
+//
+// This impl NARROWS the trait's obligation. `Self` is `#[repr(transparent)]`
+// over an INCOMPLETE FFI type, so it is zero-sized and "a live, valid instance
+// of `Self`" — all `CDropped` asks of its caller — is satisfied by any aligned
+// non-null address, including a dangling one. The added obligation is the
+// caller's: `obj` must address a fully constructed FIFO returned by
+// `av_audio_fifo_alloc` and not yet freed.
+//
+// No safe path can violate it, because every route to a `c_drop` is `unsafe`
+// and discharges it there. `CBox<AVAudioFifo>` is the only owner that runs
+// `CDropped` for this type and is built solely by `CBox::from_raw`, whose
+// contract demands exactly that pointer; `AVAudioFifo` implements neither
+// `CValued` (so no `CVal`/`CValGuard` disposes it) nor any `CDropper` (so no
+// `CBoxWith` selects a second teardown) nor `CCloned` (so no owner is
+// duplicated into a double free). `Self::zeroed` is safe but produces a value,
+// not a pointer, and no safe function turns one into an owner or a handle.
 unsafe impl CDropped for AVAudioFifo {
     unsafe fn c_drop(obj: NonNull<Self>) {
-        // SAFETY: the trait contract transfers a live, uniquely owned,
-        // fully constructed `AVAudioFifo` to its matching public destructor.
+        // SAFETY: the obligation stated on the impl gives `obj` as a live,
+        // uniquely owned FIFO from `av_audio_fifo_alloc`, cast back to the
+        // incomplete FFI type its destructor is declared over.
         unsafe { ffi::av_audio_fifo_free(obj.as_ptr().cast()) }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use core::mem::size_of;
+
     use ffibox::CBox;
 
     use super::*;
 
+    /// Allocates one FIFO through the raw seam, panicking rather than
+    /// returning a null pointer the callers below would have to re-check.
+    fn alloc_raw(channels: i32, samples: i32) -> *mut ffi::AVAudioFifo {
+        // SAFETY: these arguments describe interleaved signed 16-bit audio with
+        // a positive channel count and capacity. The returned pointer is NULL
+        // or a fresh, fully constructed FIFO owned by the caller.
+        let raw = unsafe {
+            ffi::av_audio_fifo_alloc(ffi::AVSampleFormat_AV_SAMPLE_FMT_S16, channels, samples)
+        };
+        assert!(!raw.is_null(), "av_audio_fifo_alloc failed");
+        raw
+    }
+
     #[test]
     fn owned_fifo_produces_shared_and_exclusive_handles_and_drops() {
-        // SAFETY: these arguments describe two channels of interleaved signed
-        // 16-bit audio and a positive initial capacity. The returned pointer
-        // is NULL or a fresh, fully constructed FIFO owned by the caller.
-        let raw = unsafe { ffi::av_audio_fifo_alloc(ffi::AVSampleFormat_AV_SAMPLE_FMT_S16, 2, 8) };
+        let raw = alloc_raw(2, 8);
         // SAFETY: `raw` is the fresh allocation just returned above and has
         // not been adopted or freed. `CBox` uses its matching destructor.
-        let mut fifo =
-            unsafe { CBox::<AVAudioFifo>::from_raw(raw) }.expect("av_audio_fifo_alloc failed");
+        let mut fifo = unsafe { CBox::<AVAudioFifo>::from_raw(raw) }.expect("adopt fifo");
 
         let shared = fifo.as_ref();
         assert_eq!(shared.as_ptr(), raw.cast_const());
@@ -56,6 +97,44 @@ mod tests {
         assert_eq!(exclusive.as_ref().as_ptr(), raw.cast_const());
 
         drop(fifo);
+    }
+
+    #[test]
+    fn borrowed_handles_are_one_pointer_wide_and_niche_optimized() {
+        assert_eq!(
+            size_of::<AVAudioFifoRef<'_>>(),
+            size_of::<*const ffi::AVAudioFifo>()
+        );
+        assert_eq!(
+            size_of::<AVAudioFifoMut<'_>>(),
+            size_of::<*mut ffi::AVAudioFifo>()
+        );
+        assert_eq!(
+            size_of::<Option<AVAudioFifoRef<'_>>>(),
+            size_of::<AVAudioFifoRef<'_>>()
+        );
+    }
+
+    #[test]
+    fn distinct_owners_release_distinct_fifos_exactly_once() {
+        let first_raw = alloc_raw(2, 8);
+        let second_raw = alloc_raw(1, 16);
+        assert_ne!(first_raw, second_raw);
+
+        // SAFETY: each pointer is a distinct fresh allocation that has not been
+        // adopted or freed, so each `CBox` becomes its object's sole owner.
+        let first = unsafe { CBox::<AVAudioFifo>::from_raw(first_raw) }.expect("adopt first");
+        // SAFETY: as above, for the second independent allocation.
+        let second = unsafe { CBox::<AVAudioFifo>::from_raw(second_raw) }.expect("adopt second");
+
+        assert_eq!(first.as_ref().as_ptr(), first_raw.cast_const());
+        assert_eq!(second.as_ref().as_ptr(), second_raw.cast_const());
+
+        // Dropping out of allocation order exercises one `av_audio_fifo_free`
+        // per object: a missing free is a LeakSanitizer report and a repeated
+        // one an AddressSanitizer double-free abort.
+        drop(second);
+        drop(first);
     }
 }
 
