@@ -125,4 +125,84 @@ mod scheduled_tests {
             1
         );
     }
+
+    #[test]
+    fn each_rounding_mode_rounds_the_way_its_name_claims() {
+        // The constants are checked against what C does with them, not
+        // against the bindings they were built from: 3/2 separates every mode.
+        assert_eq!(av_rescale_rnd(3, 1, 2, AVRounding::ZERO), 1);
+        assert_eq!(av_rescale_rnd(3, 1, 2, AVRounding::INF), 2);
+        assert_eq!(av_rescale_rnd(3, 1, 2, AVRounding::DOWN), 1);
+        assert_eq!(av_rescale_rnd(3, 1, 2, AVRounding::UP), 2);
+        assert_eq!(av_rescale_rnd(3, 1, 2, AVRounding::NEAR_INF), 2);
+
+        // Negative inputs separate toward-zero from toward-negative-infinity,
+        // which the positive cases above cannot.
+        assert_eq!(av_rescale_rnd(-3, 1, 2, AVRounding::ZERO), -1);
+        assert_eq!(av_rescale_rnd(-3, 1, 2, AVRounding::INF), -2);
+        assert_eq!(av_rescale_rnd(-3, 1, 2, AVRounding::DOWN), -2);
+        assert_eq!(av_rescale_rnd(-3, 1, 2, AVRounding::UP), -1);
+
+        // The pass-through flag is what `with_pass_minmax` claims it is: the
+        // extremes come back untouched instead of being rescaled.
+        assert_eq!(
+            av_rescale_rnd(i64::MAX, 1, 2, AVRounding::NEAR_INF.with_pass_minmax()),
+            i64::MAX
+        );
+        assert_eq!(
+            av_rescale_rnd(i64::MIN, 1, 2, AVRounding::NEAR_INF.with_pass_minmax()),
+            i64::MIN
+        );
+        // Without it, `i64::MAX` is rescaled like any other value.
+        assert_eq!(
+            av_rescale_rnd(i64::MAX, 1, 2, AVRounding::ZERO),
+            i64::MAX / 2
+        );
+        // And the flag changes nothing for an ordinary value.
+        assert_eq!(
+            av_rescale_rnd(3, 1, 2, AVRounding::UP.with_pass_minmax()),
+            2
+        );
+    }
+
+    #[test]
+    fn rescaling_answers_its_sentinel_rather_than_overflowing() {
+        // `AVRounding` makes the invalid mode words unconstructible, so what
+        // is left for safe code to reach is the argument range. C guards it
+        // itself: a non-positive divisor, a negative multiplier and a product
+        // that leaves `int64_t` all return `INT64_MIN` instead of trapping, so
+        // these need no wrapper-side rejection — this pins that they stay
+        // total under the campaign's UBSan build.
+        assert_eq!(av_rescale_rnd(1, 1, 0, AVRounding::ZERO), i64::MIN);
+        assert_eq!(av_rescale_rnd(1, 1, -1, AVRounding::ZERO), i64::MIN);
+        assert_eq!(av_rescale_rnd(1, -1, 1, AVRounding::ZERO), i64::MIN);
+        assert_eq!(
+            av_rescale_rnd(i64::MAX, i64::MAX, 1, AVRounding::ZERO),
+            i64::MIN
+        );
+        assert_eq!(
+            av_rescale_rnd(i64::MIN, i64::MAX, 1, AVRounding::ZERO),
+            i64::MIN
+        );
+
+        // `av_rescale_q*` reach the same guard through the cross product of
+        // the two time bases, so an undefined or reversed base is an answer
+        // too. `int * (int64_t)int` cannot overflow, so nothing upstream of it
+        // can.
+        let undefined = AVRational::new(0, 0);
+        let ms = AVRational::new(1, 1000);
+        assert_eq!(
+            av_rescale_q(1500, undefined.as_ref(), ms.as_ref()),
+            i64::MIN
+        );
+        assert_eq!(
+            av_rescale_q(1500, ms.as_ref(), undefined.as_ref()),
+            i64::MIN
+        );
+        let extreme = AVRational::new(i32::MIN, i32::MIN);
+        assert_eq!(
+            av_rescale_q_rnd(i64::MIN, extreme.as_ref(), extreme.as_ref(), AVRounding::UP),
+            -i64::MAX
+        );
+    }
 }

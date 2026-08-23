@@ -167,6 +167,7 @@ mod tests {
 
 use crate::mem::AvFree;
 use core::marker::PhantomData;
+use core::mem::MaybeUninit;
 use ffibox::CVec;
 
 const MAX_PLANES: usize = 64;
@@ -226,6 +227,10 @@ pub struct SamplesBuffer {
     linesize: i32,
 }
 impl SamplesBuffer {
+    /// The whole allocation, samples and inter-plane padding alike.
+    ///
+    /// Every byte is initialized: `make_buffer` writes the format's silence
+    /// byte over the padding C leaves untouched before the owner is formed.
     #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         self.storage.as_slice()
@@ -329,6 +334,31 @@ pub fn av_samples_fill_arrays<'a>(
     })
 }
 
+/// The byte `av_samples_set_silence` writes for a format, which is the value
+/// C leaves in the samples of a freshly allocated buffer.
+fn silence_byte(format: AVSampleFormat) -> u8 {
+    if format == AVSampleFormat::U8 || format == AVSampleFormat::U8P {
+        0x80
+    } else {
+        0x00
+    }
+}
+
+/// Adopts one freshly allocated sample buffer, finishing the initialization C
+/// leaves partial.
+///
+/// `av_samples_alloc` silences `nb_samples * block_align` bytes at the start
+/// of each plane, but sizes the allocation from
+/// `FFALIGN(nb_samples * sample_size, align)` per plane — and, for `align ==
+/// 0`, from a sample count first rounded up to a multiple of 32. Everything
+/// past the silenced window is `av_malloc` storage nobody has written, so the
+/// allocation does not yet hold `size` contiguous `u8`. That is precisely what
+/// [`CVec::from_raw_parts`] requires and what [`CVec::as_slice`] — reached
+/// from the safe [`SamplesBuffer::as_bytes`] — asserts over the whole buffer
+/// at once; [`CElem`](ffibox::CElem) ranges over the bit patterns a `u8` may
+/// hold and says nothing about uninitialized memory. So the allocation is
+/// adopted as `MaybeUninit<u8>`, the padding is written with the same silence
+/// byte C used for the samples, and only the filled buffer is promoted.
 fn make_buffer(
     pointer: *mut u8,
     size: usize,
@@ -338,10 +368,30 @@ fn make_buffer(
     align: i32,
     linesize: i32,
 ) -> Result<SamplesBuffer, SamplesError> {
-    // SAFETY: successful allocation routines return one initialized contiguous
-    // av_malloc-family block containing exactly `size` bytes.
-    let storage = unsafe { CVec::<u8, AvFree>::from_raw_parts(pointer, size) }
+    // SAFETY: a successful allocation routine returns one uniquely owned
+    // av_malloc-family block of exactly `size` bytes, which this owner adopts
+    // exactly once and releases through its matching `av_free`. Adopting it as
+    // `MaybeUninit<u8>` claims nothing about the contents, so the precondition
+    // holds before a byte is written and a panic in the fill below still
+    // releases the allocation.
+    let mut uninitialized =
+        unsafe { CVec::<MaybeUninit<u8>, AvFree>::from_raw_parts(pointer.cast(), size) }
+            .ok_or(SamplesError::Library(-12))?;
+
+    let silence = silence_byte(format);
+    for slot in uninitialized.as_mut_slice() {
+        slot.write(silence);
+    }
+
+    let (filled, count) = uninitialized.into_raw_parts();
+    // SAFETY: the loop wrote every one of the `count` slots, so the allocation
+    // now holds `count` contiguous initialized `u8`. `into_raw_parts`
+    // surrendered ownership without freeing, and `MaybeUninit<u8>` has `u8`'s
+    // size and alignment, so `AvFree` receives the same pointer and the same
+    // byte extent from either tier.
+    let storage = unsafe { CVec::<u8, AvFree>::from_raw_parts(filled.cast::<u8>(), count) }
         .ok_or(SamplesError::Library(-12))?;
+
     Ok(SamplesBuffer {
         storage,
         channels,
@@ -386,6 +436,16 @@ pub fn av_samples_alloc(
 }
 
 /// Wraps: av_samples_alloc_array_and_samples
+///
+/// Allocates the sample buffer and the plane table together. The table is
+/// C's answer to a caller who has no array of its own; this wrapper keeps its
+/// own, so the table is released here and only the sample allocation is
+/// carried into the result.
+///
+/// `plane_slots` runs first even though nothing here indexes a Rust-side
+/// table: the [`SamplesBuffer`] it produces derives its planes through one
+/// later, so a channel count that would not fit has to be refused at the
+/// allocation rather than at the first use.
 pub fn av_samples_alloc_array_and_samples(
     channels: i32,
     samples: i32,
@@ -396,7 +456,9 @@ pub fn av_samples_alloc_array_and_samples(
     let mut table: *mut *mut u8 = core::ptr::null_mut();
     let mut linesize = 0;
     // SAFETY: both out-slots are writable. On success C returns two distinct
-    // av_malloc-family allocations: the table and its first data pointer.
+    // av_malloc-family allocations: the table and its first data pointer. On
+    // every failure path it has already released the table and stored null, so
+    // the early return below leaks nothing.
     let size = sample_size(unsafe {
         ffi::av_samples_alloc_array_and_samples(
             &raw mut table,
@@ -407,8 +469,10 @@ pub fn av_samples_alloc_array_and_samples(
             align,
         )
     })?;
-    // SAFETY: success guarantees a non-null table with at least one initialized
-    // pointer. Reading it does not form a reference to C-owned storage.
+    // SAFETY: success implies a positive channel count, since
+    // `av_samples_get_buffer_size` rejects any other, so the table C allocated
+    // has at least one plane slot and it holds the buffer it just filled in.
+    // Reading the pointer out forms no reference to C-owned storage.
     let data = unsafe { table.read() };
     // SAFETY: the table allocation is no longer needed and av_free matches it;
     // the separate sample allocation remains owned through `data`.
@@ -553,6 +617,31 @@ mod scheduled_tests {
             av_samples_set_silence(&mut destination, 8, 1),
             Err(SamplesError::RangeOverflow)
         );
+    }
+
+    #[test]
+    fn an_allocated_buffer_is_initialized_past_the_silenced_samples() {
+        // C sizes this allocation from `FFALIGN(3 * 2, 32) * 2` = 64 bytes but
+        // silences `3 * 2` per plane, so 26 bytes of every 32 come straight
+        // from `av_malloc`. `as_bytes` hands out one `&[u8]` over the lot, so
+        // they have to be written before the owner is formed — under this
+        // campaign's ASan build they otherwise read back as its 0xbe fill.
+        let buffer = av_samples_alloc(2, 3, AVSampleFormat::S16P, 32).unwrap();
+        assert_eq!(buffer.as_bytes().len(), 64);
+        assert!(buffer.as_bytes().iter().all(|&byte| byte == 0));
+
+        // `align == 0` asks C to auto-select, which rounds the sample count up
+        // to a multiple of 32 and pads the allocation the same way. An 8-bit
+        // format also pins that the padding uses C's own silence value rather
+        // than a plain zero fill.
+        let padded = av_samples_alloc(1, 1, AVSampleFormat::U8, 0).unwrap();
+        assert_eq!(padded.as_bytes().len(), 32);
+        assert!(padded.as_bytes().iter().all(|&byte| byte == 0x80));
+
+        // The array-and-samples entry point allocates through the same path.
+        let via_array = av_samples_alloc_array_and_samples(2, 3, AVSampleFormat::S16P, 32).unwrap();
+        assert_eq!(via_array.as_bytes().len(), 64);
+        assert!(via_array.as_bytes().iter().all(|&byte| byte == 0));
     }
 
     #[test]

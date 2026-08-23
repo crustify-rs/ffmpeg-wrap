@@ -8,7 +8,26 @@ use crate::pixfmt::{AVColorRange, AVPixelFormat};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ImageError {
     LengthOverflow,
-    BufferTooSmall { required: usize },
+    BufferTooSmall {
+        required: usize,
+    },
+    /// A stride alignment was below 1.
+    ///
+    /// Every extent in this module is `FFALIGN(linesize, align)` summed over
+    /// the planes, and `FFALIGN(x, a)` is `(x + a - 1) & ~(a - 1)`, which is
+    /// `>= x` only for `a >= 1`. At `align == 0` the mask is zero, so the whole
+    /// image reports an extent of zero bytes while C still copies or fills a
+    /// full unaligned `linesize` per row; a negative alignment under-reports
+    /// the same way. C never range-checks the parameter, so the wrappers do.
+    NonPositiveAlignment,
+    /// A plane height was below 1.
+    ///
+    /// `av_image_fill_plane_sizes` divides `SIZE_MAX` by the height to test
+    /// each stride for overflow. `av_image_fill_arrays` reaches it only
+    /// through `av_image_check_size`, which rejects a non-positive height
+    /// first, but `av_image_fill_pointers` is a public entry point of its own
+    /// and has no such guard.
+    NonPositiveHeight,
     Library(i32),
 }
 
@@ -73,11 +92,22 @@ impl ImagePointers<'_> {
 }
 
 /// Wraps: av_image_copy_to_buffer
+///
+/// `align` describes the packing of `destination`, not of `source`: C sizes
+/// the destination with `av_image_get_buffer_size(.., align)` and refuses to
+/// run when that exceeds `destination.len()`. A non-positive `align` defeats
+/// exactly that guard — the computed size collapses to zero, the length check
+/// passes for any destination, and C then writes one unaligned `linesize` per
+/// row into it. Rejected here rather than at the C seam, where this campaign's
+/// ASan build reports it as a heap-buffer-overflow write at `imgutils.c:529`.
 pub fn av_image_copy_to_buffer(
     destination: &mut [u8],
     source: &ImagePlanes<'_>,
     align: i32,
 ) -> Result<usize, ImageError> {
+    if align <= 0 {
+        return Err(ImageError::NonPositiveAlignment);
+    }
     let dst_size = i32::try_from(destination.len()).map_err(|_| ImageError::LengthOverflow)?;
     // SAFETY: `source` was produced by `av_image_fill_arrays` only after its
     // required extent was checked against the borrowed buffer. The destination
@@ -97,6 +127,14 @@ pub fn av_image_copy_to_buffer(
 }
 
 /// Wraps: av_image_fill_arrays
+///
+/// Derives the plane table for an image packed into `source`, after a
+/// null-source preflight has proved the whole derived extent lies inside it.
+///
+/// A non-positive `align` is refused: it makes every aligned stride zero, so
+/// the preflight reports an extent of zero bytes that any slice satisfies —
+/// including an empty one — while the strides recorded in the result still
+/// describe rows C will later read in full through [`av_image_copy_to_buffer`].
 pub fn av_image_fill_arrays<'a>(
     source: &'a [u8],
     format: AVPixelFormat,
@@ -104,6 +142,9 @@ pub fn av_image_fill_arrays<'a>(
     height: i32,
     align: i32,
 ) -> Result<ImagePlanes<'a>, ImageError> {
+    if align <= 0 {
+        return Err(ImageError::NonPositiveAlignment);
+    }
     let mut data = [core::ptr::null_mut(); 4];
     let mut linesizes = [0; 4];
     // SAFETY: both output arrays have four writable elements. A null source
@@ -146,6 +187,17 @@ pub fn av_image_fill_arrays<'a>(
 }
 
 /// Wraps: av_image_fill_black
+///
+/// Lays an image of the given geometry over `destination` and fills every
+/// plane with the format's black, so the caller never handles the plane table
+/// C requires.
+///
+/// A non-positive `align` is refused for the same reason as in
+/// [`av_image_fill_arrays`], and here it is a write: `av_image_fill_color`
+/// derives its per-row byte width from `av_image_get_linesize`, which ignores
+/// `align` entirely, so a zero-byte extent still memsets a full row —
+/// a heap-buffer-overflow write at `imgutils.c:569` under this campaign's ASan
+/// build.
 pub fn av_image_fill_black(
     destination: &mut [u8],
     format: AVPixelFormat,
@@ -154,6 +206,9 @@ pub fn av_image_fill_black(
     height: i32,
     align: i32,
 ) -> Result<(), ImageError> {
+    if align <= 0 {
+        return Err(ImageError::NonPositiveAlignment);
+    }
     let mut data = [core::ptr::null_mut(); 4];
     let mut linesizes = [0_i32; 4];
     // SAFETY: the output arrays have four slots; null performs a size preflight.
@@ -205,12 +260,28 @@ pub fn av_image_fill_black(
 }
 
 /// Wraps: av_image_fill_pointers
+///
+/// The caller supplies the strides here instead of an alignment, so C's own
+/// overflow checks cover them: a stride whose plane extent leaves the `int`
+/// return range comes back as `EINVAL`, negative strides included.
+///
+/// What those checks do not cover is the height they divide by. Unlike
+/// [`av_image_fill_arrays`], this entry point never reaches
+/// `av_image_check_size`, so `height == 0` becomes `SIZE_MAX / height` in
+/// `av_image_fill_plane_sizes` — reported by this campaign's UBSan build as
+/// "division by zero" at `imgutils.c:122` — and a negative height can reach
+/// the same division through `AV_CEIL_RSHIFT`, which rounds `-1 >> 1` to zero
+/// for a subsampled plane. A positive height keeps every derived plane height
+/// at 1 or more.
 pub fn av_image_fill_pointers<'a>(
     buffer: &'a mut [u8],
     format: AVPixelFormat,
     height: i32,
     linesizes: [i32; 4],
 ) -> Result<ImagePointers<'a>, ImageError> {
+    if height <= 0 {
+        return Err(ImageError::NonPositiveHeight);
+    }
     let mut data = [core::ptr::null_mut(); 4];
     // SAFETY: null requests the extent without deriving out-of-allocation
     // pointers; the output table itself has four writable slots.
@@ -245,12 +316,20 @@ pub fn av_image_fill_pointers<'a>(
 }
 
 /// Wraps: av_image_get_buffer_size
+///
+/// Returns the byte extent a packed image of this geometry occupies, which is
+/// what a caller sizes a buffer for. A non-positive `align` is refused rather
+/// than answered: C would report zero for an image of any size, and a caller
+/// who believes that answer allocates a buffer the very next call overruns.
 pub fn av_image_get_buffer_size(
     format: AVPixelFormat,
     width: i32,
     height: i32,
     align: i32,
 ) -> Result<usize, ImageError> {
+    if align <= 0 {
+        return Err(ImageError::NonPositiveAlignment);
+    }
     // SAFETY: all inputs are plain values and C retains nothing.
     size_result(unsafe { ffi::av_image_get_buffer_size(format.as_raw(), width, height, align) })
 }
@@ -290,6 +369,108 @@ mod tests {
             av_image_fill_arrays(&bytes[..3], AVPixelFormat::GRAY8, 2, 2, 1),
             Err(ImageError::BufferTooSmall { required: 4 })
         ));
+    }
+
+    #[test]
+    fn a_non_positive_alignment_is_refused_by_every_extent() {
+        // `FFALIGN(x, 0)` masks with `~(0 - 1)`, i.e. with zero, so C reports a
+        // four-byte image as needing no bytes at all. Each of these calls used
+        // to succeed and then let C run past the slice it was handed: the fill
+        // is an ASan heap-buffer-overflow write at `imgutils.c:569`, the copy
+        // one at `imgutils.c:529`, and the fill-arrays case an over-read of the
+        // empty source once the planes reach the copy.
+        for align in [0, -1, i32::MIN] {
+            assert_eq!(
+                av_image_get_buffer_size(AVPixelFormat::GRAY8, 2, 2, align),
+                Err(ImageError::NonPositiveAlignment)
+            );
+            assert_eq!(
+                av_image_fill_arrays(&[0; 4], AVPixelFormat::GRAY8, 2, 2, align)
+                    .err()
+                    .expect("a non-positive alignment is refused"),
+                ImageError::NonPositiveAlignment
+            );
+            assert_eq!(
+                av_image_fill_black(
+                    &mut [0xff; 4],
+                    AVPixelFormat::GRAY8,
+                    AVColorRange::JPEG,
+                    2,
+                    2,
+                    align,
+                ),
+                Err(ImageError::NonPositiveAlignment)
+            );
+
+            let source = [0; 12];
+            let planes = av_image_fill_arrays(&source, AVPixelFormat::RGB24, 2, 2, 1).unwrap();
+            assert_eq!(
+                av_image_copy_to_buffer(&mut [0; 12], &planes, align),
+                Err(ImageError::NonPositiveAlignment)
+            );
+        }
+
+        // The smallest accepted alignment is the one C's own macro is total
+        // for, and it still produces the packed extent.
+        assert_eq!(
+            av_image_get_buffer_size(AVPixelFormat::GRAY8, 2, 2, 1),
+            Ok(4)
+        );
+    }
+
+    #[test]
+    fn fill_pointers_refuses_the_height_c_divides_by() {
+        // `av_image_fill_plane_sizes` tests each stride with `SIZE_MAX / height`
+        // and `av_image_fill_pointers` reaches it with no size check in front,
+        // so `height == 0` is a division by zero — reported by the UBSan build
+        // as `imgutils.c:122:33: runtime error: division by zero`. A negative
+        // height reaches the same division for a subsampled plane, because
+        // `AV_CEIL_RSHIFT(-1, 1)` is zero.
+        let mut buffer = [0; 64];
+        for height in [0, -1, i32::MIN] {
+            assert_eq!(
+                av_image_fill_pointers(&mut buffer, AVPixelFormat::GRAY8, height, [4, 0, 0, 0])
+                    .err(),
+                Some(ImageError::NonPositiveHeight)
+            );
+            assert_eq!(
+                av_image_fill_pointers(&mut buffer, AVPixelFormat::YUV420P, height, [4, 2, 2, 0])
+                    .err(),
+                Some(ImageError::NonPositiveHeight)
+            );
+        }
+
+        // One row is accepted and reports the extent of exactly that row.
+        let pointers =
+            av_image_fill_pointers(&mut buffer, AVPixelFormat::GRAY8, 1, [4, 0, 0, 0]).unwrap();
+        assert_eq!(pointers.required_bytes(), 4);
+        assert_eq!(pointers.plane_count(), 1);
+
+        // C's own stride checks still do their half of the work.
+        assert!(matches!(
+            av_image_fill_pointers(&mut buffer, AVPixelFormat::GRAY8, 1, [-4, 0, 0, 0]),
+            Err(ImageError::Library(_))
+        ));
+    }
+
+    #[test]
+    fn a_buffer_shorter_than_the_derived_layout_is_refused() {
+        let mut small = [0; 3];
+        assert_eq!(
+            av_image_fill_pointers(&mut small, AVPixelFormat::GRAY8, 1, [4, 0, 0, 0]).err(),
+            Some(ImageError::BufferTooSmall { required: 4 })
+        );
+        assert_eq!(
+            av_image_fill_black(
+                &mut small,
+                AVPixelFormat::GRAY8,
+                AVColorRange::JPEG,
+                2,
+                2,
+                1,
+            ),
+            Err(ImageError::BufferTooSmall { required: 4 })
+        );
     }
 }
 

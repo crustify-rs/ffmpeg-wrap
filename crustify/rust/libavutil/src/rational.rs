@@ -258,10 +258,31 @@ pub fn av_mul_q(b: AVRationalRef<'_>, c: AVRationalRef<'_>) -> CVal<AVRational> 
 }
 
 /// Wraps: av_nearer_q
-#[must_use]
-pub fn av_nearer_q(q: AVRationalRef<'_>, q1: AVRationalRef<'_>, q2: AVRationalRef<'_>) -> i32 {
+///
+/// Reports which of `q1` and `q2` lies nearer to `q`: 1 for `q1`, -1 for `q2`,
+/// 0 when they are equidistant.
+///
+/// C forms the median of the two candidates in `int64_t`, and one input pair
+/// takes that arithmetic out of range. `2 * (int64_t)q1.den * q2.den` reaches
+/// `1 << 63` exactly when both denominators are [`i32::MIN`], since that is
+/// the only `int` pair whose product is `1 << 62`; the numerator sum
+/// `q1.num * q2.den + q2.num * q1.den` overflows only for a subset of the same
+/// pair, when all four fields are [`i32::MIN`]. This campaign's UBSan build
+/// reports both as "signed integer overflow" at `rational.c:132` and `:133`.
+/// Every other pair of `int` denominators keeps `2 * d1 * d2` at
+/// `(1 << 63) - (1 << 32)` or below, so the rejection is exactly one pair
+/// wide.
+pub fn av_nearer_q(
+    q: AVRationalRef<'_>,
+    q1: AVRationalRef<'_>,
+    q2: AVRationalRef<'_>,
+) -> Result<i32, RationalError> {
+    if q1.den() == i32::MIN && q2.den() == i32::MIN {
+        return Err(RationalError::DenominatorProductOverflow);
+    }
     // SAFETY: all arguments are initialized by-value copies; C retains none.
-    unsafe { ffi::av_nearer_q(q.copy_ffi(), q1.copy_ffi(), q2.copy_ffi()) }
+    // The check above keeps C's doubled denominator product inside `int64_t`.
+    Ok(unsafe { ffi::av_nearer_q(q.copy_ffi(), q1.copy_ffi(), q2.copy_ffi()) })
 }
 
 /// Replaces: av_q2d
@@ -271,10 +292,35 @@ pub fn av_q2d(q: AVRationalRef<'_>) -> f64 {
 }
 
 /// Wraps: av_q2intfloat
-#[must_use]
-pub fn av_q2intfloat(q: AVRationalRef<'_>) -> u32 {
+///
+/// Encodes the rational as the bits of an IEEE-754 binary32, which is what
+/// FFmpeg writes into platform-independent containers. Undefined and infinite
+/// rationals have their own encodings: `0/0` is a quiet NaN and `n/0` is a
+/// signed infinity.
+///
+/// C normalizes the sign by negating the fields in place — `q.den *= -1` and
+/// `q.num *= -1` — so [`i32::MIN`] in either half is a negation that does not
+/// fit back into an `int`. This campaign's UBSan build reports it at
+/// `rational.c:160`, `:161` and `:164`, and the damage does not stop there:
+/// the wrapped denominator stays negative, `av_rescale` answers its
+/// out-of-range sentinel, and `n - (1 << 23)` then overflows `int64_t` at
+/// `:185` on the way to a result that is not the rational's value. Both halves
+/// are refused, and nothing else is: every other magnitude normalizes.
+///
+/// One diagnostic is deliberately not rejected. `sign << 31` shifts into an
+/// `int` sign bit for *every* negative numerator, which UBSan reports at
+/// `:185` as "left shift of 1 by 31 places". GCC — the compiler this campaign
+/// builds with — documents that it does not exploit the latitude C99 and C11
+/// give it there, and the encoding produced is the correct one (`-1/2` is
+/// `0xbf000000`). Refusing it would refuse every negative rational, so the
+/// diagnostic is recorded here instead.
+pub fn av_q2intfloat(q: AVRationalRef<'_>) -> Result<u32, RationalError> {
+    if q.num() == i32::MIN || q.den() == i32::MIN {
+        return Err(RationalError::UnnegatableInput);
+    }
     // SAFETY: the argument is an initialized by-value copy and is not retained.
-    unsafe { ffi::av_q2intfloat(q.copy_ffi()) }
+    // The check above leaves both fields negatable within `int`.
+    Ok(unsafe { ffi::av_q2intfloat(q.copy_ffi()) })
 }
 
 /// Wraps: av_sub_q
@@ -302,6 +348,101 @@ mod scheduled_tests {
         );
         let inverse = av_inv_q(half.as_ref());
         assert_eq!((inverse.as_ref().num(), inverse.as_ref().den()), (2, 1));
+    }
+
+    #[test]
+    fn conversions_agree_with_the_values_they_encode() {
+        // `av_q2d` is evaluated in Rust, so these pin it against the widths C
+        // uses rather than against itself: an `int` numerator over an `int`
+        // denominator, both widened to `double` before the division.
+        assert_eq!(av_q2d(av_make_q(-1, 4).as_ref()), -0.25);
+        assert_eq!(av_q2d(av_make_q(i32::MIN, 1).as_ref()), f64::from(i32::MIN));
+        assert!(av_q2d(av_make_q(1, 0).as_ref()).is_infinite());
+        assert!(av_q2d(av_make_q(0, 0).as_ref()).is_nan());
+
+        // `av_q2intfloat` is the same value as an IEEE-754 binary32 bit
+        // pattern, so `f32` is the independent check on it.
+        for (num, den) in [(1, 2), (-1, 2), (3, 4), (i32::MAX, 1), (1, i32::MAX)] {
+            let q = av_make_q(num, den);
+            let encoded = av_q2intfloat(q.as_ref()).unwrap();
+            assert_eq!(
+                f32::from_bits(encoded),
+                (f64::from(num) / f64::from(den)) as f32,
+                "{num}/{den}"
+            );
+        }
+        // The undefined and infinite rationals have their own encodings.
+        assert!(f32::from_bits(av_q2intfloat(av_make_q(0, 0).as_ref()).unwrap()).is_nan());
+        assert_eq!(
+            f32::from_bits(av_q2intfloat(av_make_q(1, 0).as_ref()).unwrap()),
+            f32::INFINITY
+        );
+        // `-1/0` encodes *positive* infinity, which is not a typo. C takes the
+        // sign into a local and normalizes the numerator before reaching the
+        // infinity branch, then rebuilds the sign from `q.num & 0x80000000` —
+        // a numerator it has already made positive. This is C's answer and the
+        // wrapper reproduces it rather than correcting the library underneath
+        // its callers.
+        assert_eq!(
+            f32::from_bits(av_q2intfloat(av_make_q(-1, 0).as_ref()).unwrap()),
+            f32::INFINITY
+        );
+        assert_eq!(av_q2intfloat(av_make_q(0, 5).as_ref()), Ok(0));
+    }
+
+    #[test]
+    fn q2intfloat_refuses_the_halves_c_negates_in_place() {
+        // C normalizes the sign with `q.den *= -1` and `q.num *= -1`, which
+        // UBSan reports as "negation of -2147483648 cannot be represented in
+        // type 'int'" at `rational.c:160`, `:161` and `:164`. The wrapped
+        // denominator then stays negative and the result is not the
+        // rational's value, so both halves are refused.
+        for (num, den) in [(i32::MIN, 1), (1, i32::MIN), (i32::MIN, i32::MIN)] {
+            assert_eq!(
+                av_q2intfloat(av_make_q(num, den).as_ref()),
+                Err(RationalError::UnnegatableInput),
+                "{num}/{den}"
+            );
+        }
+        // The neighbouring magnitude normalizes, so the guard is exactly one
+        // value wide in each half.
+        assert!(av_q2intfloat(av_make_q(i32::MIN + 1, 1).as_ref()).is_ok());
+        assert!(av_q2intfloat(av_make_q(1, i32::MIN + 1).as_ref()).is_ok());
+    }
+
+    #[test]
+    fn nearer_q_orders_candidates_and_refuses_the_one_overflowing_pair() {
+        let target = av_make_q(1, 2);
+        let near = av_make_q(2, 5);
+        let far = av_make_q(3, 1);
+        assert_eq!(
+            av_nearer_q(target.as_ref(), near.as_ref(), far.as_ref()),
+            Ok(1)
+        );
+        assert_eq!(
+            av_nearer_q(target.as_ref(), far.as_ref(), near.as_ref()),
+            Ok(-1)
+        );
+        assert_eq!(
+            av_nearer_q(target.as_ref(), near.as_ref(), near.as_ref()),
+            Ok(0)
+        );
+
+        // `2 * (int64_t)q1.den * q2.den` is `1 << 63` for this pair and this
+        // pair only, which UBSan reports as "signed integer overflow" at
+        // `rational.c:133`; with all four fields at `i32::MIN` the numerator
+        // sum at `:132` overflows too.
+        let extreme = av_make_q(i32::MIN, i32::MIN);
+        assert_eq!(
+            av_nearer_q(target.as_ref(), extreme.as_ref(), extreme.as_ref()),
+            Err(RationalError::DenominatorProductOverflow)
+        );
+
+        // One denominator at `i32::MIN` keeps the product in range, so only
+        // the pair is refused.
+        let one_extreme = av_make_q(i32::MIN, i32::MIN + 1);
+        assert!(av_nearer_q(target.as_ref(), extreme.as_ref(), one_extreme.as_ref()).is_ok());
+        assert!(av_nearer_q(target.as_ref(), one_extreme.as_ref(), extreme.as_ref()).is_ok());
     }
 }
 
@@ -366,11 +507,16 @@ pub enum RationalError {
     /// Both operands of [`av_gcd_q`] had a zero denominator, which would make
     /// C divide by `av_gcd(0, 0) == 0`.
     BothDenominatorsZero,
-    /// `i64::MIN` was passed where C takes `FFABS` of the value.
+    /// The most negative value of its type was passed where C negates it in
+    /// place: `i64::MIN` under [`av_reduce`]'s `FFABS`, or `i32::MIN` in
+    /// either half of [`av_q2intfloat`]'s sign normalization.
     UnnegatableInput,
     /// Both operands of [`av_add_q`] were `i32::MIN / i32::MIN`, the only pair
     /// whose widened numerator sum overflows C's `int64_t`.
     AdditionOverflow,
+    /// Both denominators handed to [`av_nearer_q`] were `i32::MIN`, the one
+    /// pair whose doubled product leaves `int64_t`.
+    DenominatorProductOverflow,
 }
 
 /// Wraps: av_d2q

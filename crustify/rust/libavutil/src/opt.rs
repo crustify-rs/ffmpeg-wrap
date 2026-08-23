@@ -1100,6 +1100,11 @@ impl OptArrayValues<'_> {
 }
 
 /// Wraps: av_opt_set_array
+///
+/// Inserts or replaces a run of array elements. `search_flags` also carries
+/// `AV_OPT_ARRAY_REPLACE`, which selects overwrite instead of insert;
+/// `AV_OPT_SEARCH_FAKE_OBJ` is refused before the call, as it is by every
+/// other setter, for the reason [`OptSetError::FakeObjectSearch`] gives.
 pub fn av_opt_set_array(
     object: &mut OptionObjectMut<'_>,
     name: &CStr,
@@ -1107,6 +1112,7 @@ pub fn av_opt_set_array(
     start_element: u32,
     values: OptArrayValues<'_>,
 ) -> Result<(), OptSetError> {
+    reject_fake_object(search_flags)?;
     let (kind, pointer, len) = values.raw();
     let len = u32::try_from(len).map_err(|_| OptSetError::LengthOverflow)?;
     // SAFETY: the exclusive object handle is live, `name` is terminated, and
@@ -1132,6 +1138,7 @@ pub fn av_opt_remove_array(
     start_element: u32,
     count: u32,
 ) -> Result<(), OptSetError> {
+    reject_fake_object(search_flags)?;
     // SAFETY: a null value selects removal and makes the ignored type harmless;
     // the object and name satisfy the ordinary setter contract.
     result(unsafe {
@@ -1148,6 +1155,21 @@ pub fn av_opt_remove_array(
 }
 
 /// Wraps: av_opt_set_dict
+///
+/// Applies every entry of `options` to the object as an ordinary string
+/// option, and leaves `options` holding the entries no option matched.
+///
+/// The slot is an in/out parameter that C both frees and rewrites, so the
+/// wrapper hands the dictionary over by value: `options` is emptied before the
+/// call and re-adopts whatever C left. On success that is a fresh dictionary
+/// of the unmatched entries — or `None` when every entry was consumed, since C
+/// frees the original. On failure C frees the partial leftovers and leaves the
+/// original in the slot untouched, so the caller gets its dictionary back
+/// rather than losing it to the error path. Either way exactly one owner
+/// exists at every point, which is why the re-adoption is unconditional.
+///
+/// C's own `search_flags` are fixed at zero by this entry point, so there is
+/// no fake-object flag for it to refuse.
 pub fn av_opt_set_dict(
     object: &mut OptionObjectMut<'_>,
     options: &mut Option<CBox<AVDictionary>>,
@@ -1170,8 +1192,10 @@ pub fn av_opt_set_pixel_fmt(
     value: AVPixelFormat,
     search_flags: i32,
 ) -> Result<(), OptSetError> {
+    reject_fake_object(search_flags)?;
     // SAFETY: the object borrow and C string are live for the call; the value
-    // is an ABI-compatible open pixel-format integer.
+    // is an ABI-compatible open pixel-format integer. C range-checks it
+    // against the option's own bounds and `AV_PIX_FMT_NB` before storing.
     result(unsafe {
         ffi::av_opt_set_pixel_fmt(
             object.as_mut_ptr(),
@@ -1189,6 +1213,7 @@ pub fn av_opt_set_q(
     value: AVRationalRef<'_>,
     search_flags: i32,
 ) -> Result<(), OptSetError> {
+    reject_fake_object(search_flags)?;
     // SAFETY: the rational is copied by value and no input is retained.
     result(unsafe {
         ffi::av_opt_set_q(
@@ -1207,8 +1232,10 @@ pub fn av_opt_set_sample_fmt(
     value: AVSampleFormat,
     search_flags: i32,
 ) -> Result<(), OptSetError> {
+    reject_fake_object(search_flags)?;
     // SAFETY: the object borrow and C string are live for the call; the value
-    // is an ABI-compatible open sample-format integer.
+    // is an ABI-compatible open sample-format integer. C range-checks it
+    // against the option's own bounds and `AV_SAMPLE_FMT_NB` before storing.
     result(unsafe {
         ffi::av_opt_set_sample_fmt(
             object.as_mut_ptr(),
@@ -1226,6 +1253,7 @@ pub fn av_opt_set_video_rate(
     value: AVRationalRef<'_>,
     search_flags: i32,
 ) -> Result<(), OptSetError> {
+    reject_fake_object(search_flags)?;
     // SAFETY: the rational is copied by value and no input is retained.
     result(unsafe {
         ffi::av_opt_set_video_rate(
@@ -1559,7 +1587,9 @@ mod scheduled_set_tests {
     use ffibox::{CVec, CrustifyStr};
 
     use super::*;
+    use crate::dict::{Dictionary, av_dict_count, av_dict_get, av_dict_set};
     use crate::mem::AvFree;
+    use crate::rational::AVRational;
 
     /// The smallest thing the option setters can act on: a struct whose first
     /// field is a class pointer, with one field per scheduled setter behind
@@ -1581,6 +1611,16 @@ mod scheduled_set_tests {
         /// `dst + 1`, so the count must directly follow the pointer.
         binary: *mut u8,
         binary_len: i32,
+        rational: ffi::AVRational,
+        video_rate: ffi::AVRational,
+        pixel_fmt: ffi::AVPixelFormat,
+        sample_fmt: ffi::AVSampleFormat,
+        /// An `AV_OPT_TYPE_FLAG_ARRAY` option addresses a
+        /// `{ void *elements; unsigned count; }` pair: `opt_array_pcount`
+        /// reads the count one `void *` past the option's offset, so the two
+        /// must be adjacent and in this order.
+        int_array: *mut i32,
+        int_array_count: c_uint,
     }
 
     fn option(
@@ -1603,7 +1643,7 @@ mod scheduled_set_tests {
         }
     }
 
-    fn options() -> [ffi::AVOption; 6] {
+    fn options() -> [ffi::AVOption; 11] {
         [
             option(
                 c"integer",
@@ -1640,6 +1680,44 @@ mod scheduled_set_tests {
                 0.0,
                 0.0,
             ),
+            option(
+                c"rational",
+                offset_of!(TestObject, rational),
+                ffi::AVOptionType_AV_OPT_TYPE_RATIONAL,
+                -1000.0,
+                1000.0,
+            ),
+            option(
+                c"rate",
+                offset_of!(TestObject, video_rate),
+                ffi::AVOptionType_AV_OPT_TYPE_VIDEO_RATE,
+                0.0,
+                1000.0,
+            ),
+            // `set_format` clamps the accepted range to
+            // `[FFMAX(min, -1), FFMIN(max, NB - 1)]`, so these bounds hand it
+            // the library's own table extent rather than a second opinion.
+            option(
+                c"pixel_fmt",
+                offset_of!(TestObject, pixel_fmt),
+                ffi::AVOptionType_AV_OPT_TYPE_PIXEL_FMT,
+                -1.0,
+                f64::from(i32::MAX),
+            ),
+            option(
+                c"sample_fmt",
+                offset_of!(TestObject, sample_fmt),
+                ffi::AVOptionType_AV_OPT_TYPE_SAMPLE_FMT,
+                -1.0,
+                f64::from(i32::MAX),
+            ),
+            option(
+                c"numbers",
+                offset_of!(TestObject, int_array),
+                ffi::AVOptionType_AV_OPT_TYPE_INT | ffi::AVOptionType_AV_OPT_TYPE_FLAG_ARRAY,
+                0.0,
+                1000.0,
+            ),
             // `av_opt_next` stops at the first entry whose name is NULL, so
             // the terminator cannot go through `option` — an empty C string
             // is a name, and iteration would run off the end of the array.
@@ -1650,7 +1728,7 @@ mod scheduled_set_tests {
         ]
     }
 
-    fn class(options: &[ffi::AVOption; 6]) -> ffi::AVClass {
+    fn class(options: &[ffi::AVOption; 11]) -> ffi::AVClass {
         ffi::AVClass {
             class_name: c"crustify-test".as_ptr(),
             // NULL is the documented default: libavutil substitutes
@@ -1680,6 +1758,12 @@ mod scheduled_set_tests {
                 text: core::ptr::null_mut(),
                 binary: core::ptr::null_mut(),
                 binary_len: 0,
+                rational: ffi::AVRational { num: 0, den: 0 },
+                video_rate: ffi::AVRational { num: 0, den: 0 },
+                pixel_fmt: ffi::AVPixelFormat_AV_PIX_FMT_NONE,
+                sample_fmt: ffi::AVSampleFormat_AV_SAMPLE_FMT_NONE,
+                int_array: core::ptr::null_mut(),
+                int_array_count: 0,
             }
         }
 
@@ -1704,6 +1788,16 @@ mod scheduled_set_tests {
                 drop(unsafe { CVec::<u8, AvFree>::from_raw_parts(self.binary, count) });
                 self.binary = core::ptr::null_mut();
                 self.binary_len = 0;
+            }
+            if !self.int_array.is_null() {
+                let count = usize::try_from(self.int_array_count).expect("a slot count");
+                // SAFETY: `av_opt_set_array` filled this field with an
+                // `av_calloc` block of exactly `int_array_count` initialized
+                // `int`s — it writes every element it counts — uniquely owned
+                // and released by `av_free`.
+                drop(unsafe { CVec::<i32, AvFree>::from_raw_parts(self.int_array, count) });
+                self.int_array = core::ptr::null_mut();
+                self.int_array_count = 0;
             }
         }
     }
@@ -1901,5 +1995,261 @@ mod scheduled_set_tests {
 
         assert!(object.binary.is_null());
         assert_eq!(object.binary_len, 0);
+    }
+
+    #[test]
+    fn typed_setters_write_through_to_the_object() {
+        let options = options();
+        let class = class(&options);
+        let mut object = TestObject::new(&class);
+
+        {
+            // SAFETY: `object` is live and exclusively borrowed for the block.
+            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+
+            let quarter = AVRational::new(1, 4);
+            av_opt_set_q(&mut handle, c"rational", quarter.as_ref(), 0).expect("set rational");
+            let rate = AVRational::new(30, 1);
+            av_opt_set_video_rate(&mut handle, c"rate", rate.as_ref(), 0).expect("set rate");
+            av_opt_set_pixel_fmt(&mut handle, c"pixel_fmt", AVPixelFormat::RGB24, 0)
+                .expect("set pixel format");
+            av_opt_set_sample_fmt(&mut handle, c"sample_fmt", AVSampleFormat::S16P, 0)
+                .expect("set sample format");
+        }
+
+        assert_eq!((object.rational.num, object.rational.den), (1, 4));
+        assert_eq!((object.video_rate.num, object.video_rate.den), (30, 1));
+        assert_eq!(object.pixel_fmt, AVPixelFormat::RGB24.as_raw());
+        assert_eq!(object.sample_fmt, AVSampleFormat::S16P.as_raw());
+
+        object.release_owned_options();
+    }
+
+    #[test]
+    fn typed_setters_report_the_ranges_c_enforces() {
+        let options = options();
+        let class = class(&options);
+        let mut object = TestObject::new(&class);
+        // SAFETY: `object` is live and exclusively borrowed for the block.
+        let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+
+        // `set_format` clamps the option's own maximum to `NB - 1`, so a
+        // format integer past the table this build knows is refused rather
+        // than stored and later used to index it. `AVPixelFormat` and
+        // `AVSampleFormat` are open integers precisely because a newer
+        // libavutil may return one, so this bound is C's to enforce.
+        assert!(matches!(
+            av_opt_set_pixel_fmt(
+                &mut handle,
+                c"pixel_fmt",
+                AVPixelFormat::from_raw(i32::MAX),
+                0
+            ),
+            Err(OptSetError::Library(_))
+        ));
+        assert!(matches!(
+            av_opt_set_sample_fmt(
+                &mut handle,
+                c"sample_fmt",
+                AVSampleFormat::from_raw(i32::MAX),
+                0
+            ),
+            Err(OptSetError::Library(_))
+        ));
+
+        // A rational outside `[min, max]` is an ordinary ERANGE, and a
+        // mismatched option type an ordinary EINVAL.
+        let large = AVRational::new(5000, 1);
+        assert!(matches!(
+            av_opt_set_q(&mut handle, c"rational", large.as_ref(), 0),
+            Err(OptSetError::Library(_))
+        ));
+        let rate = AVRational::new(30, 1);
+        assert!(matches!(
+            av_opt_set_video_rate(&mut handle, c"rational", rate.as_ref(), 0),
+            Err(OptSetError::Library(_))
+        ));
+
+        assert_eq!(object.pixel_fmt, ffi::AVPixelFormat_AV_PIX_FMT_NONE);
+        assert_eq!(object.sample_fmt, ffi::AVSampleFormat_AV_SAMPLE_FMT_NONE);
+        assert_eq!((object.rational.num, object.rational.den), (0, 0));
+    }
+
+    #[test]
+    fn an_array_option_grows_and_shrinks_through_its_own_count() {
+        let options = options();
+        let class = class(&options);
+        let mut object = TestObject::new(&class);
+
+        {
+            // SAFETY: `object` is live and exclusively borrowed for the block.
+            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+
+            av_opt_set_array(
+                &mut handle,
+                c"numbers",
+                0,
+                0,
+                OptArrayValues::Int(&[1, 2, 3]),
+            )
+            .expect("insert three elements");
+            // A second insert at the end appends rather than replacing.
+            av_opt_set_array(&mut handle, c"numbers", 0, 3, OptArrayValues::Int(&[4]))
+                .expect("append one element");
+
+            // The element type need not match the option's: C converts an
+            // `int64_t` source into the `int` the option stores.
+            av_opt_set_array(&mut handle, c"numbers", 0, 4, OptArrayValues::Int64(&[5]))
+                .expect("append a widened element");
+
+            // A start element past the current count is refused by C, which is
+            // what keeps the write inside the array it just sized.
+            assert!(matches!(
+                av_opt_set_array(&mut handle, c"numbers", 0, 99, OptArrayValues::Int(&[0])),
+                Err(OptSetError::Library(_))
+            ));
+            // And so is a value outside the option's declared range.
+            assert!(matches!(
+                av_opt_set_array(&mut handle, c"numbers", 0, 5, OptArrayValues::Int(&[9999])),
+                Err(OptSetError::Library(_))
+            ));
+        }
+
+        assert_eq!(object.int_array_count, 5);
+        // SAFETY: `av_opt_set_array` wrote five initialized `int`s at this
+        // pointer and the count above is the one it recorded for them.
+        let stored = unsafe { core::slice::from_raw_parts(object.int_array, 5) };
+        assert_eq!(stored, [1, 2, 3, 4, 5]);
+
+        {
+            // SAFETY: `object` is live and exclusively borrowed for the block.
+            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            av_opt_remove_array(&mut handle, c"numbers", 0, 1, 3).expect("remove three elements");
+            // Removing more than the array holds is refused before any free.
+            assert!(matches!(
+                av_opt_remove_array(&mut handle, c"numbers", 0, 0, 99),
+                Err(OptSetError::Library(_))
+            ));
+        }
+
+        assert_eq!(object.int_array_count, 2);
+        // SAFETY: as above, for the two elements that survived the removal.
+        let stored = unsafe { core::slice::from_raw_parts(object.int_array, 2) };
+        assert_eq!(stored, [1, 5]);
+
+        object.release_owned_options();
+    }
+
+    #[test]
+    fn every_typed_setter_rejects_a_fake_object_search() {
+        // The other half of `every_setter_rejects_a_fake_object_search`: these
+        // six reach `opt_set_init` by the same route and load the class out of
+        // the same NULL target, so they refuse the flag on the same terms.
+        let options = options();
+        let class = class(&options);
+        let mut object = TestObject::new(&class);
+        // SAFETY: `object` is live and exclusively borrowed for the block.
+        let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+
+        let fake = ffi::AV_OPT_SEARCH_FAKE_OBJ as i32;
+        let value = AVRational::new(1, 4);
+        assert_eq!(
+            av_opt_set_q(&mut handle, c"rational", value.as_ref(), fake),
+            Err(OptSetError::FakeObjectSearch)
+        );
+        assert_eq!(
+            av_opt_set_video_rate(&mut handle, c"rate", value.as_ref(), fake),
+            Err(OptSetError::FakeObjectSearch)
+        );
+        assert_eq!(
+            av_opt_set_pixel_fmt(&mut handle, c"pixel_fmt", AVPixelFormat::RGB24, fake),
+            Err(OptSetError::FakeObjectSearch)
+        );
+        assert_eq!(
+            av_opt_set_sample_fmt(&mut handle, c"sample_fmt", AVSampleFormat::S16P, fake),
+            Err(OptSetError::FakeObjectSearch)
+        );
+        assert_eq!(
+            av_opt_set_array(&mut handle, c"numbers", fake, 0, OptArrayValues::Int(&[1])),
+            Err(OptSetError::FakeObjectSearch)
+        );
+        assert_eq!(
+            av_opt_remove_array(&mut handle, c"numbers", fake, 0, 1),
+            Err(OptSetError::FakeObjectSearch)
+        );
+
+        assert_eq!((object.rational.num, object.rational.den), (0, 0));
+        assert!(object.int_array.is_null(), "no setter reached the object");
+    }
+
+    #[test]
+    fn a_dictionary_is_consumed_and_its_unmatched_entries_come_back() {
+        let options = options();
+        let class = class(&options);
+        let mut object = TestObject::new(&class);
+
+        let mut input = Dictionary::default();
+        av_dict_set(&mut input, c"integer", Some(c"11"), 0).expect("set integer entry");
+        av_dict_set(&mut input, c"text", Some(c"from-dict"), 0).expect("set text entry");
+        av_dict_set(&mut input, c"unknown", Some(c"kept"), 0).expect("set unmatched entry");
+        let mut owner = input.into_owner();
+        assert!(owner.is_some());
+
+        {
+            // SAFETY: `object` is live and exclusively borrowed for the block.
+            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            av_opt_set_dict(&mut handle, &mut owner).expect("apply the dictionary");
+        }
+
+        assert_eq!(object.integer, 11);
+        // SAFETY: the string option holds a live `av_strdup` result.
+        assert_eq!(unsafe { CStr::from_ptr(object.text) }, c"from-dict");
+
+        // C freed the dictionary it was handed and left a fresh one holding
+        // only the entry no option matched. Re-adopting it is what keeps that
+        // second allocation from leaking, which the sanitiser run would show.
+        let leftovers = Dictionary::from_owner(owner);
+        assert_eq!(av_dict_count(leftovers.as_ref()), 1);
+        assert_eq!(
+            av_dict_get(leftovers.as_ref(), c"unknown", None, 0)
+                .expect("a well-formed lookup")
+                .expect("the unmatched entry")
+                .value(),
+            c"kept"
+        );
+
+        object.release_owned_options();
+    }
+
+    #[test]
+    fn a_failing_dictionary_entry_leaves_the_dictionary_with_its_caller() {
+        // C's error path frees only the partial leftovers and returns without
+        // touching the caller's slot, so the wrapper's unconditional
+        // re-adoption hands the original dictionary back rather than leaking
+        // it or leaving the caller with nothing.
+        let options = options();
+        let class = class(&options);
+        let mut object = TestObject::new(&class);
+
+        let mut input = Dictionary::default();
+        av_dict_set(&mut input, c"integer", Some(c"99999"), 0).expect("set out-of-range entry");
+        av_dict_set(&mut input, c"text", Some(c"unreached"), 0).expect("set text entry");
+        let mut owner = input.into_owner();
+
+        {
+            // SAFETY: `object` is live and exclusively borrowed for the block.
+            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            assert!(matches!(
+                av_opt_set_dict(&mut handle, &mut owner),
+                Err(OptSetError::Library(_))
+            ));
+        }
+
+        let returned = Dictionary::from_owner(owner);
+        assert_eq!(av_dict_count(returned.as_ref()), 2);
+        assert_eq!(object.integer, 0);
+        assert!(object.text.is_null());
+
+        object.release_owned_options();
     }
 }
