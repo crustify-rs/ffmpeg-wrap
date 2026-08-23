@@ -9,6 +9,12 @@ use crate::ffi;
 /// libavutil that returns a format unknown to this crate. Such values remain
 /// valid Rust values and round-trip through [`from_raw`](Self::from_raw) and
 /// [`as_raw`](Self::as_raw).
+///
+/// [`from_raw`](Self::from_raw) is safe for every `c_int` because libavutil
+/// treats the enum as an open integer: each entry point taking a sample
+/// format range-checks it against `AV_SAMPLE_FMT_NB` before touching the
+/// format table, and reports "unknown" (a null name, zero bytes per sample,
+/// non-planar, [`NONE`](Self::NONE), or `EINVAL`) instead of indexing it.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AVSampleFormat(ffi::AVSampleFormat);
@@ -72,31 +78,58 @@ impl From<AVSampleFormat> for ffi::AVSampleFormat {
 mod tests {
     use core::mem::{align_of, size_of};
 
-    use super::*;
+    use super::{AVSampleFormat as Fmt, *};
+
+    /// Every format this crate declares, paired with what libavutil itself
+    /// reports for it: `(packed, planar, packed name, planar name, bytes per
+    /// sample)`. Checking a constant against the library rather than against
+    /// the same generated binding is what catches one bound to the wrong
+    /// enumerator, which an `X == ffi::X` assertion cannot.
+    const PAIRS: [(Fmt, Fmt, &CStr, &CStr, i32); 6] = [
+        (Fmt::U8, Fmt::U8P, c"u8", c"u8p", 1),
+        (Fmt::S16, Fmt::S16P, c"s16", c"s16p", 2),
+        (Fmt::S32, Fmt::S32P, c"s32", c"s32p", 4),
+        (Fmt::FLT, Fmt::FLTP, c"flt", c"fltp", 4),
+        (Fmt::DBL, Fmt::DBLP, c"dbl", c"dblp", 8),
+        (Fmt::S64, Fmt::S64P, c"s64", c"s64p", 8),
+    ];
 
     #[test]
-    fn declared_values_match_the_c_enum() {
-        let formats = [
-            (AVSampleFormat::NONE, ffi::AVSampleFormat_AV_SAMPLE_FMT_NONE),
-            (AVSampleFormat::U8, ffi::AVSampleFormat_AV_SAMPLE_FMT_U8),
-            (AVSampleFormat::S16, ffi::AVSampleFormat_AV_SAMPLE_FMT_S16),
-            (AVSampleFormat::S32, ffi::AVSampleFormat_AV_SAMPLE_FMT_S32),
-            (AVSampleFormat::FLT, ffi::AVSampleFormat_AV_SAMPLE_FMT_FLT),
-            (AVSampleFormat::DBL, ffi::AVSampleFormat_AV_SAMPLE_FMT_DBL),
-            (AVSampleFormat::U8P, ffi::AVSampleFormat_AV_SAMPLE_FMT_U8P),
-            (AVSampleFormat::S16P, ffi::AVSampleFormat_AV_SAMPLE_FMT_S16P),
-            (AVSampleFormat::S32P, ffi::AVSampleFormat_AV_SAMPLE_FMT_S32P),
-            (AVSampleFormat::FLTP, ffi::AVSampleFormat_AV_SAMPLE_FMT_FLTP),
-            (AVSampleFormat::DBLP, ffi::AVSampleFormat_AV_SAMPLE_FMT_DBLP),
-            (AVSampleFormat::S64, ffi::AVSampleFormat_AV_SAMPLE_FMT_S64),
-            (AVSampleFormat::S64P, ffi::AVSampleFormat_AV_SAMPLE_FMT_S64P),
-            (AVSampleFormat::NB, ffi::AVSampleFormat_AV_SAMPLE_FMT_NB),
-        ];
-
-        for (format, raw) in formats {
-            assert_eq!(format.as_raw(), raw);
-            assert_eq!(AVSampleFormat::from(raw), format);
+    fn each_constant_denotes_the_format_its_name_claims() {
+        for (packed, planar, packed_name, planar_name, bytes) in PAIRS {
+            assert_eq!(av_get_sample_fmt_name(packed), Some(packed_name));
+            assert_eq!(av_get_sample_fmt_name(planar), Some(planar_name));
+            assert_eq!(av_get_sample_fmt(packed_name), packed);
+            assert_eq!(av_get_sample_fmt(planar_name), planar);
+            assert_eq!(av_get_bytes_per_sample(packed), bytes);
+            assert_eq!(av_get_bytes_per_sample(planar), bytes);
+            assert!(!av_sample_fmt_is_planar(packed));
+            assert!(av_sample_fmt_is_planar(planar));
+            assert_eq!(av_get_planar_sample_fmt(packed), planar);
+            assert_eq!(av_get_packed_sample_fmt(planar), packed);
         }
+    }
+
+    #[test]
+    fn sentinels_sit_outside_the_named_format_table() {
+        assert_eq!(av_get_sample_fmt_name(AVSampleFormat::NONE), None);
+        assert_eq!(av_get_bytes_per_sample(AVSampleFormat::NONE), 0);
+        assert_eq!(
+            av_get_sample_fmt(c"not-a-sample-format"),
+            AVSampleFormat::NONE
+        );
+
+        // `NB` counts the formats the headers of this build declare, so it is
+        // one past the last named one and is itself unnamed.
+        assert_eq!(av_get_sample_fmt_name(AVSampleFormat::NB), None);
+        assert_eq!(
+            AVSampleFormat::NB.as_raw(),
+            AVSampleFormat::S64P.as_raw() + 1
+        );
+        assert_eq!(
+            usize::try_from(AVSampleFormat::NB.as_raw()).unwrap(),
+            2 * PAIRS.len()
+        );
     }
 
     #[test]
@@ -110,8 +143,25 @@ mod tests {
             align_of::<ffi::AVSampleFormat>()
         );
 
-        let unknown = ffi::AVSampleFormat_AV_SAMPLE_FMT_NB + 1;
-        assert_eq!(AVSampleFormat::from_raw(unknown).as_raw(), unknown);
+        // A value a newer libavutil could return, and the far ends of the C
+        // integer range: all stay valid Rust values, round-trip unchanged, and
+        // are answered rather than indexed by the library.
+        for raw in [
+            ffi::AVSampleFormat_AV_SAMPLE_FMT_NB + 1,
+            ffi::AVSampleFormat::MAX,
+            ffi::AVSampleFormat::MIN,
+        ] {
+            let unknown = AVSampleFormat::from_raw(raw);
+            assert_eq!(unknown.as_raw(), raw);
+            assert_eq!(AVSampleFormat::from(raw), unknown);
+            assert_eq!(ffi::AVSampleFormat::from(unknown), raw);
+
+            assert_eq!(av_get_sample_fmt_name(unknown), None);
+            assert_eq!(av_get_bytes_per_sample(unknown), 0);
+            assert!(!av_sample_fmt_is_planar(unknown));
+            assert_eq!(av_get_packed_sample_fmt(unknown), AVSampleFormat::NONE);
+            assert_eq!(av_get_planar_sample_fmt(unknown), AVSampleFormat::NONE);
+        }
     }
 }
 
