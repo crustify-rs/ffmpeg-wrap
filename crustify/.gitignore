@@ -17,6 +17,10 @@ campaigns/**/logs
 # Deterministic safety scan output.
 audit/unsafe.json
 
+# Agentic UB transcripts, like campaign execution logs. The per-run
+# usage.json stays tracked: accounting reads it.
+audit/logs/*.log
+
 # Machine-local dependency and binary paths.
 cli-config.json
 
