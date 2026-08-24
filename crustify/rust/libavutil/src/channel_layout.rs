@@ -298,7 +298,7 @@ impl AVChannelCustomOpaque<'_> {
 }
 
 impl<'a> AVChannelCustomRef<'a> {
-    /// Wraps: AVChannelCustom.opaque
+    /// Field: AVChannelCustom.opaque
     ///
     /// Returns an identity-only token for the application-managed cookie,
     /// borrowed for as long as the element is, not merely for as long as this
@@ -315,7 +315,7 @@ impl<'a> AVChannelCustomRef<'a> {
         })
     }
 
-    /// Wraps: AVChannelCustom.name
+    /// Field: AVChannelCustom.name
     ///
     /// Copies all 16 bytes of the fixed-size, NUL-terminated-or-zero name.
     #[must_use]
@@ -334,7 +334,7 @@ impl<'a> AVChannelCustomRef<'a> {
         name
     }
 
-    /// Wraps: AVChannelCustom.id
+    /// Field: AVChannelCustom.id
     #[must_use]
     pub fn id(&self) -> AVChannel {
         // SAFETY: the integer-backed C enum is copied through a raw projection
@@ -753,7 +753,7 @@ pub enum AVChannelLayoutChannels<'a> {
 }
 
 impl<'a> AVChannelLayoutRef<'a> {
-    /// Wraps: AVChannelLayout.order
+    /// Field: AVChannelLayout.order
     #[must_use]
     pub fn order(&self) -> AVChannelOrder {
         // SAFETY: the integer-backed enum is copied through a raw projection;
@@ -761,7 +761,7 @@ impl<'a> AVChannelLayoutRef<'a> {
         AVChannelOrder::from_raw(unsafe { addr_of!((*self.as_ptr()).order).read() })
     }
 
-    /// Wraps: AVChannelLayout.nb_channels
+    /// Field: AVChannelLayout.nb_channels
     #[must_use]
     pub fn nb_channels(&self) -> i32 {
         // SAFETY: the scalar is copied through a raw field projection from the
@@ -769,7 +769,7 @@ impl<'a> AVChannelLayoutRef<'a> {
         unsafe { addr_of!((*self.as_ptr()).nb_channels).read() }
     }
 
-    /// Wraps: AVChannelLayout.opaque
+    /// Field: AVChannelLayout.opaque
     ///
     /// Returns the application-managed cookie as an identity-only token.
     #[must_use]
@@ -784,7 +784,7 @@ impl<'a> AVChannelLayoutRef<'a> {
         })
     }
 
-    /// Wraps: AVChannelLayout.u.mask
+    /// Field: AVChannelLayout.u.mask
     ///
     /// Reads the union member only for orders that define it.
     #[must_use]
@@ -799,7 +799,7 @@ impl<'a> AVChannelLayoutRef<'a> {
         Some(unsafe { addr_of!((*self.as_ptr()).u.mask).read() })
     }
 
-    /// Wraps: AVChannelLayout.u.map
+    /// Field: AVChannelLayout.u.map
     ///
     /// Borrows the owned custom map when the discriminator and length are
     /// valid. The view yields per-element handles rather than `&[T]`.
@@ -821,7 +821,7 @@ impl<'a> AVChannelLayoutRef<'a> {
         })
     }
 
-    /// Wraps: AVChannelLayout.u
+    /// Field: AVChannelLayout.u
     ///
     /// Interprets the union only through the active member selected by order.
     #[must_use]

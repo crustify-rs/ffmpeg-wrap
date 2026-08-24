@@ -36,7 +36,7 @@ define_ctype!(
 );
 
 impl<'a> AVDictionaryEntryRef<'a> {
-    /// Wraps: AVDictionaryEntry.value
+    /// Field: AVDictionaryEntry.value
     ///
     /// The returned string is borrowed from the dictionary that owns the entry,
     /// not from this handle. Although libavutil may replace or append to the
@@ -54,7 +54,7 @@ impl<'a> AVDictionaryEntryRef<'a> {
         unsafe { CStr::from_ptr(value.cast_const()) }
     }
 
-    /// Wraps: AVDictionaryEntry.key
+    /// Field: AVDictionaryEntry.key
     ///
     /// The returned string is borrowed from the dictionary that owns the entry
     /// and is read-only, as required by the public dictionary API.

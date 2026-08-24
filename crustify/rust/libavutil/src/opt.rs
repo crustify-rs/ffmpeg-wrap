@@ -270,7 +270,7 @@ ffibox::define_ctype!(
 );
 
 impl<'a> AVOptionArrayDefRef<'a> {
-    /// Wraps: AVOptionArrayDef.def
+    /// Field: AVOptionArrayDef.def
     ///
     /// Returns the serialized default — the element list as `av_opt_get` would
     /// render it, joined by [`sep`](Self::sep) — or `None` when the definition
@@ -294,7 +294,7 @@ impl<'a> AVOptionArrayDefRef<'a> {
         }
     }
 
-    /// Wraps: AVOptionArrayDef.size_min
+    /// Field: AVOptionArrayDef.size_min
     ///
     /// Returns the minimum number of array elements. Zero means no minimum;
     /// a non-zero minimum additionally requires [`def`](Self::def) to be
@@ -306,7 +306,7 @@ impl<'a> AVOptionArrayDefRef<'a> {
         unsafe { addr_of!((*self.as_ptr()).size_min).read() }
     }
 
-    /// Wraps: AVOptionArrayDef.size_max
+    /// Field: AVOptionArrayDef.size_max
     ///
     /// Returns the maximum number of array elements. Zero means unlimited.
     #[must_use]
@@ -316,7 +316,7 @@ impl<'a> AVOptionArrayDefRef<'a> {
         unsafe { addr_of!((*self.as_ptr()).size_max).read() }
     }
 
-    /// Wraps: AVOptionArrayDef.sep
+    /// Field: AVOptionArrayDef.sep
     ///
     /// Returns the serialized array separator. Zero selects libavutil's
     /// default separator, a comma. The field is a C `char`, so a value above
@@ -505,20 +505,20 @@ ffibox::define_ctype!(
 
 /// The active member of an [`AVOption`]'s default-value union.
 pub enum AVOptionDefault<'a> {
-    /// Wraps: AVOption.default_val.arr
+    /// Field: AVOption.default_val.arr
     ///
     /// Default metadata for an array option. A null definition selects the
     /// type-specific empty default.
     Array(Option<AVOptionArrayDefRef<'a>>),
-    /// Wraps: AVOption.default_val.i64
+    /// Field: AVOption.default_val.i64
     ///
     /// Default for integral, enum-like and named-constant options.
     Integer(i64),
-    /// Wraps: AVOption.default_val.str
+    /// Field: AVOption.default_val.str
     ///
     /// Serialized default for string-parsed option types.
     String(Option<&'a CStr>),
-    /// Wraps: AVOption.default_val.dbl
+    /// Field: AVOption.default_val.dbl
     ///
     /// Default for floating-point options. Libavutil also stores rational
     /// defaults as a double and converts them with `av_d2q`.
@@ -529,7 +529,7 @@ pub enum AVOptionDefault<'a> {
 }
 
 impl<'a> AVOptionRef<'a> {
-    /// Wraps: AVOption.type
+    /// Field: AVOption.type
     #[must_use]
     pub fn option_type(&self) -> AVOptionType {
         // SAFETY: the handle guarantees a live initialized option. The raw
@@ -538,7 +538,7 @@ impl<'a> AVOptionRef<'a> {
         AVOptionType::from_raw(unsafe { addr_of!((*self.as_ptr()).type_).read() })
     }
 
-    /// Wraps: AVOption.offset
+    /// Field: AVOption.offset
     ///
     /// Returns the byte offset of the represented value in its AVClass
     /// context. Named constants conventionally return zero.
@@ -549,7 +549,7 @@ impl<'a> AVOptionRef<'a> {
         unsafe { addr_of!((*self.as_ptr()).offset).read() }
     }
 
-    /// Wraps: AVOption.flags
+    /// Field: AVOption.flags
     ///
     /// Returns the raw `AV_OPT_FLAG_*` word. It stays an integer because the
     /// C constants are macros rather than an enum and libavutil keeps adding
@@ -562,7 +562,7 @@ impl<'a> AVOptionRef<'a> {
         unsafe { addr_of!((*self.as_ptr()).flags).read() }
     }
 
-    /// Wraps: AVOption.name
+    /// Field: AVOption.name
     ///
     /// Returns `None` for the sentinel that terminates an option table.
     #[must_use]
@@ -580,7 +580,7 @@ impl<'a> AVOptionRef<'a> {
         }
     }
 
-    /// Wraps: AVOption.max
+    /// Field: AVOption.max
     #[must_use]
     pub fn max(&self) -> f64 {
         // SAFETY: the handle guarantees a live initialized option; raw-place
@@ -588,7 +588,7 @@ impl<'a> AVOptionRef<'a> {
         unsafe { addr_of!((*self.as_ptr()).max).read() }
     }
 
-    /// Wraps: AVOption.min
+    /// Field: AVOption.min
     #[must_use]
     pub fn min(&self) -> f64 {
         // SAFETY: the handle guarantees a live initialized option; raw-place
@@ -596,7 +596,7 @@ impl<'a> AVOptionRef<'a> {
         unsafe { addr_of!((*self.as_ptr()).min).read() }
     }
 
-    /// Wraps: AVOption.unit
+    /// Field: AVOption.unit
     #[must_use]
     pub fn unit(&self) -> Option<&'a CStr> {
         // SAFETY: the handle guarantees initialized AVOption metadata. Reading
@@ -612,7 +612,7 @@ impl<'a> AVOptionRef<'a> {
         }
     }
 
-    /// Wraps: AVOption.help
+    /// Field: AVOption.help
     #[must_use]
     pub fn help(&self) -> Option<&'a CStr> {
         // SAFETY: the handle guarantees initialized AVOption metadata. Reading
@@ -628,7 +628,7 @@ impl<'a> AVOptionRef<'a> {
         }
     }
 
-    /// Wraps: AVOption.default_val
+    /// Field: AVOption.default_val
     ///
     /// Reads only the union member selected by [`option_type`](Self::option_type).
     /// Unknown values are preserved without interpreting the union bytes.
@@ -711,7 +711,7 @@ impl<'a> AVOptionRef<'a> {
         AVOptionDefault::Unknown(option_type)
     }
 
-    /// Wraps: AVOption.default_val.q
+    /// Field: AVOption.default_val.q
     ///
     /// Returns the legacy rational view of the default-value union. Nothing in
     /// the tree writes or reads this member — opt.h marks it unused and a

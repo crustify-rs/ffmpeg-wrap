@@ -34,7 +34,7 @@ define_ctype!(
 );
 
 impl AVComponentDescriptorRef<'_> {
-    /// Wraps: AVComponentDescriptor.offset
+    /// Field: AVComponentDescriptor.offset
     #[must_use]
     pub fn offset(&self) -> i32 {
         // SAFETY: `as_ptr` addresses a live descriptor for this handle's
@@ -42,7 +42,7 @@ impl AVComponentDescriptorRef<'_> {
         unsafe { addr_of!((*self.as_ptr()).offset).read() }
     }
 
-    /// Wraps: AVComponentDescriptor.shift
+    /// Field: AVComponentDescriptor.shift
     #[must_use]
     pub fn shift(&self) -> i32 {
         // SAFETY: `as_ptr` addresses a live descriptor for this handle's
@@ -50,7 +50,7 @@ impl AVComponentDescriptorRef<'_> {
         unsafe { addr_of!((*self.as_ptr()).shift).read() }
     }
 
-    /// Wraps: AVComponentDescriptor.plane
+    /// Field: AVComponentDescriptor.plane
     #[must_use]
     pub fn plane(&self) -> i32 {
         // SAFETY: `as_ptr` addresses a live descriptor for this handle's
@@ -58,7 +58,7 @@ impl AVComponentDescriptorRef<'_> {
         unsafe { addr_of!((*self.as_ptr()).plane).read() }
     }
 
-    /// Wraps: AVComponentDescriptor.depth
+    /// Field: AVComponentDescriptor.depth
     #[must_use]
     pub fn depth(&self) -> i32 {
         // SAFETY: `as_ptr` addresses a live descriptor for this handle's
@@ -66,7 +66,7 @@ impl AVComponentDescriptorRef<'_> {
         unsafe { addr_of!((*self.as_ptr()).depth).read() }
     }
 
-    /// Wraps: AVComponentDescriptor.step
+    /// Field: AVComponentDescriptor.step
     #[must_use]
     pub fn step(&self) -> i32 {
         // SAFETY: `as_ptr` addresses a live descriptor for this handle's
@@ -230,7 +230,7 @@ define_ctype!(
 );
 
 impl<'a> AVPixFmtDescriptorRef<'a> {
-    /// Wraps: AVPixFmtDescriptor.flags
+    /// Field: AVPixFmtDescriptor.flags
     #[must_use]
     pub fn flags(&self) -> u64 {
         // SAFETY: `as_ptr` addresses a live descriptor for this handle's
@@ -238,7 +238,7 @@ impl<'a> AVPixFmtDescriptorRef<'a> {
         unsafe { addr_of!((*self.as_ptr()).flags).read() }
     }
 
-    /// Wraps: AVPixFmtDescriptor.name
+    /// Field: AVPixFmtDescriptor.name
     ///
     /// Returns the canonical format name, or `None` for a table slot no
     /// configuration filled in. The string borrows for the handle's own
@@ -261,7 +261,7 @@ impl<'a> AVPixFmtDescriptorRef<'a> {
         }
     }
 
-    /// Wraps: AVPixFmtDescriptor.comp
+    /// Field: AVPixFmtDescriptor.comp
     ///
     /// The view borrows for the handle's own lifetime, not for the borrow of
     /// the handle: the descriptors live inside the C object the handle already
@@ -287,7 +287,7 @@ impl<'a> AVPixFmtDescriptorRef<'a> {
         unsafe { CSlice::from_raw_parts(pointer, 4) }
     }
 
-    /// Wraps: AVPixFmtDescriptor.nb_components
+    /// Field: AVPixFmtDescriptor.nb_components
     #[must_use]
     pub fn nb_components(&self) -> u8 {
         // SAFETY: `as_ptr` addresses a live descriptor for this handle's
@@ -295,7 +295,7 @@ impl<'a> AVPixFmtDescriptorRef<'a> {
         unsafe { addr_of!((*self.as_ptr()).nb_components).read() }
     }
 
-    /// Wraps: AVPixFmtDescriptor.alias
+    /// Field: AVPixFmtDescriptor.alias
     ///
     /// Returns the comma-separated alternative names — the spellings
     /// `av_get_pix_fmt` also accepts for this format — or `None` when the
@@ -318,7 +318,7 @@ impl<'a> AVPixFmtDescriptorRef<'a> {
         }
     }
 
-    /// Wraps: AVPixFmtDescriptor.log2_chroma_h
+    /// Field: AVPixFmtDescriptor.log2_chroma_h
     #[must_use]
     pub fn log2_chroma_h(&self) -> u8 {
         // SAFETY: `as_ptr` addresses a live descriptor for this handle's
@@ -326,7 +326,7 @@ impl<'a> AVPixFmtDescriptorRef<'a> {
         unsafe { addr_of!((*self.as_ptr()).log2_chroma_h).read() }
     }
 
-    /// Wraps: AVPixFmtDescriptor.log2_chroma_w
+    /// Field: AVPixFmtDescriptor.log2_chroma_w
     #[must_use]
     pub fn log2_chroma_w(&self) -> u8 {
         // SAFETY: `as_ptr` addresses a live descriptor for this handle's

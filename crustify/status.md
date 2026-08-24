@@ -77,7 +77,8 @@ The campaign is complete. Nothing is outstanding.
   the ASan+UBSan-built `libavutil.so` loaded and `detect_leaks=1`, plus the
   `compile_fail,E0133` doctest gating `av_file_map`.
 - `make -j64 fate-libavutil` — 60/60, exit 0, matching the recorded baseline.
-- 0 surviving `crustify:todo` anchors; 305 `/// Wraps:` and 4 `/// Replaces:`.
+- 0 surviving `crustify:todo` anchors; 198 `/// Wraps:`, 107 `/// Field:`
+  (91 distinct `type.field` paths) and 4 `/// Replaces:`.
 - Deterministic `crustify-audit unsafe`, unseeded, before and after the review:
   `raw_ptr_wrapped` 2 -> 0; `ref_to_type_wrapper` 0 -> 0 against 15 layout
   newtypes; `field_ref_wrapped`, `field_proj_outside_impl` and

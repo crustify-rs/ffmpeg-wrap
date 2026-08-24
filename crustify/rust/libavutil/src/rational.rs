@@ -41,7 +41,7 @@ impl AVRationalRef<'_> {
         unsafe { self.as_ptr().read() }
     }
 
-    /// Wraps: AVRational.num
+    /// Field: AVRational.num
     ///
     /// Returns the numerator.
     #[must_use]
@@ -52,7 +52,7 @@ impl AVRationalRef<'_> {
         unsafe { addr_of!((*self.as_ptr()).num).read() }
     }
 
-    /// Wraps: AVRational.den
+    /// Field: AVRational.den
     ///
     /// Returns the denominator.
     #[must_use]

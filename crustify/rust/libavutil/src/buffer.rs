@@ -302,7 +302,7 @@ unsafe impl CCloned for AVBufferReference {
 }
 
 impl<'a> AVBufferReferenceRef<'a> {
-    /// Wraps: AVBufferRef.size
+    /// Field: AVBufferRef.size
     ///
     /// Returns the length of this reference's current data window in bytes.
     #[must_use]
@@ -312,7 +312,7 @@ impl<'a> AVBufferReferenceRef<'a> {
         unsafe { addr_of!((*self.as_ptr()).size).read() }
     }
 
-    /// Wraps: AVBufferRef.data
+    /// Field: AVBufferRef.data
     ///
     /// Views the byte window without forming a Rust slice over memory that C
     /// may mutate, and without claiming its bytes have been written.
@@ -345,7 +345,7 @@ impl<'a> AVBufferReferenceRef<'a> {
         })
     }
 
-    /// Wraps: AVBufferRef.data
+    /// Field: AVBufferRef.data
     ///
     /// The same window, viewed as initialized bytes.
     ///
@@ -374,7 +374,7 @@ impl<'a> AVBufferReferenceRef<'a> {
         Some(unsafe { CSlice::from_raw_parts(data, window.len()) })
     }
 
-    /// Wraps: AVBufferRef.buffer
+    /// Field: AVBufferRef.buffer
     ///
     /// Borrows the opaque underlying buffer that keeps the data window alive.
     #[must_use]
@@ -440,7 +440,7 @@ impl AVBufferReferenceMut<'_> {
         true
     }
 
-    /// Wraps: AVBufferRef.data
+    /// Field: AVBufferRef.data
     ///
     /// Exclusively views the data when this is the only reference and the
     /// underlying buffer is not marked read-only. As with
@@ -472,7 +472,7 @@ impl AVBufferReferenceMut<'_> {
         })
     }
 
-    /// Wraps: AVBufferRef.data
+    /// Field: AVBufferRef.data
     ///
     /// The same exclusive window, viewed as initialized bytes, for
     /// read-modify-write access.
@@ -493,7 +493,7 @@ impl AVBufferReferenceMut<'_> {
         Some(unsafe { CSliceMut::from_raw_parts(data, len) })
     }
 
-    /// Wraps: AVBufferRef.data
+    /// Field: AVBufferRef.data
     ///
     /// Writes `src` over the whole window, which is the safe way to make
     /// [`AVBufferReferenceRef::data_assume_init`] dischargeable for a buffer

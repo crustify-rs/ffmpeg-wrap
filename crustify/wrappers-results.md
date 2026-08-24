@@ -657,7 +657,8 @@ on.
 
 ### Four `Replaces:` anchors in a wrap campaign are correct
 
-The tree carries `305` `/// Wraps:` anchors and `4` `/// Replaces:` — a native
+The tree carries `198` `/// Wraps:` anchors, `107` `/// Field:` and `4`
+`/// Replaces:` — a native
 Rust translation anchor, which normally belongs to a port. All four are in
 `rational.rs`: `av_make_q`, `av_inv_q`, `av_q2d` and `av_cmp_q`. Each is
 `static inline` in `rational.h`, so it has no linkable symbol for a `-sys`

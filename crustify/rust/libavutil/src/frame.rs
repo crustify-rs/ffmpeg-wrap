@@ -189,7 +189,7 @@ define_ctype!(
 );
 
 impl<'a> AVFrameSideDataRef<'a> {
-    /// Wraps: AVFrameSideData.type
+    /// Field: AVFrameSideData.type
     #[must_use]
     pub fn kind(&self) -> AVFrameSideDataType {
         // SAFETY: the integer-backed enum is copied through a raw projection;
@@ -197,7 +197,7 @@ impl<'a> AVFrameSideDataRef<'a> {
         AVFrameSideDataType::from_raw(unsafe { addr_of!((*self.as_ptr()).type_).read() })
     }
 
-    /// Wraps: AVFrameSideData.buf
+    /// Field: AVFrameSideData.buf
     ///
     /// Borrows the reference header that owns the backing byte allocation.
     #[must_use]
@@ -212,7 +212,7 @@ impl<'a> AVFrameSideDataRef<'a> {
         unsafe { AVBufferReferenceRef::from_ptr(buffer) }
     }
 
-    /// Wraps: AVFrameSideData.buf
+    /// Field: AVFrameSideData.buf
     ///
     /// Clones an owned reference to the same underlying buffer, leaving the
     /// entry's own field valid. This is how a caller keeps the bytes alive past
@@ -229,7 +229,7 @@ impl<'a> AVFrameSideDataRef<'a> {
         unsafe { ffibox::CBox::from_raw(ffi::av_buffer_ref(source.as_ptr().cast_mut())) }
     }
 
-    /// Wraps: AVFrameSideData.size
+    /// Field: AVFrameSideData.size
     #[must_use]
     pub fn size(&self) -> usize {
         // SAFETY: the scalar is copied through a raw projection from the live
@@ -237,7 +237,7 @@ impl<'a> AVFrameSideDataRef<'a> {
         unsafe { addr_of!((*self.as_ptr()).size).read() }
     }
 
-    /// Wraps: AVFrameSideData.data
+    /// Field: AVFrameSideData.data
     ///
     /// Views the `size`-byte window kept alive by `buf`, without materializing
     /// a Rust slice over memory that C may mutate, and without claiming its
@@ -271,7 +271,7 @@ impl<'a> AVFrameSideDataRef<'a> {
         })
     }
 
-    /// Wraps: AVFrameSideData.data
+    /// Field: AVFrameSideData.data
     ///
     /// The same window, viewed as initialized bytes.
     ///
@@ -300,7 +300,7 @@ impl<'a> AVFrameSideDataRef<'a> {
         Some(unsafe { CSlice::from_raw_parts(data, window.len()) })
     }
 
-    /// Wraps: AVFrameSideData.buf
+    /// Field: AVFrameSideData.buf
     ///
     /// Whether this entry's window may be written through: `buf` must be
     /// present and be the only reference to a buffer that is not read-only.
@@ -324,7 +324,7 @@ impl<'a> AVFrameSideDataRef<'a> {
         unsafe { ffi::av_buffer_is_writable(buffer) != 0 }
     }
 
-    /// Wraps: AVFrameSideData.metadata
+    /// Field: AVFrameSideData.metadata
     ///
     /// Borrows the optional dictionary owned by this side-data entry.
     #[must_use]
@@ -340,7 +340,7 @@ impl<'a> AVFrameSideDataRef<'a> {
 }
 
 impl AVFrameSideDataMut<'_> {
-    /// Wraps: AVFrameSideData.data
+    /// Field: AVFrameSideData.data
     ///
     /// Exclusively views the byte window when its backing buffer is writable.
     /// As with [`AVFrameSideDataRef::data`], the elements are `MaybeUninit<u8>`
@@ -369,7 +369,7 @@ impl AVFrameSideDataMut<'_> {
         })
     }
 
-    /// Wraps: AVFrameSideData.data
+    /// Field: AVFrameSideData.data
     ///
     /// The same exclusive window, viewed as initialized bytes, for
     /// read-modify-write access.
@@ -390,7 +390,7 @@ impl AVFrameSideDataMut<'_> {
         Some(unsafe { CSliceMut::from_raw_parts(data, len) })
     }
 
-    /// Wraps: AVFrameSideData.data
+    /// Field: AVFrameSideData.data
     ///
     /// Writes `src` over the whole window, which is the safe way to make
     /// [`AVFrameSideDataRef::data_assume_init`] dischargeable for an entry
@@ -421,7 +421,7 @@ impl AVFrameSideDataMut<'_> {
         true
     }
 
-    /// Wraps: AVFrameSideData.metadata
+    /// Field: AVFrameSideData.metadata
     ///
     /// Exclusively borrows the optional dictionary owned by this entry.
     ///
@@ -787,7 +787,7 @@ macro_rules! frame_enum {
 }
 
 impl<'a> AVFrameRef<'a> {
-    /// Wraps: AVFrame.buf
+    /// Field: AVFrame.buf
     #[must_use]
     pub fn buffer(&self, index: usize) -> Option<AVBufferReferenceRef<'a>> {
         if index >= 8 {
@@ -813,7 +813,7 @@ impl<'a> AVFrameRef<'a> {
         unsafe { ffibox::CBox::from_raw(ffi::av_buffer_ref(source.as_ptr().cast_mut())) }
     }
 
-    /// Wraps: AVFrame.data
+    /// Field: AVFrame.data
     ///
     /// Whether the frame currently describes no picture or sample data: every
     /// `data` and `buf` slot is null, it owns no extended table, and
@@ -848,7 +848,7 @@ impl<'a> AVFrameRef<'a> {
             && nb_extended_buf == 0
     }
 
-    /// Wraps: AVFrame.data
+    /// Field: AVFrame.data
     ///
     /// Returns only plane identity because no format-independent byte extent exists.
     #[must_use]
@@ -864,7 +864,7 @@ impl<'a> AVFrameRef<'a> {
         })
     }
 
-    /// Wraps: AVFrame.side_data
+    /// Field: AVFrame.side_data
     #[must_use]
     pub fn side_data(&self, index: usize) -> Option<AVFrameSideDataRef<'a>> {
         let len = usize::try_from(self.nb_side_data()).ok()?;
@@ -885,7 +885,7 @@ impl<'a> AVFrameRef<'a> {
         unsafe { AVFrameSideDataRef::from_ptr(entry) }
     }
 
-    /// Wraps: AVFrame.opaque
+    /// Field: AVFrame.opaque
     #[must_use]
     pub fn opaque(&self) -> Option<AVFrameOpaque<'a>> {
         // SAFETY: only the identity is copied; libavutil never dereferences it.
@@ -897,7 +897,7 @@ impl<'a> AVFrameRef<'a> {
         })
     }
 
-    /// Wraps: AVFrame.metadata
+    /// Field: AVFrame.metadata
     #[must_use]
     pub fn metadata(&self) -> Option<AVDictionaryRef<'a>> {
         // SAFETY: the pointer is copied from the live owning frame.
@@ -906,7 +906,7 @@ impl<'a> AVFrameRef<'a> {
         unsafe { AVDictionaryRef::from_ptr(pointer) }
     }
 
-    /// Wraps: AVFrame.ch_layout
+    /// Field: AVFrame.ch_layout
     #[must_use]
     pub fn channel_layout(&self) -> crate::channel_layout::AVChannelLayoutRef<'a> {
         // SAFETY: the initialized layout is embedded in the live frame.
@@ -918,7 +918,7 @@ impl<'a> AVFrameRef<'a> {
         }
     }
 
-    /// Wraps: AVFrame.linesize
+    /// Field: AVFrame.linesize
     #[must_use]
     pub fn line_size(&self, index: usize) -> Option<i32> {
         if index >= 8 {
@@ -928,7 +928,7 @@ impl<'a> AVFrameRef<'a> {
         Some(unsafe { addr_of!((*self.as_ptr()).linesize).read() }[index])
     }
 
-    /// Wraps: AVFrame.private_ref
+    /// Field: AVFrame.private_ref
     ///
     /// Public callers may only test presence of this internal RefStruct reference.
     #[must_use]
@@ -937,7 +937,7 @@ impl<'a> AVFrameRef<'a> {
         !unsafe { addr_of!((*self.as_ptr()).private_ref).read() }.is_null()
     }
 
-    /// Wraps: AVFrame.opaque_ref
+    /// Field: AVFrame.opaque_ref
     #[must_use]
     pub fn opaque_reference(&self) -> Option<AVBufferReferenceRef<'a>> {
         // SAFETY: the pointer is copied from the live owning frame.
@@ -946,7 +946,7 @@ impl<'a> AVFrameRef<'a> {
         unsafe { AVBufferReferenceRef::from_ptr(pointer) }
     }
 
-    /// Wraps: AVFrame.opaque_ref
+    /// Field: AVFrame.opaque_ref
     ///
     /// Clones an owned reference to the frame owner's reference-counted
     /// private data, leaving the frame's own slot valid. Libavutil propagates
@@ -959,7 +959,7 @@ impl<'a> AVFrameRef<'a> {
         unsafe { ffibox::CBox::from_raw(ffi::av_buffer_ref(source.as_ptr().cast_mut())) }
     }
 
-    /// Wraps: AVFrame.hw_frames_ctx
+    /// Field: AVFrame.hw_frames_ctx
     ///
     /// The reference header itself. The frames context behind it comes out
     /// typed through
@@ -972,7 +972,7 @@ impl<'a> AVFrameRef<'a> {
         unsafe { AVBufferReferenceRef::from_ptr(pointer) }
     }
 
-    /// Wraps: AVFrame.hw_frames_ctx
+    /// Field: AVFrame.hw_frames_ctx
     ///
     /// Clones an owned, typed reference to the hardware frames context these
     /// planes were allocated from, leaving the frame's own slot valid. This is
@@ -993,7 +993,7 @@ impl<'a> AVFrameRef<'a> {
         Some(unsafe { crate::hwcontext::HWFramesContext::from_reference(cloned) })
     }
 
-    /// Wraps: AVFrame.extended_buf
+    /// Field: AVFrame.extended_buf
     #[must_use]
     pub fn extended_buffer(&self, index: usize) -> Option<AVBufferReferenceRef<'a>> {
         let len = usize::try_from(self.nb_extended_buffers()).ok()?;
@@ -1025,7 +1025,7 @@ impl<'a> AVFrameRef<'a> {
         unsafe { ffibox::CBox::from_raw(ffi::av_buffer_ref(source.as_ptr().cast_mut())) }
     }
 
-    /// Wraps: AVFrame.time_base
+    /// Field: AVFrame.time_base
     #[must_use]
     pub fn time_base(&self) -> crate::rational::AVRationalRef<'a> {
         // SAFETY: the initialized rational is embedded in the live frame.
@@ -1037,7 +1037,7 @@ impl<'a> AVFrameRef<'a> {
         }
     }
 
-    /// Wraps: AVFrame.sample_aspect_ratio
+    /// Field: AVFrame.sample_aspect_ratio
     #[must_use]
     pub fn sample_aspect_ratio(&self) -> crate::rational::AVRationalRef<'a> {
         // SAFETY: the initialized rational is embedded in the live frame.
@@ -1049,7 +1049,7 @@ impl<'a> AVFrameRef<'a> {
         }
     }
 
-    /// Wraps: AVFrame.extended_data
+    /// Field: AVFrame.extended_data
     #[must_use]
     pub fn extended_data_plane(&self, index: usize) -> Option<AVFramePlane<'a>> {
         let frame = self.as_ptr();
@@ -1168,7 +1168,7 @@ impl AVFrameMut<'_> {
         unsafe { ffibox::CBox::from_raw(previous) }
     }
 
-    /// Wraps: AVFrame.hw_frames_ctx
+    /// Field: AVFrame.hw_frames_ctx
     ///
     /// Replaces the optional hardware frames context and returns the prior
     /// owner. Normally libavutil installs this field itself, in
@@ -1249,7 +1249,7 @@ impl AVFrameMut<'_> {
         }
     }
 
-    /// Wraps: AVFrame.linesize
+    /// Field: AVFrame.linesize
     ///
     /// Overrides one plane's stride before the frame is allocated, which is the
     /// only phase in which libavutil reads a caller-supplied one: with
@@ -1323,57 +1323,57 @@ impl AVFrameMut<'_> {
     }
 }
 
-frame_geometry_scalar!(/// Wraps: AVFrame.height
+frame_geometry_scalar!(/// Field: AVFrame.height
     height, set_height, height, i32);
-frame_geometry_scalar!(/// Wraps: AVFrame.format
+frame_geometry_scalar!(/// Field: AVFrame.format
     format, set_format, format, i32);
-frame_geometry_scalar!(/// Wraps: AVFrame.nb_samples
+frame_geometry_scalar!(/// Field: AVFrame.nb_samples
     sample_count, set_sample_count, nb_samples, i32);
-frame_scalar!(/// Wraps: AVFrame.flags
+frame_scalar!(/// Field: AVFrame.flags
     flags, set_flags, flags, i32);
-frame_geometry_scalar!(/// Wraps: AVFrame.width
+frame_geometry_scalar!(/// Field: AVFrame.width
     width, set_width, width, i32);
-frame_enum!(/// Wraps: AVFrame.pict_type
+frame_enum!(/// Field: AVFrame.pict_type
     picture_type, set_picture_type, pict_type, crate::avutil::AVPictureType);
-frame_scalar!(/// Wraps: AVFrame.duration
+frame_scalar!(/// Field: AVFrame.duration
     duration, set_duration, duration, i64);
-frame_scalar_readonly!(/// Wraps: AVFrame.nb_extended_buf
+frame_scalar_readonly!(/// Field: AVFrame.nb_extended_buf
     nb_extended_buffers, nb_extended_buf, i32);
-frame_enum!(/// Wraps: AVFrame.alpha_mode
+frame_enum!(/// Field: AVFrame.alpha_mode
     alpha_mode, set_alpha_mode, alpha_mode, crate::pixfmt::AVAlphaMode);
-frame_scalar!(/// Wraps: AVFrame.crop_right
+frame_scalar!(/// Field: AVFrame.crop_right
     crop_right, set_crop_right, crop_right, usize);
-frame_scalar!(/// Wraps: AVFrame.crop_left
+frame_scalar!(/// Field: AVFrame.crop_left
     crop_left, set_crop_left, crop_left, usize);
-frame_scalar!(/// Wraps: AVFrame.crop_bottom
+frame_scalar!(/// Field: AVFrame.crop_bottom
     crop_bottom, set_crop_bottom, crop_bottom, usize);
-frame_scalar!(/// Wraps: AVFrame.crop_top
+frame_scalar!(/// Field: AVFrame.crop_top
     crop_top, set_crop_top, crop_top, usize);
-frame_scalar!(/// Wraps: AVFrame.decode_error_flags
+frame_scalar!(/// Field: AVFrame.decode_error_flags
     decode_error_flags, set_decode_error_flags, decode_error_flags, i32);
-frame_scalar!(/// Wraps: AVFrame.best_effort_timestamp
+frame_scalar!(/// Field: AVFrame.best_effort_timestamp
     best_effort_timestamp, set_best_effort_timestamp, best_effort_timestamp, i64);
-frame_enum!(/// Wraps: AVFrame.chroma_location
+frame_enum!(/// Field: AVFrame.chroma_location
     chroma_location, set_chroma_location, chroma_location, crate::pixfmt::AVChromaLocation);
-frame_enum!(/// Wraps: AVFrame.colorspace
+frame_enum!(/// Field: AVFrame.colorspace
     color_space, set_color_space, colorspace, crate::pixfmt::AVColorSpace);
-frame_enum!(/// Wraps: AVFrame.color_trc
+frame_enum!(/// Field: AVFrame.color_trc
     color_transfer, set_color_transfer, color_trc, crate::pixfmt::AVColorTransferCharacteristic);
-frame_enum!(/// Wraps: AVFrame.color_primaries
+frame_enum!(/// Field: AVFrame.color_primaries
     color_primaries, set_color_primaries, color_primaries, crate::pixfmt::AVColorPrimaries);
-frame_enum!(/// Wraps: AVFrame.color_range
+frame_enum!(/// Field: AVFrame.color_range
     color_range, set_color_range, color_range, crate::pixfmt::AVColorRange);
-frame_scalar_readonly!(/// Wraps: AVFrame.nb_side_data
+frame_scalar_readonly!(/// Field: AVFrame.nb_side_data
     nb_side_data, nb_side_data, i32);
-frame_scalar!(/// Wraps: AVFrame.sample_rate
+frame_scalar!(/// Field: AVFrame.sample_rate
     sample_rate, set_sample_rate, sample_rate, i32);
-frame_scalar!(/// Wraps: AVFrame.repeat_pict
+frame_scalar!(/// Field: AVFrame.repeat_pict
     repeat_picture, set_repeat_picture, repeat_pict, i32);
-frame_scalar!(/// Wraps: AVFrame.quality
+frame_scalar!(/// Field: AVFrame.quality
     quality, set_quality, quality, i32);
-frame_scalar!(/// Wraps: AVFrame.pkt_dts
+frame_scalar!(/// Field: AVFrame.pkt_dts
     packet_dts, set_packet_dts, pkt_dts, i64);
-frame_scalar!(/// Wraps: AVFrame.pts
+frame_scalar!(/// Field: AVFrame.pts
     pts, set_pts, pts, i64);
 
 #[cfg(test)]

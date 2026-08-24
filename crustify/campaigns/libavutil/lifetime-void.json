@@ -1,12 +1,12 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "oracle_target": "libavutil",
   "api_headers_only": false,
   "budgets": {
-    "max_syms": 50,
-    "max_loc": 1000,
-    "max_types": 2,
-    "min_fields": 10
+    "max_syms": 1,
+    "max_loc": null,
+    "max_types": 1,
+    "min_fields": 0
   },
   "summary": {
     "unit_count": 1,
@@ -16,10 +16,10 @@
   },
   "plan_items": [
     {
-      "name": "free",
-      "defined_in": "/usr/include/malloc.h",
-      "kind": "symbol",
-      "source_kind": "function_exported",
+      "name": "void",
+      "defined_in": null,
+      "kind": "raw-lifetime",
+      "source_kind": "raw-lifetime",
       "layer": 0,
       "loc": 0,
       "deps": {
@@ -28,11 +28,12 @@
       },
       "fallback": [],
       "back_fill": [],
-      "generates": []
+      "generates": [],
+      "field_anchors": []
     }
   ],
   "dependency_nodes": [],
-  "waves": [
+  "steps": [
     {
       "layers": [
         0
@@ -40,14 +41,14 @@
       "unit_count": 1,
       "batches": [
         {
-          "kind": "symbol",
-          "source_file": null,
+          "kind": "raw-lifetime",
+          "source_file": "lifetime-for-void",
           "items": [
             {
-              "name": "free",
-              "defined_in": "/usr/include/malloc.h",
-              "kind": "symbol",
-              "source_kind": "function_exported",
+              "name": "void",
+              "defined_in": null,
+              "kind": "raw-lifetime",
+              "source_kind": "raw-lifetime",
               "layer": 0,
               "loc": 0,
               "deps": {

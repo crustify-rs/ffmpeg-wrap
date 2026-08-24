@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "oracle_target": "libavutil",
   "api_headers_only": true,
   "budgets": {
@@ -989,7 +989,7 @@
       "in_scope": true
     }
   ],
-  "waves": [
+  "steps": [
     {
       "layers": [
         3
