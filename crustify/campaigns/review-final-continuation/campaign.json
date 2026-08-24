@@ -1,0 +1,1804 @@
+{
+  "schema_version": 1,
+  "oracle_target": "libavutil",
+  "api_headers_only": true,
+  "budgets": {
+    "max_syms": 50,
+    "max_loc": 1000,
+    "max_types": 2,
+    "min_fields": 10
+  },
+  "summary": {
+    "unit_count": 31,
+    "layer_count": 2,
+    "batch_count": 3,
+    "file_count": 2
+  },
+  "plan_items": [
+    {
+      "name": "AVFrame",
+      "defined_in": "libavutil/frame.h",
+      "kind": "type",
+      "source_kind": "struct",
+      "layer": 3,
+      "loc": 40,
+      "deps": {
+        "types": [
+          {
+            "name": "AVAlphaMode",
+            "defined_in": "libavutil/pixfmt.h"
+          },
+          {
+            "name": "AVBufferRef",
+            "defined_in": "libavutil/buffer.h"
+          },
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          },
+          {
+            "name": "AVChromaLocation",
+            "defined_in": "libavutil/pixfmt.h"
+          },
+          {
+            "name": "AVColorPrimaries",
+            "defined_in": "libavutil/pixfmt.h"
+          },
+          {
+            "name": "AVColorRange",
+            "defined_in": "libavutil/pixfmt.h"
+          },
+          {
+            "name": "AVColorSpace",
+            "defined_in": "libavutil/pixfmt.h"
+          },
+          {
+            "name": "AVColorTransferCharacteristic",
+            "defined_in": "libavutil/pixfmt.h"
+          },
+          {
+            "name": "AVDictionary",
+            "defined_in": "libavutil/dict.c"
+          },
+          {
+            "name": "AVFrameSideData",
+            "defined_in": "libavutil/frame.h"
+          },
+          {
+            "name": "AVPictureType",
+            "defined_in": "libavutil/avutil.h"
+          },
+          {
+            "name": "AVRational",
+            "defined_in": "libavutil/rational.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_channel_layout_channel_from_index",
+      "defined_in": "libavutil/channel_layout.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 26,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannel",
+            "defined_in": "libavutil/channel_layout.h"
+          },
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_channel_layout_channel_from_string",
+      "defined_in": "libavutil/channel_layout.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 8,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannel",
+            "defined_in": "libavutil/channel_layout.h"
+          },
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_channel_layout_check",
+      "defined_in": "libavutil/channel_layout.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 24,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_channel_layout_compare",
+      "defined_in": "libavutil/channel_layout.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 28,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_channel_layout_copy",
+      "defined_in": "libavutil/channel_layout.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 11,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_channel_layout_default",
+      "defined_in": "libavutil/channel_layout.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 11,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_channel_layout_describe",
+      "defined_in": "libavutil/channel_layout.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 16,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_channel_layout_from_mask",
+      "defined_in": "libavutil/channel_layout.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 10,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_channel_layout_from_string",
+      "defined_in": "libavutil/channel_layout.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 127,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_channel_layout_index_from_channel",
+      "defined_in": "libavutil/channel_layout.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 31,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannel",
+            "defined_in": "libavutil/channel_layout.h"
+          },
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_channel_layout_index_from_string",
+      "defined_in": "libavutil/channel_layout.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 33,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_channel_layout_retype",
+      "defined_in": "libavutil/channel_layout.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 92,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          },
+          {
+            "name": "AVChannelOrder",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_channel_layout_standard",
+      "defined_in": "libavutil/channel_layout.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 11,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_channel_layout_subset",
+      "defined_in": "libavutil/channel_layout.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 17,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_channel_layout_uninit",
+      "defined_in": "libavutil/channel_layout.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 5,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_opt_set_chlayout",
+      "defined_in": "libavutil/opt.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 3,
+      "loc": 14,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannelLayout",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_frame_alloc",
+      "defined_in": "libavutil/frame.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 4,
+      "loc": 10,
+      "deps": {
+        "types": [
+          {
+            "name": "AVFrame",
+            "defined_in": "libavutil/frame.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_frame_clone",
+      "defined_in": "libavutil/frame.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 4,
+      "loc": 11,
+      "deps": {
+        "types": [
+          {
+            "name": "AVFrame",
+            "defined_in": "libavutil/frame.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_frame_copy",
+      "defined_in": "libavutil/frame.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 4,
+      "loc": 12,
+      "deps": {
+        "types": [
+          {
+            "name": "AVFrame",
+            "defined_in": "libavutil/frame.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_frame_copy_props",
+      "defined_in": "libavutil/frame.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 4,
+      "loc": 3,
+      "deps": {
+        "types": [
+          {
+            "name": "AVFrame",
+            "defined_in": "libavutil/frame.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_frame_free",
+      "defined_in": "libavutil/frame.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 4,
+      "loc": 7,
+      "deps": {
+        "types": [
+          {
+            "name": "AVFrame",
+            "defined_in": "libavutil/frame.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_frame_get_buffer",
+      "defined_in": "libavutil/frame.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 4,
+      "loc": 12,
+      "deps": {
+        "types": [
+          {
+            "name": "AVFrame",
+            "defined_in": "libavutil/frame.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_frame_get_side_data",
+      "defined_in": "libavutil/frame.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 4,
+      "loc": 6,
+      "deps": {
+        "types": [
+          {
+            "name": "AVFrame",
+            "defined_in": "libavutil/frame.h"
+          },
+          {
+            "name": "AVFrameSideData",
+            "defined_in": "libavutil/frame.h"
+          },
+          {
+            "name": "AVFrameSideDataType",
+            "defined_in": "libavutil/frame.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_frame_is_writable",
+      "defined_in": "libavutil/frame.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 4,
+      "loc": 15,
+      "deps": {
+        "types": [
+          {
+            "name": "AVFrame",
+            "defined_in": "libavutil/frame.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_frame_make_writable",
+      "defined_in": "libavutil/frame.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 4,
+      "loc": 45,
+      "deps": {
+        "types": [
+          {
+            "name": "AVFrame",
+            "defined_in": "libavutil/frame.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_frame_new_side_data",
+      "defined_in": "libavutil/frame.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 4,
+      "loc": 8,
+      "deps": {
+        "types": [
+          {
+            "name": "AVFrame",
+            "defined_in": "libavutil/frame.h"
+          },
+          {
+            "name": "AVFrameSideData",
+            "defined_in": "libavutil/frame.h"
+          },
+          {
+            "name": "AVFrameSideDataType",
+            "defined_in": "libavutil/frame.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_frame_remove_side_data",
+      "defined_in": "libavutil/frame.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 4,
+      "loc": 3,
+      "deps": {
+        "types": [
+          {
+            "name": "AVFrame",
+            "defined_in": "libavutil/frame.h"
+          },
+          {
+            "name": "AVFrameSideDataType",
+            "defined_in": "libavutil/frame.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_frame_unref",
+      "defined_in": "libavutil/frame.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 4,
+      "loc": 25,
+      "deps": {
+        "types": [
+          {
+            "name": "AVFrame",
+            "defined_in": "libavutil/frame.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_hwframe_get_buffer",
+      "defined_in": "libavutil/hwcontext.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 4,
+      "loc": 62,
+      "deps": {
+        "types": [
+          {
+            "name": "AVBufferRef",
+            "defined_in": "libavutil/buffer.h"
+          },
+          {
+            "name": "AVFrame",
+            "defined_in": "libavutil/frame.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    },
+    {
+      "name": "av_hwframe_transfer_data",
+      "defined_in": "libavutil/hwcontext.c",
+      "kind": "symbol",
+      "source_kind": "function_exported",
+      "layer": 4,
+      "loc": 56,
+      "deps": {
+        "types": [
+          {
+            "name": "AVFrame",
+            "defined_in": "libavutil/frame.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": []
+    }
+  ],
+  "dependency_nodes": [
+    {
+      "name": "AVAlphaMode",
+      "defined_in": "libavutil/pixfmt.h",
+      "kind": "type",
+      "source_kind": "enum",
+      "layer": 0,
+      "loc": 0,
+      "deps": {
+        "types": [],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": [],
+      "in_scope": true
+    },
+    {
+      "name": "AVBufferRef",
+      "defined_in": "libavutil/buffer.h",
+      "kind": "type",
+      "source_kind": "struct",
+      "layer": 1,
+      "loc": 3,
+      "deps": {
+        "types": [
+          {
+            "name": "AVBuffer",
+            "defined_in": "libavutil/buffer_internal.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": [],
+      "in_scope": true
+    },
+    {
+      "name": "AVChannel",
+      "defined_in": "libavutil/channel_layout.h",
+      "kind": "type",
+      "source_kind": "enum",
+      "layer": 0,
+      "loc": 0,
+      "deps": {
+        "types": [],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": [],
+      "in_scope": true
+    },
+    {
+      "name": "AVChannelLayout",
+      "defined_in": "libavutil/channel_layout.h",
+      "kind": "type",
+      "source_kind": "struct",
+      "layer": 2,
+      "loc": 6,
+      "deps": {
+        "types": [
+          {
+            "name": "AVChannelCustom",
+            "defined_in": "libavutil/channel_layout.h"
+          },
+          {
+            "name": "AVChannelOrder",
+            "defined_in": "libavutil/channel_layout.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": [],
+      "in_scope": true
+    },
+    {
+      "name": "AVChannelOrder",
+      "defined_in": "libavutil/channel_layout.h",
+      "kind": "type",
+      "source_kind": "enum",
+      "layer": 0,
+      "loc": 0,
+      "deps": {
+        "types": [],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": [],
+      "in_scope": true
+    },
+    {
+      "name": "AVChromaLocation",
+      "defined_in": "libavutil/pixfmt.h",
+      "kind": "type",
+      "source_kind": "enum",
+      "layer": 0,
+      "loc": 0,
+      "deps": {
+        "types": [],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": [],
+      "in_scope": true
+    },
+    {
+      "name": "AVColorPrimaries",
+      "defined_in": "libavutil/pixfmt.h",
+      "kind": "type",
+      "source_kind": "enum",
+      "layer": 0,
+      "loc": 0,
+      "deps": {
+        "types": [],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": [],
+      "in_scope": true
+    },
+    {
+      "name": "AVColorRange",
+      "defined_in": "libavutil/pixfmt.h",
+      "kind": "type",
+      "source_kind": "enum",
+      "layer": 0,
+      "loc": 0,
+      "deps": {
+        "types": [],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": [],
+      "in_scope": true
+    },
+    {
+      "name": "AVColorSpace",
+      "defined_in": "libavutil/pixfmt.h",
+      "kind": "type",
+      "source_kind": "enum",
+      "layer": 0,
+      "loc": 0,
+      "deps": {
+        "types": [],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": [],
+      "in_scope": true
+    },
+    {
+      "name": "AVColorTransferCharacteristic",
+      "defined_in": "libavutil/pixfmt.h",
+      "kind": "type",
+      "source_kind": "enum",
+      "layer": 0,
+      "loc": 0,
+      "deps": {
+        "types": [],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": [],
+      "in_scope": true
+    },
+    {
+      "name": "AVDictionary",
+      "defined_in": "libavutil/dict.c",
+      "kind": "type",
+      "source_kind": "struct",
+      "layer": 0,
+      "loc": 2,
+      "deps": {
+        "types": [],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": [],
+      "in_scope": true
+    },
+    {
+      "name": "AVFrameSideData",
+      "defined_in": "libavutil/frame.h",
+      "kind": "type",
+      "source_kind": "struct",
+      "layer": 2,
+      "loc": 5,
+      "deps": {
+        "types": [
+          {
+            "name": "AVBufferRef",
+            "defined_in": "libavutil/buffer.h"
+          },
+          {
+            "name": "AVDictionary",
+            "defined_in": "libavutil/dict.c"
+          },
+          {
+            "name": "AVFrameSideDataType",
+            "defined_in": "libavutil/frame.h"
+          }
+        ],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": [],
+      "in_scope": true
+    },
+    {
+      "name": "AVFrameSideDataType",
+      "defined_in": "libavutil/frame.h",
+      "kind": "type",
+      "source_kind": "enum",
+      "layer": 0,
+      "loc": 0,
+      "deps": {
+        "types": [],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": [],
+      "in_scope": true
+    },
+    {
+      "name": "AVPictureType",
+      "defined_in": "libavutil/avutil.h",
+      "kind": "type",
+      "source_kind": "enum",
+      "layer": 0,
+      "loc": 0,
+      "deps": {
+        "types": [],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": [],
+      "in_scope": true
+    },
+    {
+      "name": "AVRational",
+      "defined_in": "libavutil/rational.h",
+      "kind": "type",
+      "source_kind": "struct",
+      "layer": 0,
+      "loc": 2,
+      "deps": {
+        "types": [],
+        "symbols": []
+      },
+      "fallback": [],
+      "back_fill": [],
+      "generates": [],
+      "in_scope": true
+    }
+  ],
+  "waves": [
+    {
+      "layers": [
+        3
+      ],
+      "unit_count": 17,
+      "batches": [
+        {
+          "kind": "type",
+          "source_file": "libavutil/frame.h",
+          "items": [
+            {
+              "name": "AVFrame",
+              "defined_in": "libavutil/frame.h",
+              "kind": "type",
+              "source_kind": "struct",
+              "layer": 3,
+              "loc": 40,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVAlphaMode",
+                    "defined_in": "libavutil/pixfmt.h"
+                  },
+                  {
+                    "name": "AVBufferRef",
+                    "defined_in": "libavutil/buffer.h"
+                  },
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  },
+                  {
+                    "name": "AVChromaLocation",
+                    "defined_in": "libavutil/pixfmt.h"
+                  },
+                  {
+                    "name": "AVColorPrimaries",
+                    "defined_in": "libavutil/pixfmt.h"
+                  },
+                  {
+                    "name": "AVColorRange",
+                    "defined_in": "libavutil/pixfmt.h"
+                  },
+                  {
+                    "name": "AVColorSpace",
+                    "defined_in": "libavutil/pixfmt.h"
+                  },
+                  {
+                    "name": "AVColorTransferCharacteristic",
+                    "defined_in": "libavutil/pixfmt.h"
+                  },
+                  {
+                    "name": "AVDictionary",
+                    "defined_in": "libavutil/dict.c"
+                  },
+                  {
+                    "name": "AVFrameSideData",
+                    "defined_in": "libavutil/frame.h"
+                  },
+                  {
+                    "name": "AVPictureType",
+                    "defined_in": "libavutil/avutil.h"
+                  },
+                  {
+                    "name": "AVRational",
+                    "defined_in": "libavutil/rational.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": [
+                "buf",
+                "data",
+                "height",
+                "side_data",
+                "format",
+                "nb_samples",
+                "flags",
+                "opaque",
+                "width",
+                "metadata",
+                "ch_layout",
+                "linesize",
+                "pict_type",
+                "duration",
+                "nb_extended_buf",
+                "alpha_mode",
+                "private_ref",
+                "crop_right",
+                "crop_left",
+                "crop_bottom",
+                "crop_top",
+                "opaque_ref",
+                "hw_frames_ctx",
+                "decode_error_flags",
+                "best_effort_timestamp",
+                "chroma_location",
+                "colorspace",
+                "color_trc",
+                "color_primaries",
+                "color_range",
+                "nb_side_data",
+                "extended_buf",
+                "sample_rate",
+                "repeat_pict",
+                "quality",
+                "time_base",
+                "pkt_dts",
+                "pts",
+                "sample_aspect_ratio",
+                "extended_data"
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "symbol",
+          "source_file": null,
+          "items": [
+            {
+              "name": "av_channel_layout_channel_from_index",
+              "defined_in": "libavutil/channel_layout.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 26,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannel",
+                    "defined_in": "libavutil/channel_layout.h"
+                  },
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_channel_layout_channel_from_string",
+              "defined_in": "libavutil/channel_layout.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 8,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannel",
+                    "defined_in": "libavutil/channel_layout.h"
+                  },
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_channel_layout_check",
+              "defined_in": "libavutil/channel_layout.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 24,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_channel_layout_compare",
+              "defined_in": "libavutil/channel_layout.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 28,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_channel_layout_copy",
+              "defined_in": "libavutil/channel_layout.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 11,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_channel_layout_default",
+              "defined_in": "libavutil/channel_layout.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 11,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_channel_layout_describe",
+              "defined_in": "libavutil/channel_layout.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 16,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_channel_layout_from_mask",
+              "defined_in": "libavutil/channel_layout.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 10,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_channel_layout_from_string",
+              "defined_in": "libavutil/channel_layout.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 127,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_channel_layout_index_from_channel",
+              "defined_in": "libavutil/channel_layout.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 31,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannel",
+                    "defined_in": "libavutil/channel_layout.h"
+                  },
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_channel_layout_index_from_string",
+              "defined_in": "libavutil/channel_layout.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 33,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_channel_layout_retype",
+              "defined_in": "libavutil/channel_layout.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 92,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  },
+                  {
+                    "name": "AVChannelOrder",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_channel_layout_standard",
+              "defined_in": "libavutil/channel_layout.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 11,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_channel_layout_subset",
+              "defined_in": "libavutil/channel_layout.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 17,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_channel_layout_uninit",
+              "defined_in": "libavutil/channel_layout.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 5,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_opt_set_chlayout",
+              "defined_in": "libavutil/opt.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 3,
+              "loc": 14,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVChannelLayout",
+                    "defined_in": "libavutil/channel_layout.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "layers": [
+        4
+      ],
+      "unit_count": 14,
+      "batches": [
+        {
+          "kind": "symbol",
+          "source_file": null,
+          "items": [
+            {
+              "name": "av_frame_alloc",
+              "defined_in": "libavutil/frame.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 4,
+              "loc": 10,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVFrame",
+                    "defined_in": "libavutil/frame.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_frame_clone",
+              "defined_in": "libavutil/frame.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 4,
+              "loc": 11,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVFrame",
+                    "defined_in": "libavutil/frame.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_frame_copy",
+              "defined_in": "libavutil/frame.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 4,
+              "loc": 12,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVFrame",
+                    "defined_in": "libavutil/frame.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_frame_copy_props",
+              "defined_in": "libavutil/frame.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 4,
+              "loc": 3,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVFrame",
+                    "defined_in": "libavutil/frame.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_frame_free",
+              "defined_in": "libavutil/frame.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 4,
+              "loc": 7,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVFrame",
+                    "defined_in": "libavutil/frame.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_frame_get_buffer",
+              "defined_in": "libavutil/frame.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 4,
+              "loc": 12,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVFrame",
+                    "defined_in": "libavutil/frame.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_frame_get_side_data",
+              "defined_in": "libavutil/frame.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 4,
+              "loc": 6,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVFrame",
+                    "defined_in": "libavutil/frame.h"
+                  },
+                  {
+                    "name": "AVFrameSideData",
+                    "defined_in": "libavutil/frame.h"
+                  },
+                  {
+                    "name": "AVFrameSideDataType",
+                    "defined_in": "libavutil/frame.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_frame_is_writable",
+              "defined_in": "libavutil/frame.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 4,
+              "loc": 15,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVFrame",
+                    "defined_in": "libavutil/frame.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_frame_make_writable",
+              "defined_in": "libavutil/frame.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 4,
+              "loc": 45,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVFrame",
+                    "defined_in": "libavutil/frame.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_frame_new_side_data",
+              "defined_in": "libavutil/frame.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 4,
+              "loc": 8,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVFrame",
+                    "defined_in": "libavutil/frame.h"
+                  },
+                  {
+                    "name": "AVFrameSideData",
+                    "defined_in": "libavutil/frame.h"
+                  },
+                  {
+                    "name": "AVFrameSideDataType",
+                    "defined_in": "libavutil/frame.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_frame_remove_side_data",
+              "defined_in": "libavutil/frame.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 4,
+              "loc": 3,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVFrame",
+                    "defined_in": "libavutil/frame.h"
+                  },
+                  {
+                    "name": "AVFrameSideDataType",
+                    "defined_in": "libavutil/frame.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_frame_unref",
+              "defined_in": "libavutil/frame.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 4,
+              "loc": 25,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVFrame",
+                    "defined_in": "libavutil/frame.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_hwframe_get_buffer",
+              "defined_in": "libavutil/hwcontext.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 4,
+              "loc": 62,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVBufferRef",
+                    "defined_in": "libavutil/buffer.h"
+                  },
+                  {
+                    "name": "AVFrame",
+                    "defined_in": "libavutil/frame.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            },
+            {
+              "name": "av_hwframe_transfer_data",
+              "defined_in": "libavutil/hwcontext.c",
+              "kind": "symbol",
+              "source_kind": "function_exported",
+              "layer": 4,
+              "loc": 56,
+              "deps": {
+                "types": [
+                  {
+                    "name": "AVFrame",
+                    "defined_in": "libavutil/frame.h"
+                  }
+                ],
+                "symbols": []
+              },
+              "fallback": [],
+              "back_fill": [],
+              "generates": [],
+              "field_anchors": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
