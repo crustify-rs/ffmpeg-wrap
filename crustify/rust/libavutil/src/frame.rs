@@ -1753,6 +1753,27 @@ pub fn av_frame_free(frame: Option<ffibox::CBox<AVFrame>>) {
     drop(frame);
 }
 
+/// The largest alignment [`av_frame_get_buffer`] forwards to C.
+///
+/// `get_video_buffer` (`frame.c:115`) reserves the inter-plane padding with
+/// `total_size = 4 * plane_padding + 4 * align`, entirely in `int`, and
+/// `plane_padding` is `FFMAX(ALIGN, align)` — so the expression is `8 * align`
+/// for any alignment past libavutil's own 64. Requiring `8 * align` to be
+/// representable is therefore exactly what keeps that reservation equal to the
+/// distance `frame.c:134` and `:135` then push the planes by, and it is the
+/// widest bound that does. It also covers the two smaller `int` computations
+/// downstream of it: `i * plane_padding` at `:134` (`i <= 3`), and the
+/// doubling loop at `:94`, whose `i` stops one step past `align`.
+///
+/// `FFALIGN(frame->linesize[i], align)` at `:104` is covered too, though by a
+/// much wider margin. `av_image_check_size` has already refused any geometry
+/// whose `8 * width + 1024` reaches `INT_MAX / (height + 128)`, which caps the
+/// width at just over two million even for a single row; the widest per-pixel
+/// step in libavutil's descriptor table is 32 bytes (`xv30be`), so a linesize
+/// arriving here is below `1 << 27` and the sum stays a factor of five clear
+/// of `INT_MAX`.
+pub const MAX_BUFFER_ALIGNMENT: i32 = i32::MAX / 8;
+
 /// Wraps: av_frame_get_buffer
 ///
 /// Allocates audio or video buffers from the properties already configured on
@@ -1761,9 +1782,22 @@ pub fn av_frame_free(frame: Option<ffibox::CBox<AVFrame>>) {
 /// `av_samples_get_buffer_size` both normalize or refuse one before any extent
 /// is computed from it.
 ///
-/// Refuses with `AVERROR(EINVAL)` (-22), before reaching C, a frame that is
-/// not [empty](AVFrameRef::is_unallocated) or that already carries a hardware
-/// frames context. Both halves are preconditions C states but does not check:
+/// Refuses with `AVERROR(EINVAL)` (-22), before reaching C, an alignment above
+/// [`MAX_BUFFER_ALIGNMENT`], and a frame that is not
+/// [empty](AVFrameRef::is_unallocated) or that already carries a hardware
+/// frames context. All three are preconditions C states but does not check:
+///
+/// - An alignment C cannot size the allocation from is not merely refused by
+///   libavutil, it is *accepted*. `get_video_buffer` computes the padding
+///   reservation at `frame.c:115` in `int`, so an alignment past
+///   `INT_MAX / 8` wraps it — `1 << 30 | 1` wraps `8 * align` to 8 — and then
+///   pushes each plane up to that alignment at `:134` and `:135` in
+///   non-wrapping `uintptr_t` arithmetic. The call returns 0 having installed
+///   `data[1]` and `data[2]` roughly two gigabytes outside a 104-byte
+///   `buf[0]`, which is the one shape [`AVFrame`]'s invariant exists to
+///   exclude, and the next safe [`av_frame_copy`] hands those addresses to
+///   `av_image_copy2` as row pointers — an ASan SEGV with no `unsafe`
+///   anywhere in the caller.
 ///
 /// - C's own header warns "if frame already has been allocated, calling this
 ///   function will leak memory", and it means it. `get_video_buffer`
@@ -1784,12 +1818,18 @@ pub fn av_frame_free(frame: Option<ffibox::CBox<AVFrame>>) {
 /// [`av_frame_unref`] is how a frame that holds planes becomes eligible again;
 /// it clears the hardware context in the same pass.
 pub fn av_frame_get_buffer(frame: &mut AVFrameMut<'_>, alignment: i32) -> Result<(), i32> {
+    if alignment > MAX_BUFFER_ALIGNMENT {
+        return Err(-22);
+    }
     if !frame.as_ref().is_unallocated() || frame.as_ref().hardware_frames_context().is_some() {
         return Err(-22);
     }
     // SAFETY: the exclusive handle supplies a live initialized frame. Any
     // allocations installed on success become owned by the frame lifecycle,
-    // and the check above proves the frame held no owner for them to displace.
+    // the second check proves the frame held no owner for them to displace,
+    // and the first keeps every `int` extent C derives from `alignment`
+    // representable, so the planes it installs stay inside the buffer it sized
+    // for them.
     frame_status(unsafe { ffi::av_frame_get_buffer(frame.as_mut_ptr(), alignment) })
 }
 
@@ -2100,6 +2140,78 @@ mod scheduled_frame_function_tests {
         // And `av_frame_make_writable` is a no-op on a frame that already is.
         av_frame_make_writable(&mut frame.as_mut()).expect("already writable");
         assert!(av_frame_is_writable(frame.as_ref()));
+    }
+
+    #[test]
+    fn an_alignment_c_cannot_size_the_allocation_from_is_refused() {
+        // `get_video_buffer` reserves the inter-plane padding as
+        // `4 * plane_padding + 4 * align` in `int` (`frame.c:115`) and then
+        // pushes each plane up to `align` in `uintptr_t` (`:134`, `:135`).
+        // Past `MAX_BUFFER_ALIGNMENT` the reservation wraps while the push
+        // does not, so C used to answer 0 with `data[1]` and `data[2]` about
+        // two gigabytes outside a 104-byte `buf[0]` — after which
+        // `av_frame_copy` reads them, which this campaign's ASan build
+        // reports as a SEGV at `imgutils.c:353`.
+        for alignment in [
+            MAX_BUFFER_ALIGNMENT + 1,
+            (1 << 29) + 1,
+            (1 << 30) + 1,
+            i32::MAX - 1,
+            i32::MAX,
+        ] {
+            let mut frame = av_frame_alloc().expect("frame allocation");
+            assert!(frame.as_mut().set_width(2));
+            assert!(frame.as_mut().set_height(2));
+            assert!(
+                frame
+                    .as_mut()
+                    .set_format(crate::pixfmt::AVPixelFormat::YUV420P.as_raw())
+            );
+            assert_eq!(
+                av_frame_get_buffer(&mut frame.as_mut(), alignment),
+                Err(-22),
+                "alignment {alignment} reached C"
+            );
+            // Refused before the call, so the frame is untouched.
+            assert!(frame.as_ref().is_unallocated());
+        }
+    }
+
+    #[test]
+    fn every_alignment_the_wrapper_accepts_keeps_its_planes_inside_buf0() {
+        // The other half of the same claim: what is still allowed has to work,
+        // and the planes it installs have to lie in the buffer it allocated.
+        // `MAX_BUFFER_ALIGNMENT` itself asks for a 2 GiB reservation, so it is
+        // checked for the absence of corruption rather than for success.
+        for alignment in [-1, 0, 1, 32, 64, 4096, 1 << 20, MAX_BUFFER_ALIGNMENT] {
+            let mut frame = av_frame_alloc().expect("frame allocation");
+            assert!(frame.as_mut().set_width(2));
+            assert!(frame.as_mut().set_height(2));
+            assert!(
+                frame
+                    .as_mut()
+                    .set_format(crate::pixfmt::AVPixelFormat::YUV420P.as_raw())
+            );
+            if av_frame_get_buffer(&mut frame.as_mut(), alignment).is_err() {
+                // Only an allocation failure is acceptable here.
+                assert!(alignment > 1 << 20, "alignment {alignment} was refused");
+                continue;
+            }
+            let buffer = frame.as_ref().buffer(0).expect("buf[0] installed");
+            let base = buffer.data().expect("non-null window").as_elem_ptr() as usize;
+            let size = buffer.size();
+            for plane in 0..4usize {
+                let Some(pointer) = frame.as_ref().data_plane(plane) else {
+                    continue;
+                };
+                let address = pointer.as_non_null().as_ptr() as usize;
+                assert!(
+                    address >= base && address < base + size,
+                    "alignment {alignment}: data[{plane}] at {address:#x} is outside \
+                     the {size}-byte buf[0] at {base:#x}"
+                );
+            }
+        }
     }
 
     #[test]

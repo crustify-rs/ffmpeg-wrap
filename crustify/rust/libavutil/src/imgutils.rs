@@ -20,6 +20,16 @@ pub enum ImageError {
     /// full unaligned `linesize` per row; a negative alignment under-reports
     /// the same way. C never range-checks the parameter, so the wrappers do.
     NonPositiveAlignment,
+    /// A stride alignment was above [`MAX_ALIGNMENT`].
+    ///
+    /// The other end of the same expression. `FFALIGN(x, a)` evaluates
+    /// `(x) + (a) - 1` in `int`, so an alignment near the top of the range
+    /// overflows it for any nonzero linesize — this campaign's UBSan build
+    /// reports "signed integer overflow" at `imgutils.c:461` (the plane table),
+    /// `:486` (the extent) and `:530` (the row stride C advances the
+    /// destination by while copying). C never range-checks the parameter here
+    /// either, so the wrappers do.
+    AlignmentTooLarge,
     /// A plane height was below 1.
     ///
     /// `av_image_fill_plane_sizes` divides `SIZE_MAX` by the height to test
@@ -29,6 +39,32 @@ pub enum ImageError {
     /// and has no such guard.
     NonPositiveHeight,
     Library(i32),
+}
+
+/// The largest stride alignment the wrappers in this module forward to C.
+///
+/// Each of them reaches `FFALIGN(linesize, align)`, whose `(x) + (a) - 1` is
+/// `int` arithmetic, so the bound has to leave room for the widest `linesize`
+/// that can arrive there. `av_image_check_size` runs first in every one of
+/// these paths and refuses any geometry whose `8 * width + 1024` reaches
+/// `INT_MAX / (height + 128)`, which caps the width at just over two million
+/// even for a single row; the widest per-pixel step in libavutil's descriptor
+/// table is 32 bytes (`xv30be`), so a linesize arriving here is below
+/// `1 << 27`. Allowing `1 << 24` for the alignment therefore keeps the sum
+/// below `1 << 28`, a factor of eight clear of `INT_MAX`, while staying far
+/// above any alignment hardware asks for — a page is `1 << 12` and the widest
+/// SIMD load libavutil aligns for is 64 bytes.
+pub const MAX_ALIGNMENT: i32 = 1 << 24;
+
+/// Refuses a stride alignment outside the range C's `FFALIGN` is total for.
+fn check_alignment(align: i32) -> Result<(), ImageError> {
+    if align <= 0 {
+        Err(ImageError::NonPositiveAlignment)
+    } else if align > MAX_ALIGNMENT {
+        Err(ImageError::AlignmentTooLarge)
+    } else {
+        Ok(())
+    }
 }
 
 fn size_result(status: i32) -> Result<usize, ImageError> {
@@ -100,14 +136,15 @@ impl ImagePointers<'_> {
 /// passes for any destination, and C then writes one unaligned `linesize` per
 /// row into it. Rejected here rather than at the C seam, where this campaign's
 /// ASan build reports it as a heap-buffer-overflow write at `imgutils.c:529`.
+/// An alignment above [`MAX_ALIGNMENT`] is refused for the opposite reason: it
+/// overflows the `int` that `FFALIGN` forms, at `imgutils.c:486` while sizing
+/// the destination and again at `:530` while striding through it.
 pub fn av_image_copy_to_buffer(
     destination: &mut [u8],
     source: &ImagePlanes<'_>,
     align: i32,
 ) -> Result<usize, ImageError> {
-    if align <= 0 {
-        return Err(ImageError::NonPositiveAlignment);
-    }
+    check_alignment(align)?;
     let dst_size = i32::try_from(destination.len()).map_err(|_| ImageError::LengthOverflow)?;
     // SAFETY: `source` was produced by `av_image_fill_arrays` only after its
     // required extent was checked against the borrowed buffer. The destination
@@ -135,6 +172,8 @@ pub fn av_image_copy_to_buffer(
 /// the preflight reports an extent of zero bytes that any slice satisfies —
 /// including an empty one — while the strides recorded in the result still
 /// describe rows C will later read in full through [`av_image_copy_to_buffer`].
+/// One above [`MAX_ALIGNMENT`] is refused because `FFALIGN` overflows its
+/// `int` at `imgutils.c:461`.
 pub fn av_image_fill_arrays<'a>(
     source: &'a [u8],
     format: AVPixelFormat,
@@ -142,9 +181,7 @@ pub fn av_image_fill_arrays<'a>(
     height: i32,
     align: i32,
 ) -> Result<ImagePlanes<'a>, ImageError> {
-    if align <= 0 {
-        return Err(ImageError::NonPositiveAlignment);
-    }
+    check_alignment(align)?;
     let mut data = [core::ptr::null_mut(); 4];
     let mut linesizes = [0; 4];
     // SAFETY: both output arrays have four writable elements. A null source
@@ -192,12 +229,12 @@ pub fn av_image_fill_arrays<'a>(
 /// plane with the format's black, so the caller never handles the plane table
 /// C requires.
 ///
-/// A non-positive `align` is refused for the same reason as in
-/// [`av_image_fill_arrays`], and here it is a write: `av_image_fill_color`
-/// derives its per-row byte width from `av_image_get_linesize`, which ignores
-/// `align` entirely, so a zero-byte extent still memsets a full row —
-/// a heap-buffer-overflow write at `imgutils.c:569` under this campaign's ASan
-/// build.
+/// An `align` outside `1..=`[`MAX_ALIGNMENT`] is refused for the same two
+/// reasons as in [`av_image_fill_arrays`], and the non-positive half is a
+/// write here: `av_image_fill_color` derives its per-row byte width from
+/// `av_image_get_linesize`, which ignores `align` entirely, so a zero-byte
+/// extent still memsets a full row — a heap-buffer-overflow write at
+/// `imgutils.c:569` under this campaign's ASan build.
 pub fn av_image_fill_black(
     destination: &mut [u8],
     format: AVPixelFormat,
@@ -206,9 +243,7 @@ pub fn av_image_fill_black(
     height: i32,
     align: i32,
 ) -> Result<(), ImageError> {
-    if align <= 0 {
-        return Err(ImageError::NonPositiveAlignment);
-    }
+    check_alignment(align)?;
     let mut data = [core::ptr::null_mut(); 4];
     let mut linesizes = [0_i32; 4];
     // SAFETY: the output arrays have four slots; null performs a size preflight.
@@ -321,15 +356,15 @@ pub fn av_image_fill_pointers<'a>(
 /// what a caller sizes a buffer for. A non-positive `align` is refused rather
 /// than answered: C would report zero for an image of any size, and a caller
 /// who believes that answer allocates a buffer the very next call overruns.
+/// One above [`MAX_ALIGNMENT`] is refused because the `FFALIGN` at
+/// `imgutils.c:486` overflows its `int` before any extent comes out of it.
 pub fn av_image_get_buffer_size(
     format: AVPixelFormat,
     width: i32,
     height: i32,
     align: i32,
 ) -> Result<usize, ImageError> {
-    if align <= 0 {
-        return Err(ImageError::NonPositiveAlignment);
-    }
+    check_alignment(align)?;
     // SAFETY: all inputs are plain values and C retains nothing.
     size_result(unsafe { ffi::av_image_get_buffer_size(format.as_raw(), width, height, align) })
 }
@@ -451,6 +486,51 @@ mod tests {
             av_image_fill_pointers(&mut buffer, AVPixelFormat::GRAY8, 1, [-4, 0, 0, 0]),
             Err(ImageError::Library(_))
         ));
+    }
+
+    #[test]
+    fn an_alignment_ffalign_cannot_add_is_refused_by_every_extent() {
+        // The upper half of the same guard. `FFALIGN(x, a)` forms
+        // `(x) + (a) - 1` in `int`, so an alignment near the top of the range
+        // overflows it before the mask is applied: this campaign's UBSan build
+        // used to report "signed integer overflow" at `imgutils.c:461` for the
+        // plane table, `:486` for the extent, and `:530` for the stride C
+        // advances the destination by while it copies.
+        let source = [0; 12];
+        let planes = av_image_fill_arrays(&source, AVPixelFormat::RGB24, 2, 2, 1).unwrap();
+        for align in [MAX_ALIGNMENT + 1, 1 << 30, i32::MAX - 1, i32::MAX] {
+            assert_eq!(
+                av_image_get_buffer_size(AVPixelFormat::GRAY8, 2, 2, align),
+                Err(ImageError::AlignmentTooLarge)
+            );
+            assert_eq!(
+                av_image_fill_arrays(&[0; 4], AVPixelFormat::GRAY8, 2, 2, align).err(),
+                Some(ImageError::AlignmentTooLarge)
+            );
+            assert_eq!(
+                av_image_fill_black(
+                    &mut [0xff; 4],
+                    AVPixelFormat::GRAY8,
+                    AVColorRange::JPEG,
+                    2,
+                    2,
+                    align,
+                ),
+                Err(ImageError::AlignmentTooLarge)
+            );
+            assert_eq!(
+                av_image_copy_to_buffer(&mut [0; 12], &planes, align),
+                Err(ImageError::AlignmentTooLarge)
+            );
+        }
+
+        // The largest accepted alignment still answers, and it answers with an
+        // extent that is a whole number of aligned rows rather than a wrapped
+        // one -- one row of `MAX_ALIGNMENT` bytes per GRAY8 line.
+        assert_eq!(
+            av_image_get_buffer_size(AVPixelFormat::GRAY8, 2, 2, MAX_ALIGNMENT),
+            Ok(2 * MAX_ALIGNMENT as usize)
+        );
     }
 
     #[test]

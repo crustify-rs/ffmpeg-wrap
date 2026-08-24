@@ -272,6 +272,20 @@ pub fn av_mul_q(b: AVRationalRef<'_>, c: AVRationalRef<'_>) -> CVal<AVRational> 
 /// Every other pair of `int` denominators keeps `2 * d1 * d2` at
 /// `(1 << 63) - (1 << 32)` or below, so the rejection is exactly one pair
 /// wide.
+///
+/// The tail of the same C body needs its own rejection.
+/// `rational.c:141` returns
+/// `((x_up > q.num) - (x_down < q.num)) * av_cmp_q(q2, q1)`, and
+/// [`av_cmp_q`] answers `i32::MIN` for a comparison C calls undefined — a
+/// cross-difference of zero with a zero denominator and a zero numerator on
+/// the same side, of which `q2 == 0/0` is the ordinary case. The left factor
+/// is `-1` whenever `q2` makes `b` zero, because `av_rescale_rnd` then answers
+/// its `i64::MIN` sentinel for both roundings, so `-1 * i32::MIN` overflows
+/// `int`. `av_nearer_q(1/1, 1/1, 0/0)` is enough: this campaign's UBSan build
+/// reports "signed integer overflow: -1 * -2147483648" at `rational.c:141`,
+/// and the value that comes back is `i32::MIN`, which is not one of the three
+/// this function documents. Refused here, using the Rust reimplementation of
+/// the same header inline C is about to evaluate.
 pub fn av_nearer_q(
     q: AVRationalRef<'_>,
     q1: AVRationalRef<'_>,
@@ -280,8 +294,13 @@ pub fn av_nearer_q(
     if q1.den() == i32::MIN && q2.den() == i32::MIN {
         return Err(RationalError::DenominatorProductOverflow);
     }
+    if av_cmp_q(q2, q1) == i32::MIN {
+        return Err(RationalError::UndefinedComparison);
+    }
     // SAFETY: all arguments are initialized by-value copies; C retains none.
-    // The check above keeps C's doubled denominator product inside `int64_t`.
+    // The first check keeps C's doubled denominator product inside `int64_t`,
+    // and the second keeps the `int` multiplication it finishes with — by the
+    // very `av_cmp_q` evaluated above — inside `int`.
     Ok(unsafe { ffi::av_nearer_q(q.copy_ffi(), q1.copy_ffi(), q2.copy_ffi()) })
 }
 
@@ -444,6 +463,58 @@ mod scheduled_tests {
         assert!(av_nearer_q(target.as_ref(), extreme.as_ref(), one_extreme.as_ref()).is_ok());
         assert!(av_nearer_q(target.as_ref(), one_extreme.as_ref(), extreme.as_ref()).is_ok());
     }
+
+    #[test]
+    fn a_candidate_pair_c_cannot_compare_is_refused() {
+        // `rational.c:141` finishes with
+        // `((x_up > q.num) - (x_down < q.num)) * av_cmp_q(q2, q1)`. A `q2`
+        // with a zero denominator makes `b` zero, `av_rescale_rnd` answer
+        // `i64::MIN` for both roundings and the left factor `-1`; `0 / 0` on
+        // either side makes `av_cmp_q` answer its `i32::MIN` sentinel. The
+        // product overflowed `int` -- UBSan reports
+        // "signed integer overflow: -1 * -2147483648" -- and the value that
+        // came back was `i32::MIN`, which this function does not document.
+        let undefined = av_make_q(0, 0);
+        for (num, den) in [(1, 1), (0, 0), (-3, 7), (i32::MAX, 1), (0, 1)] {
+            let candidate = av_make_q(num, den);
+            let target = av_make_q(1, 1);
+            if av_cmp_q(undefined.as_ref(), candidate.as_ref()) == i32::MIN {
+                assert_eq!(
+                    av_nearer_q(target.as_ref(), candidate.as_ref(), undefined.as_ref()),
+                    Err(RationalError::UndefinedComparison),
+                    "{num}/{den} against 0/0 reached C"
+                );
+            }
+        }
+
+        // The one this run turns on, spelled out so the test still says what
+        // it is about if `av_cmp_q` ever changes.
+        assert_eq!(
+            av_cmp_q(undefined.as_ref(), av_make_q(1, 1).as_ref()),
+            i32::MIN
+        );
+        assert_eq!(
+            av_nearer_q(
+                av_make_q(1, 1).as_ref(),
+                av_make_q(1, 1).as_ref(),
+                undefined.as_ref()
+            ),
+            Err(RationalError::UndefinedComparison)
+        );
+
+        // Comparable candidates are still answered, including infinities,
+        // which `av_cmp_q` orders by numerator sign rather than by sentinel.
+        let plus_inf = av_make_q(1, 0);
+        let minus_inf = av_make_q(-1, 0);
+        assert!(
+            av_nearer_q(
+                av_make_q(1, 1).as_ref(),
+                plus_inf.as_ref(),
+                minus_inf.as_ref()
+            )
+            .is_ok()
+        );
+    }
 }
 
 /// Wraps: av_add_q
@@ -517,6 +588,10 @@ pub enum RationalError {
     /// Both denominators handed to [`av_nearer_q`] were `i32::MIN`, the one
     /// pair whose doubled product leaves `int64_t`.
     DenominatorProductOverflow,
+    /// [`av_cmp_q`] answers `i32::MIN` — "undefined" — for the candidate pair
+    /// handed to [`av_nearer_q`], which multiplies that answer by a factor
+    /// that can be `-1`.
+    UndefinedComparison,
 }
 
 /// Wraps: av_d2q
