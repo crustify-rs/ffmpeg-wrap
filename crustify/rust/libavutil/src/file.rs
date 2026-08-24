@@ -1,4 +1,8 @@
 //! Wrappers for libavutil file mapping.
+//!
+//! [`av_file_map`] is `unsafe` and [`AvFileUnmap`] is sound on its own; the
+//! two halves carry different obligations and only the first one needs the
+//! caller. See each item for why.
 
 use core::ffi::{CStr, c_void};
 
@@ -54,7 +58,49 @@ unsafe impl CLenDropped for AvFileUnmap {
 ///
 /// Maps a file. An empty file is represented by `Ok(None)`, matching C's
 /// null pointer and zero size.
-pub fn av_file_map(
+///
+/// # Safety
+///
+/// For as long as the returned mapping lives, no process may change the length
+/// or the contents of the file named by `filename`.
+///
+/// This is the one obligation in this module that no bound in the Rust type
+/// system can carry, which is why the constructor is `unsafe` while every
+/// other wrapper here is not. C hands back a `uint8_t *` and a size and
+/// promises nothing about them; the owner returned here is a
+/// [`CVec<u8, AvFileUnmap>`](ffibox::CVec), and
+/// [`CVec::as_slice`](ffibox::CVec::as_slice) turns that into a `&[u8]`, which
+/// promises two things `mmap` cannot keep:
+///
+/// * **Dereferenceable for its whole extent.** `libavutil/file.c` maps
+///   `st_size` bytes of the file. Shrinking the file afterwards leaves the
+///   tail of the mapping with no page behind it, and reading it raises
+///   `SIGBUS` — a fault inside the *caller's* frame, on a reference the
+///   caller never wrote `unsafe` to obtain.
+/// * **Immutable for the borrow.** The mapping is `MAP_PRIVATE`, so it is
+///   copy-on-write, not a snapshot: a page that has only ever been read still
+///   reflects later writes to the file. Rewriting the file changes the bytes
+///   a live `&[u8]` yields, with no `&mut` anywhere in sight.
+///
+/// Neither requires an adversary and neither is specific to this crate; it is
+/// the same reason `memmap2::Mmap::map` is an `unsafe fn`. A caller discharges
+/// the obligation by mapping a file only it can reach — one it created with
+/// `O_EXCL` in a private directory, or a read-only file on a filesystem
+/// nothing is writing.
+///
+/// Releasing the mapping is *not* part of this obligation; see
+/// [`AvFileUnmap`], which the ffibox bounds keep sound on their own.
+///
+/// A caller that cannot make that guarantee should read the file instead of
+/// mapping it. `std::fs::read` copies, so a concurrent truncation costs it
+/// bytes rather than soundness.
+///
+/// ```compile_fail,E0133
+/// // Calling it without an `unsafe` block does not compile: the gate below
+/// // is what this obligation is carried by.
+/// let _ = libavutil::file::av_file_map(c"/etc/hostname", 0, None);
+/// ```
+pub unsafe fn av_file_map(
     filename: &CStr,
     log_offset: i32,
     log_context: Option<LogContextRef<'_>>,
@@ -99,10 +145,35 @@ mod tests {
         Err(_) => panic!("the concatenated path ends in exactly one NUL"),
     };
 
+    /// The mapping obligation these tests discharge.
+    ///
+    /// Every call below maps this crate's own source file, read-only, from a
+    /// test binary that does not write it. Nothing in the process changes its
+    /// length or its contents while a mapping is live, which is exactly what
+    /// [`av_file_map`]'s `# Safety` section asks for. It is an assumption
+    /// about the test environment rather than something the type system
+    /// carries, which is the whole reason the function is `unsafe`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must be one of the tests in this module, running against an
+    /// unmodified checkout.
+    unsafe fn map_this_file() -> CVec<u8, AvFileUnmap> {
+        // SAFETY: forwarded from this helper's own contract above.
+        unsafe { av_file_map(THIS_FILE, 0, None) }
+            .expect("mapping this source file")
+            .expect("this source file is not empty")
+    }
+
     #[test]
     fn maps_an_empty_file_and_reports_missing_files() {
-        assert!(matches!(av_file_map(c"/dev/null", 0, None), Ok(None)));
-        assert!(av_file_map(c"/definitely/not/a/crustify/file", 0, None).is_err());
+        // SAFETY: `/dev/null` has zero length, so C returns before it maps
+        // anything and there is no mapping for a writer to invalidate; the
+        // missing path never reaches `mmap` either.
+        unsafe {
+            assert!(matches!(av_file_map(c"/dev/null", 0, None), Ok(None)));
+            assert!(av_file_map(c"/definitely/not/a/crustify/file", 0, None).is_err());
+        }
     }
 
     #[test]
@@ -111,9 +182,9 @@ mod tests {
         // actually established, read through the owner, and torn down by
         // `AvFileUnmap` with the size C reported. Under the sanitiser run an
         // unmap of the wrong extent, or none at all, shows up here.
-        let mapping = av_file_map(THIS_FILE, 0, None)
-            .expect("mapping this source file")
-            .expect("this source file is not empty");
+        //
+        // SAFETY: as `map_this_file`.
+        let mapping = unsafe { map_this_file() };
 
         assert_eq!(mapping.byte_len(), mapping.count());
         assert!(
@@ -133,17 +204,21 @@ mod tests {
         // mapping, so the exclusive owner really may write and the file on
         // disk does not change. Handing this back as a read-only view would
         // understate what C established.
-        let mut mapping = av_file_map(THIS_FILE, 0, None)
-            .expect("mapping this source file")
-            .expect("this source file is not empty");
+        //
+        // The same `MAP_PRIVATE` is why the mapping is not a snapshot, and so
+        // why the constructor is `unsafe`: a page this test has not yet
+        // written still tracks the file. Writing through the owner is what
+        // detaches it, and that only helps the pages actually written.
+        //
+        // SAFETY: as `map_this_file`.
+        let mut mapping = unsafe { map_this_file() };
 
         let first = mapping.as_slice()[0];
         mapping.as_mut_slice()[0] = first ^ 0xff;
         assert_eq!(mapping.as_slice()[0], first ^ 0xff);
 
-        let again = av_file_map(THIS_FILE, 0, None)
-            .expect("mapping this source file")
-            .expect("this source file is not empty");
+        // SAFETY: as `map_this_file`.
+        let again = unsafe { map_this_file() };
         assert_eq!(again.as_slice()[0], first);
     }
 
