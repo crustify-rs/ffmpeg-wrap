@@ -85,6 +85,14 @@ in Notes.
 
 ## Overview
 
+- **Rust LoC, non-test** — `5,088`
+- **Rust LoC, tests** — `4,740`
+- **C LoC** — `3,135`
+- **ported types** — `0`
+- **ported symbols** — `0`
+- **wrapped types** — `32`
+- **wrapped symbols** — `164`
+
 Implementation `openai/gpt-5.6-sol` via `codex`; review
 `anthropic/claude-opus-5` via `claude`. Each row names the model that produced
 it.
@@ -289,6 +297,37 @@ crustify-cli or ffibox along the way belongs in that repo's history, not here.
 > row counts; where a metric moved and what moved it; what the judge found and
 > whether it held. Everything else stays in the tables.
 
+State where the LoC figures come from, and note that all of them exclude
+comments and blank lines.
+
+`C LoC` is `crustify-oracle query dag --name <every scheduled entity> --loc`:
+the oracle's translated-LoC view, a function seed valued at its body LoC and a
+type seed at its field and op count. It reports the seeds only, with no closure
+expansion, so it is the C the campaign translated rather than the surface it
+was drawn from. Give the defining files' and the whole target's raw totals
+beside it for scale.
+
+`Rust LoC` is counted from source over the authored `.rs` files under
+`crustify/rust`, excluding anything generated into `target/`, and split by
+`#[cfg(test)]` module.
+
+Say why that non-test figure differs from the `code_lines` the Safety audit
+reports. The audit measures the union of HIR definition spans, so it counts
+only what sits inside an item — no `use`, `mod` or free-standing attribute
+lines — and by construction cannot see `cfg`-disabled code, which is why it
+yields no test figure. Its number is the right denominator for the unsafe
+ratios and the wrong one for how much Rust was written; the two must not be
+added.
+
+Say plainly that the Rust-to-C ratio is not like-for-like in any measure,
+because the Rust carries tests, `// SAFETY:` justifications, `ffi_export`
+gateways and scaffolding with no C counterpart.
+
+The four unit counts are de-duplicated over ENTITIES, not scheduled units: an
+entity appears once, under the last objective it ran, so a type wrapped and
+later ported counts as ported and never in both. Name the entities that took
+both paths. Callbacks count with symbols.
+
 Some of it is structural and belongs here every time: that a review pass is a
 sub-campaign of its own because the oracle re-batches the units it judges, so
 its rows never line up with the wave underneath; which units a review schedule
@@ -337,6 +376,50 @@ all of it is independent review and none of it is in-model. The `orchestrator`
 row carries no figure at all: the orchestrator session writes no `usage.json`,
 so its supervision cost is not recorded anywhere and is not estimated here.
 Every campaign total in this document is therefore agents-only.
+
+### Where the LoC figures come from
+
+All of them exclude comments and blank lines.
+
+**`C LoC` — `3,135`.** From
+`crustify-oracle query dag --name <every scheduled entity> --loc`: the
+oracle's translated-LoC view, a function seed valued at its body LoC and a
+type seed at its field and op count. Types account for `120` of it and symbols
+for `3,015`. It reports the seeds only, with no closure expansion, so it is the
+C this campaign translated rather than the surface it was drawn from. For
+scale: the `35` files those entities are defined in hold `13,885` raw SLOC,
+and `libavutil/` as a whole is `268` files and `54,961` raw SLOC. The
+campaign's `196` units are therefore about `6%` of the library by raw source.
+
+One trap worth recording: `query dag --loc` appends a `TOTAL` row to its own
+output. Summing every row it prints double-counts, and the first figure this
+report carried was exactly `2×` the truth until the row was noticed.
+
+**`Rust LoC` — `5,088` non-test and `4,740` tests.** Counted from source over
+the `41` authored `.rs` files under `crustify/rust`, excluding anything
+generated into `target/`, and split by `#[cfg(test)]` module. Nearly half the
+Rust written is test code, which is the shape a wrap campaign should have: the
+tests are where a layout assertion or a lifetime claim becomes falsifiable.
+
+**That non-test figure is not the Safety audit's `code_lines` (`4,381`), and
+the two must not be added.** The audit measures the union of HIR definition
+spans, so it counts only what sits inside an item — no `use`, `mod` or
+free-standing attribute lines — and by construction cannot see `cfg`-disabled
+code, which is why it yields no test figure at all. Its number is the right
+denominator for the unsafe ratios in that section and the wrong one for how
+much Rust was written.
+
+**The Rust-to-C ratio is not like-for-like in any measure.** `9,828` Rust
+against `3,135` C is not a `3.1×` expansion of the same work: the Rust carries
+tests, `// SAFETY:` justifications, `ffi_export` gateways and scaffolding with
+no C counterpart, while the C figure is seeds only. Quote it as a size, never
+as an expansion factor.
+
+**The four unit counts are de-duplicated over entities, not scheduled units.**
+An entity appears once, under the last objective it ran. This campaign makes
+that trivial: it is wrap-only, no unit was ever escalated, so `0` types and `0`
+symbols are ported and no entity took both paths. Callbacks count with
+symbols; the oracle scheduled none separately here.
 
 ### The agentic UB pass found four soundness bugs the deterministic pass cannot see
 
@@ -537,7 +620,7 @@ So the campaign paid for that work three times, twice for nothing:
 | **Σ discarded** | **`$10.75`** | **`19m24s`** |
 
 The per-batch review table sums to `$220.19`; the review campaigns' total
-agent spend is `$230.95`. The `$10.75` gap is exactly this, and it is charged
+agent spend is `$230.94`. The `$10.75` gap is exactly this, and it is charged
 to no batch because no batch kept the output. Any per-unit review cost quoted
 from the table is therefore the cost of the work that **landed**, not the cost
 the campaign incurred.
