@@ -48,7 +48,9 @@ Reconcile a resumed campaign against `crustify/session/*` refs and the
   promoted by fast-forward).
 - The review branch is fully promoted. `crustify/review-final-continuation` and
   every `crustify/agent/*` and `crustify/session/*` ref are retained as history.
-- `crustify/wrappers-results.md` is written, in the requested template layout.
+- `crustify/wrappers-results.md` is written against `examples/results.md`
+  as of crustify-cli `d756ae6`: Overview, UB pass, batch-level Target set
+  tables, and the split review tables.
 
 ## Completion matrix
 

@@ -15,14 +15,12 @@
 - **`--max-loc`** — `1000`
 - **`--min-fields`** — `10`
 - **`--parallel-max`** — `32`
-- **branch** — `crustify/libavutil-gpt-5.6-sol`, last code commit `b19afcb3f0` (this report lands on top)
-- **deps** — crustify-cli `4f93c88` (`fix/log-cost-campaigns-tier`), ffibox `600399f` (`main`)
+- **branch** — `crustify/libavutil-gpt-5.6-sol`, tip `87c1577231`
+- **deps** — crustify-cli `d756ae6` (`docs/results-template-ub`), ffibox `600399f` (`main`)
 
 ## Review pass
 
-`--objective review`, LLM-as-a-Judge over the landed waves. Run it under a
-DIFFERENT model from the one being judged — a review by the author is
-self-review, and any disagreement is what makes the pass informative.
+`--objective review`, LLM-as-a-Judge over the landed waves.
 
 - **agent backend** — `claude`
 - **model** — `anthropic/claude-opus-5`
@@ -33,57 +31,78 @@ self-review, and any disagreement is what makes the pass informative.
 - **`--min-fields`** — `10`
 - **`--parallel-max`** — `32`
 - **branch** — `crustify/session/review-2026-08-23_22-14-28_82c3`, tip `414ff93355`
-- **agents** — `28` spawned over `3` session(s); `24` landed a batch result, `4` were killed mid-flight (see Notes)
+- **agents** — `28`, over `3` session(s)
 
 `rv`-prefixed columns below carry the review pass; the unprefixed ones remain
 the campaign's.
 
+## UB pass
+
+`crustify-audit ub`, an agentic hunt for undefined behaviour reachable from the
+crate's SAFE APIs.
+
+- **agent backend** — `claude`
+- **model** — `anthropic/claude-opus-5`
+- **`--billing`** — `subscription`
+- **`--timeout`** — `60` min — a wall BUDGET, not a kill switch: agents are
+  spawned one after another until it is reached and each finishes on its own,
+  so the run overshoots by however long the last one takes. `0` runs exactly
+  one agent
+- **subject** — `libavutil-wrap` at `24cd1b5a06`
+- **agents** — `2`, `1h11m30s` wall, `$54.40`
+- **advisories** — `4` at `crustify/audit/advisories/`
+- **patch** — `crustify/audit-gate-the-file-mapping-safe-code-cannot-keep-valid` at `b19afcb3f0`; `merged`
+
+`ub`-prefixed columns carry this pass.
+
 ## Legend
 
-- `DAG layer` — the unit's own wrap DAG layer
-- `kind` — `struct` / `union` / `enum` for a type; `callback`; `function` for
-  every symbol, whatever linkage the C declaration carries
-- `fields` — all declared fields
-- `target fields` / `target ptr` — fields a target-section function touches / of
-  those, pointers
-- `wrapped fields` — fields given an accessor, counted as DISTINCT `type.field`
-  paths; `—` = wrapped with no field accessor (opaque)
-- `newtypes` — distinct Rust types carrying a `/// Wraps: <tag>` anchor; `1` is
-  a plain 1:1 wrap, `>1` where one C type needs several representations (an
-  owned handle beside a borrowed view, a by-value beside a by-pointer form)
-- `target fns` — every target-section function needing the symbol, tree-wide
-- `deps` — import types/callbacks the symbol needs
-- `wrappers` — distinct safe fns emitted over the one C routine; `>1` where the
-  signature forked (a slice-taking beside a `CStr`-taking form, a fallible
-  beside an infallible one)
-- `batch` — the agent that emitted it. Symbols pool, so their cost is per
-  batch, not per symbol — see the batches table
-- `$` / `wall` / `loc` — that agent's own cost, its elapsed time, and the `.rs`
-  insertions of its landing commit. `wall` is `ended_at − started_at` from the
-  agent's own `usage.json`, so it INCLUDES the per-worktree C rebuild
-- `$/unit` / `$/loc` / `$/field` — that row's `$` over its units, its `loc`, or
-  its declared fields
-- `$/symbol` / `$/type` — a batch holds one kind or the other, so one of the
-  two reads `—`; on a Σ row each divides that kind's own cost by its own count
-- `↖ batched` — shares the row above's agent; one usage record covers both
-- `rv $` / `rv wall` / `rv loc` — the REVIEW agent's own cost, elapsed time, and
-  net `.rs` line delta (`+ins/-del`) of its landing commit
-- `verdict` — what the judge concluded: `held` = analysis and code confirmed as
-  emitted, `fixed` = a defect in the emitted Rust corrected, `record` = an
-  ownership finding resubmitted through the oracle. Several may apply
-- In a batches row, `wall` is the layer's LONGEST agent — what the layer would
-  cost with every batch spawned at once — and the parenthetical is the
-  serial-sum multiple. A Σ row sums the columns it can and carries the same
-  longest-agent reading for `wall`
+- `objective` — what the batch's agents were told to do: `wrap`, `port`, or
+  `raw lifetime`. The type tables are split by it, so it appears as a column
+  only in `Batches — symbols`, which mixes the two
+- `types` / `symbols` — scheduler units in the batch. Callbacks are scheduled
+  in symbol batches and counted there
+- `fields` — in-scope fields: the field accessors the oracle assigned to that
+  type batch, not the type's full declared field count
+- `lifecycle prims` — deleters, disposers and cloners the ownership store binds
+  to that batch's types; raw-tier primitives that belong to no type are counted
+  in `Raw lifetime discovery` instead
+- `$` / `wall` / `loc` — that agent's computed cost, its elapsed time, and the
+  `.rs` insertions of its landing commit. `wall` is `ended_at − started_at` from
+  the agent's own `usage.json`, so it INCLUDES the per-worktree C rebuild
+- `$/type` / `$/symbol` / `$/field` / `$/loc` — that row's `$` over its units,
+  its in-scope fields, or its `loc`
+- `$/type` / `$/sym` — in the Overview, a sub-campaign's cost over the types or
+  symbols it was scheduled for; `—` where it was scheduled for none
+- `rv $` / `rv wall` / `rv loc` — the REVIEW agent's cost, elapsed time, and net
+  `.rs` line delta (`+ins/-del`) of its landing commit. Under subscription
+  billing `rv $` is an API-equivalent comparison value, not a charged amount
+- `ub $` / `ub wall` — the UB pass's cost and elapsed time; `—` where the
+  optional pass did not run
+
+Every table below is a heading, a model line and the table. All prose belongs
+in Notes.
+
+## Overview
+
+Implementation `openai/gpt-5.6-sol` via `codex`; review
+`anthropic/claude-opus-5` via `claude`. Each row names the model that produced
+it.
+
+| sub-campaign | objective | nr types | nr symbols | session wall | total | $/type | $/sym | ub wall | ub $ |
+|---|---|---:|---:|---|---:|---:|---:|---|---:|
+| `lifetime-void` | raw lifetime | `0` | `1` | `10m04s` | `$4.57` (`openai/gpt-5.6-sol`) | — | `$4.57` | — | — |
+| `review-void` | review | `0` | `4` | `33m12s` | `$16.52` (`anthropic/claude-opus-5`) | — | `$4.13` | — | — |
+| `lifetime-string` | raw lifetime | `0` | `1` | `7m05s` | `$3.30` (`openai/gpt-5.6-sol`) | — | `$3.30` | — | — |
+| `review-string` | review | `0` | `2` | `12m00s` | `$4.93` (`anthropic/claude-opus-5`) | — | `$2.46` | — | — |
+| `libavutil-wrap` | wrap | `32` | `164` | `1h05m44s` | `$124.06` (`openai/gpt-5.6-sol`) | `$3.88` | `$0.76` | `1h11m30s` | `$54.40` (`anthropic/claude-opus-5`) |
+| `review-final + review-final-continuation` | review | `32` | `164` | `2h11m17s` | `$230.95` (`anthropic/claude-opus-5`) | `$7.22` | `$1.41` | — | — |
+| orchestrator | orchestration | `32` | `164` | — | not recorded | — | — | — | — |
+| **Σ recorded agents** | | **`64`** | **`336`** | **`4h19m22s`** | **`$384.33`** | **`$6.01`** | **`$1.14`** | | **`$54.40`** |
 
 ## Raw lifetime discovery
 
-Goal: turn the untyped lifecycle primitives into Rust lifetime contracts before
-any wrapper needs one. Oracle `schedule --lifetime-for void` then
-`schedule --lifetime-for string`, one
-agent each, objective `raw` (set by the tier, not `--objective`). `strategies`
-counts the deleter/cloner ZSTs emitted; the four trait columns count the
-`unsafe impl`s that bind them.
+`openai/gpt-5.6-sol` via `codex`.
 
 | tier | symbols submitted | strategies | CDropped | CCloned | CLenDropped | CLenCloned | $ | wall |
 |---|---|---|---|---|---|---|---|---|
@@ -91,279 +110,121 @@ counts the deleter/cloner ZSTs emitted; the four trait columns count the
 | string | `2` | `1` | `1` | `2` | `0` | `0` | `$3.30` | `7m05s` |
 | **Σ** | **`7`** | **`4`** | **`3`** | **`2`** | **`3`** | **`1`** | **`$7.87`** | **`17m09s`** |
 
+### Review, in-model
+
+None ran; see Notes.
+
+| tier | symbols | batches | $ | wall |
+|---|---|---|---|---|
+| **Σ** | **`0`** | **`0`** | **`$0.00`** | — |
+
+### Review, independent
+
+`anthropic/claude-opus-5` via `claude`.
+
+| symbols | rv loc | rv $ | rv wall | rv $/symbol |
+|---|---|---|---|---|
+| `2` | `+66/-3` | `$4.28` | `8m46s` | `$2.14` |
+| `1` | `+95/-14` | `$5.55` | `9m55s` | `$5.55` |
+| `1` | `+87/-3` | `$6.69` | `14m28s` | `$6.69` |
+| `2` | `+187/-27` | `$4.93` | `11m59s` | `$2.46` |
+| **Σ `6`** | **`+435/-47`** | **`$21.45`** | — | **`$3.57`** |
+
 ## Target set
 
-What the campaign wrapped and in what order: types and callbacks first,
-bottom-up by DAG layer, then the symbols over them.
+### Batches — types, wrap
 
-### Types and callbacks
+`openai/gpt-5.6-sol` via `codex`.
 
-| DAG layer | unit | kind | fields | target fields | target ptr | wrapped fields | newtypes | $ | wall | loc | rv $ | rv wall | rv loc | verdict |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `0` | `AVAlphaMode` | enum | `0` | `—` | `—` | `—` | `1` | `$7.81` | `11m28s` | `120` | `$7.87` | `13m56s` | `+25/-2` | fixed |
-| `0` | `AVAudioFifo` | struct | `7` | `7` | `1` | `—` | `1` | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | fixed |
-| `0` | `AVBuffer` | struct | `7` | `7` | `3` | `—` | `1` | `$9.30` | `15m55s` | `181` | `$5.13` | `9m33s` | `+36/-8` | fixed |
-| `0` | `AVChannel` | enum | `0` | `—` | `—` | `—` | `1` | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | fixed |
-| `0` | `AVChannelOrder` | enum | `0` | `—` | `—` | `—` | `1` | `$3.57` | `7m45s` | `156` | `$3.55` | `6m18s` | `+100/-13` | fixed |
-| `0` | `AVChromaLocation` | enum | `0` | `—` | `—` | `—` | `1` | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | fixed |
-| `0` | `AVColorPrimaries` | enum | `0` | `—` | `—` | `—` | `1` | `$3.28` | `5m26s` | `141` | `$4.46` | `7m57s` | `+156/-18` | fixed |
-| `0` | `AVColorRange` | enum | `0` | `—` | `—` | `—` | `1` | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | fixed |
-| `0` | `AVColorSpace` | enum | `0` | `—` | `—` | `—` | `1` | `$4.17` | `7m07s` | `161` | `$3.44` | `6m20s` | `+64/-0` | fixed |
-| `0` | `AVColorTransferCharacteristic` | enum | `0` | `—` | `—` | `—` | `1` | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | fixed |
-| `0` | `AVComponentDescriptor` | struct | `5` | `5` | `0` | `5` | `1` | `$6.91` | `13m48s` | `187` | `$12.58` | `23m00s` | `+0/-0` | held |
-| `0` | `AVDictionary` | struct | `2` | `2` | `1` | `—` | `1` | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | held |
-| `0` | `AVDictionaryEntry` | struct | `2` | `2` | `2` | `2` | `1` | `$5.39` | `10m42s` | `208` | `$6.18` | `11m14s` | `+110/-25` | fixed |
-| `0` | `AVFrameSideDataType` | enum | `0` | `—` | `—` | `—` | `1` | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | fixed |
-| `0` | `AVHWDeviceType` | enum | `0` | `—` | `—` | `—` | `1` | `$1.14` | `3m42s` | `136` | `$4.07` | `8m34s` | `+174/-11` | fixed |
-| `0` | `AVHWFrameTransferDirection` | enum | `0` | `—` | `—` | `—` | `1` | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | fixed |
-| `0` | `AVMD5` | struct | `3` | `3` | `0` | `—` | `1` | `$5.23` | `9m09s` | `223` | `$5.32` | `10m38s` | `+0/-0` | held |
-| `0` | `AVMediaType` | enum | `0` | `—` | `—` | `—` | `1` | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | held |
-| `0` | `AVOptionArrayDef` | struct | `4` | `4` | `1` | `4` | `1` | `$8.54` | `14m32s` | `226` | `$7.40` | `13m20s` | `+18/-11` | fixed |
-| `0` | `AVOptionType` | enum | `0` | `—` | `—` | `—` | `1` | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | fixed |
-| `0` | `AVPictureType` | enum | `0` | `—` | `—` | `—` | `1` | `$4.68` | `6m30s` | `439` | `$5.82` | `10m08s` | `+0/-0` | held |
-| `0` | `AVPixelFormat` | enum | `0` | `—` | `—` | `—` | `1` | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | held |
-| `0` | `AVRational` | struct | `2` | `2` | `0` | `2` | `1` | `$4.68` | `9m47s` | `192` | `$4.54` | `10m06s` | `+0/-0` | held |
-| `0` | `AVRounding` | enum | `0` | `—` | `—` | `—` | `1` | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | held |
-| `0` | `AVSampleFormat` | enum | `0` | `—` | `—` | `—` | `1` | `$4.84` | `8m22s` | `116` | `$5.05` | `9m39s` | `+0/-0` | held |
-| `1` | `AVBufferRef` | struct | `3` | `3` | `2` | `3` | `1` | `$6.01` | `10m43s` | `372` | `$11.73` | `20m13s` | `+462/-82` | fixed · record |
-| `1` | `AVChannelCustom` | struct | `3` | `2` | `0` | `3` | `1` | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | fixed · record |
-| `1` | `AVOption` | struct | `14` | `9` | `3` | `14` | `1` | `$3.37` | `7m27s` | `325` | `$7.20` | `12m59s` | `+348/-31` | fixed |
-| `1` | `AVPixFmtDescriptor` | struct | `7` | `7` | `2` | `7` | `1` | `$2.61` | `5m34s` | `242` | `$6.15` | `11m39s` | `+186/-25` | fixed · record |
-| `2` | `AVChannelLayout` | struct | `6` | `4` | `1` | `6` | `1` | `$4.43` | `8m51s` | `438` | `$17.78` | `22m35s` | `+524/-64` | fixed · record |
-| `2` | `AVFrameSideData` | struct | `5` | `5` | `3` | `5` | `1` | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | ↖ batched | fixed · record |
-| `3` | `AVFrame` | struct | `40` | `40` | `10` | `40` | `1` | `$5.89` | `13m01s` | `650` | `$17.51` | `24m37s` | `+526/-41` | fixed · record |
-| **Σ `32`** | | | **`110`** | **`102`** | **`29`** | **`91`** | **`32`** | **`$91.87`** | | **`4513`** | **`$135.79`** | | **`+2729/-331`** | **`32`/`32` reviewed** |
+| types | fields | lifecycle prims | $ | wall | $/type | $/field |
+|---|---|---|---|---|---|---|
+| `2` | `0` | `1` | `$7.81` | `11m28s` | `$3.91` | — |
+| `2` | `0` | `0` | `$9.30` | `15m55s` | `$4.65` | — |
+| `2` | `0` | `0` | `$3.57` | `7m45s` | `$1.79` | — |
+| `2` | `0` | `0` | `$3.28` | `5m27s` | `$1.64` | — |
+| `2` | `0` | `0` | `$4.17` | `7m07s` | `$2.09` | — |
+| `2` | `5` | `1` | `$6.91` | `13m48s` | `$3.46` | `$1.38` |
+| `2` | `2` | `0` | `$5.39` | `10m42s` | `$2.69` | `$2.69` |
+| `2` | `0` | `0` | `$1.14` | `3m42s` | `$0.57` | — |
+| `2` | `0` | `0` | `$5.23` | `9m10s` | `$2.62` | — |
+| `2` | `4` | `0` | `$8.54` | `14m32s` | `$4.27` | `$2.14` |
+| `2` | `0` | `0` | `$4.68` | `6m30s` | `$2.34` | — |
+| `2` | `2` | `0` | `$4.68` | `9m48s` | `$2.34` | `$2.34` |
+| `1` | `0` | `0` | `$4.84` | `8m22s` | `$4.84` | — |
+| `2` | `6` | `2` | `$6.01` | `10m44s` | `$3.01` | `$1.00` |
+| `1` | `14` | `0` | `$3.37` | `7m27s` | `$3.37` | `$0.24` |
+| `1` | `7` | `0` | `$2.61` | `5m35s` | `$2.61` | `$0.37` |
+| `2` | `11` | `2` | `$4.43` | `8m51s` | `$2.21` | `$0.40` |
+| `1` | `40` | `4` | `$5.89` | `13m02s` | `$5.89` | `$0.15` |
+| **Σ `32`** | **`91`** | **`10`** | **`$91.87`** | — | **`$2.87`** | **`$1.01`** |
 
-### Batches — types
+### Batches — types, port
 
-| DAG layer | units | loc | $ | wall (longest) | wall (actual) | serial Σ | $/unit | $/loc |
-|---|---|---|---|---|---|---|---|---|
-| `0` | `25` | `2486` | `$69.55` | `15m55s` | **`15m56s`** | `2h04m17s` (`7.8`x) | `$2.78` | `$0.03` |
-| `1` | `4` | `939` | `$12.00` | `10m43s` | **`18m42s`** | `23m45s` (`2.2`x) | `$3.00` | `$0.01` |
-| `2` | `2` | `438` | `$4.43` | `8m51s` | **`11m51s`** | `8m51s` (`1.0`x) | `$2.21` | `$0.01` |
-| `3` | `1` | `650` | `$5.89` | `13m01s` | **`13m02s`** | `13m01s` (`1.0`x) | `$5.89` | `$0.01` |
-| **Σ** | **`32`** | **`4513`** | **`$91.87`** | — | **`1h05m44s`** | **`2h49m55s`** (**`2.6`x**) | **`$2.87`** | **`$0.02`** |
+None ran; this is a wrap campaign. See Notes.
 
-### Symbols
+| types | fields | lifecycle prims | $ | wall | $/type | $/field |
+|---|---|---|---|---|---|---|
+| **Σ `0`** | **`0`** | **`0`** | **`$0.00`** | — | — | — |
 
-| DAG layer | symbol | kind | target fns | deps | wrappers | batch | rv batch | verdict |
-|---|---|---|---|---|---|---|---|---|
-| `0` | `av_chroma_location_from_name` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_dynarray_add` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_file_map` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_file_unmap` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_freep` | function | `62` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_gettime` | function | `4` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_gettime_relative` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_gettime_relative_is_monotonic` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_log_get_flags` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_log_get_level` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_log_set_callback` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_log_set_flags` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_log_set_level` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_malloc` | function | `47` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_malloc_array` | function | `4` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_mallocz` | function | `80` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_match_name` | function | `2` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_md5_sum` | function | `1` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_opt_set` | function | `3` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_opt_set_bin` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_opt_set_double` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_opt_set_image_size` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_opt_set_int` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_realloc` | function | `15` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_reduce` | function | `5` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_strerror` | function | `1` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_usleep` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `av_version_info` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `avutil_configuration` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `avutil_license` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `0` | `avutil_version` | function | `0` | — | `1` | `L0·b13` | `L0·b13` | fixed · record |
-| `1` | `av_add_q` | function | `1` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_alpha_mode_from_name` | function | `0` | `{'name': 'AVAlphaMode', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_alpha_mode_name` | function | `0` | `{'name': 'AVAlphaMode', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_audio_fifo_alloc` | function | `0` | `{'name': 'AVAudioFifo', 'defined_in': 'libavutil/audio_fifo.c'}`, `{'name': 'AVSampleFormat', 'defined_in': 'libavutil/samplefmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_audio_fifo_drain` | function | `0` | `{'name': 'AVAudioFifo', 'defined_in': 'libavutil/audio_fifo.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_audio_fifo_free` | function | `1` | `{'name': 'AVAudioFifo', 'defined_in': 'libavutil/audio_fifo.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_audio_fifo_peek` | function | `0` | `{'name': 'AVAudioFifo', 'defined_in': 'libavutil/audio_fifo.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_audio_fifo_peek_at` | function | `1` | `{'name': 'AVAudioFifo', 'defined_in': 'libavutil/audio_fifo.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_audio_fifo_read` | function | `0` | `{'name': 'AVAudioFifo', 'defined_in': 'libavutil/audio_fifo.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_audio_fifo_realloc` | function | `1` | `{'name': 'AVAudioFifo', 'defined_in': 'libavutil/audio_fifo.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_audio_fifo_reset` | function | `0` | `{'name': 'AVAudioFifo', 'defined_in': 'libavutil/audio_fifo.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_audio_fifo_size` | function | `1` | `{'name': 'AVAudioFifo', 'defined_in': 'libavutil/audio_fifo.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_audio_fifo_space` | function | `1` | `{'name': 'AVAudioFifo', 'defined_in': 'libavutil/audio_fifo.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_audio_fifo_write` | function | `0` | `{'name': 'AVAudioFifo', 'defined_in': 'libavutil/audio_fifo.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_channel_description` | function | `0` | `{'name': 'AVChannel', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_channel_from_string` | function | `2` | `{'name': 'AVChannel', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_channel_name` | function | `0` | `{'name': 'AVChannel', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_chroma_location_enum_to_pos` | function | `1` | `{'name': 'AVChromaLocation', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_chroma_location_name` | function | `0` | `{'name': 'AVChromaLocation', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_chroma_location_pos_to_enum` | function | `0` | `{'name': 'AVChromaLocation', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_cmp_q` | function | `5` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_color_primaries_name` | function | `0` | `{'name': 'AVColorPrimaries', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_color_range_name` | function | `0` | `{'name': 'AVColorRange', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_color_space_name` | function | `0` | `{'name': 'AVColorSpace', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_color_transfer_name` | function | `0` | `{'name': 'AVColorTransferCharacteristic', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_d2q` | function | `5` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_dict_copy` | function | `5` | `{'name': 'AVDictionary', 'defined_in': 'libavutil/dict.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_dict_count` | function | `1` | `{'name': 'AVDictionary', 'defined_in': 'libavutil/dict.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_dict_free` | function | `11` | `{'name': 'AVDictionary', 'defined_in': 'libavutil/dict.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_dict_get` | function | `1` | `{'name': 'AVDictionary', 'defined_in': 'libavutil/dict.c'}`, `{'name': 'AVDictionaryEntry', 'defined_in': 'libavutil/dict.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_dict_get_string` | function | `1` | `{'name': 'AVDictionary', 'defined_in': 'libavutil/dict.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_dict_iterate` | function | `5` | `{'name': 'AVDictionary', 'defined_in': 'libavutil/dict.c'}`, `{'name': 'AVDictionaryEntry', 'defined_in': 'libavutil/dict.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_dict_parse_string` | function | `2` | `{'name': 'AVDictionary', 'defined_in': 'libavutil/dict.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_dict_set` | function | `4` | `{'name': 'AVDictionary', 'defined_in': 'libavutil/dict.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_dict_set_int` | function | `0` | `{'name': 'AVDictionary', 'defined_in': 'libavutil/dict.c'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_div_q` | function | `0` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_frame_side_data_name` | function | `0` | `{'name': 'AVFrameSideDataType', 'defined_in': 'libavutil/frame.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_gcd_q` | function | `0` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_get_bytes_per_sample` | function | `3` | `{'name': 'AVSampleFormat', 'defined_in': 'libavutil/samplefmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_get_media_type_string` | function | `0` | `{'name': 'AVMediaType', 'defined_in': 'libavutil/avutil.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_get_packed_sample_fmt` | function | `0` | `{'name': 'AVSampleFormat', 'defined_in': 'libavutil/samplefmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_get_pix_fmt` | function | `1` | `{'name': 'AVPixelFormat', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_get_pix_fmt_name` | function | `3` | `{'name': 'AVPixelFormat', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_get_planar_sample_fmt` | function | `0` | `{'name': 'AVSampleFormat', 'defined_in': 'libavutil/samplefmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_get_sample_fmt` | function | `1` | `{'name': 'AVSampleFormat', 'defined_in': 'libavutil/samplefmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_get_sample_fmt_name` | function | `2` | `{'name': 'AVSampleFormat', 'defined_in': 'libavutil/samplefmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_hwdevice_find_type_by_name` | function | `0` | `{'name': 'AVHWDeviceType', 'defined_in': 'libavutil/hwcontext.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_hwdevice_get_type_name` | function | `0` | `{'name': 'AVHWDeviceType', 'defined_in': 'libavutil/hwcontext.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_hwdevice_iterate_types` | function | `0` | `{'name': 'AVHWDeviceType', 'defined_in': 'libavutil/hwcontext.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_image_alloc` | function | `0` | `{'name': 'AVPixelFormat', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b3` | `L1·b3` | fixed |
-| `1` | `av_image_copy_to_buffer` | function | `0` | `{'name': 'AVPixelFormat', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_image_fill_arrays` | function | `0` | `{'name': 'AVPixelFormat', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_image_fill_black` | function | `0` | `{'name': 'AVColorRange', 'defined_in': 'libavutil/pixfmt.h'}`, `{'name': 'AVPixelFormat', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_image_fill_pointers` | function | `3` | `{'name': 'AVPixelFormat', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_image_get_buffer_size` | function | `1` | `{'name': 'AVPixelFormat', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_inv_q` | function | `0` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_make_q` | function | `3` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_md5_alloc` | function | `2` | `{'name': 'AVMD5', 'defined_in': 'libavutil/md5.c'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_md5_final` | function | `3` | `{'name': 'AVMD5', 'defined_in': 'libavutil/md5.c'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_md5_init` | function | `3` | `{'name': 'AVMD5', 'defined_in': 'libavutil/md5.c'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_md5_update` | function | `4` | `{'name': 'AVMD5', 'defined_in': 'libavutil/md5.c'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_mul_q` | function | `2` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_nearer_q` | function | `1` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_opt_set_array` | function | `0` | `{'name': 'AVOptionType', 'defined_in': 'libavutil/opt.h'}` | `2` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_opt_set_dict` | function | `0` | `{'name': 'AVDictionary', 'defined_in': 'libavutil/dict.c'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_opt_set_pixel_fmt` | function | `0` | `{'name': 'AVPixelFormat', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_opt_set_q` | function | `0` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_opt_set_sample_fmt` | function | `0` | `{'name': 'AVSampleFormat', 'defined_in': 'libavutil/samplefmt.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_opt_set_video_rate` | function | `0` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_q2d` | function | `1` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_q2intfloat` | function | `0` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_rescale_q` | function | `2` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_rescale_q_rnd` | function | `2` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}`, `{'name': 'AVRounding', 'defined_in': 'libavutil/mathematics.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_rescale_rnd` | function | `6` | `{'name': 'AVRounding', 'defined_in': 'libavutil/mathematics.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_sample_fmt_is_planar` | function | `9` | `{'name': 'AVSampleFormat', 'defined_in': 'libavutil/samplefmt.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_samples_alloc` | function | `1` | `{'name': 'AVSampleFormat', 'defined_in': 'libavutil/samplefmt.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_samples_alloc_array_and_samples` | function | `0` | `{'name': 'AVSampleFormat', 'defined_in': 'libavutil/samplefmt.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_samples_copy` | function | `1` | `{'name': 'AVSampleFormat', 'defined_in': 'libavutil/samplefmt.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_samples_fill_arrays` | function | `1` | `{'name': 'AVSampleFormat', 'defined_in': 'libavutil/samplefmt.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_samples_get_buffer_size` | function | `5` | `{'name': 'AVSampleFormat', 'defined_in': 'libavutil/samplefmt.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_samples_set_silence` | function | `1` | `{'name': 'AVSampleFormat', 'defined_in': 'libavutil/samplefmt.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `1` | `av_sub_q` | function | `1` | `{'name': 'AVRational', 'defined_in': 'libavutil/rational.h'}` | `1` | `L1·b4` | `L1·b4` | held |
-| `2` | `av_buffer_alloc` | function | `8` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_buffer_allocz` | function | `0` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_buffer_get_ref_count` | function | `0` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_buffer_is_writable` | function | `3` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_buffer_make_writable` | function | `0` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_buffer_realloc` | function | `1` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_buffer_ref` | function | `10` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_buffer_unref` | function | `23` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_get_bits_per_pixel` | function | `1` | `{'name': 'AVPixFmtDescriptor', 'defined_in': 'libavutil/pixdesc.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_hwdevice_ctx_alloc` | function | `2` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}`, `{'name': 'AVHWDeviceType', 'defined_in': 'libavutil/hwcontext.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_hwdevice_ctx_create` | function | `0` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}`, `{'name': 'AVDictionary', 'defined_in': 'libavutil/dict.c'}`, `{'name': 'AVHWDeviceType', 'defined_in': 'libavutil/hwcontext.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_hwdevice_ctx_create_derived` | function | `0` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}`, `{'name': 'AVHWDeviceType', 'defined_in': 'libavutil/hwcontext.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_hwdevice_ctx_create_derived_opts` | function | `1` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}`, `{'name': 'AVDictionary', 'defined_in': 'libavutil/dict.c'}`, `{'name': 'AVHWDeviceType', 'defined_in': 'libavutil/hwcontext.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_hwdevice_ctx_init` | function | `2` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_hwframe_ctx_alloc` | function | `1` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_hwframe_ctx_init` | function | `0` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_hwframe_transfer_get_formats` | function | `1` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}`, `{'name': 'AVHWFrameTransferDirection', 'defined_in': 'libavutil/hwcontext.h'}`, `{'name': 'AVPixelFormat', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_opt_find2` | function | `12` | `{'name': 'AVOption', 'defined_in': 'libavutil/opt.h'}` | `2` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_pix_fmt_desc_get` | function | `18` | `{'name': 'AVPixFmtDescriptor', 'defined_in': 'libavutil/pixdesc.h'}`, `{'name': 'AVPixelFormat', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_pix_fmt_desc_get_id` | function | `0` | `{'name': 'AVPixFmtDescriptor', 'defined_in': 'libavutil/pixdesc.h'}`, `{'name': 'AVPixelFormat', 'defined_in': 'libavutil/pixfmt.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `2` | `av_pix_fmt_desc_next` | function | `0` | `{'name': 'AVPixFmtDescriptor', 'defined_in': 'libavutil/pixdesc.h'}` | `1` | `L2·b1` | `L2·b1` | fixed · record |
-| `3` | `av_channel_layout_channel_from_index` | function | `5` | `{'name': 'AVChannel', 'defined_in': 'libavutil/channel_layout.h'}`, `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `3` | `av_channel_layout_channel_from_string` | function | `0` | `{'name': 'AVChannel', 'defined_in': 'libavutil/channel_layout.h'}`, `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `3` | `av_channel_layout_check` | function | `3` | `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `3` | `av_channel_layout_compare` | function | `2` | `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `3` | `av_channel_layout_copy` | function | `6` | `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `3` | `av_channel_layout_default` | function | `1` | `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `3` | `av_channel_layout_describe` | function | `1` | `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `3` | `av_channel_layout_from_mask` | function | `2` | `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `3` | `av_channel_layout_from_string` | function | `3` | `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `3` | `av_channel_layout_index_from_channel` | function | `2` | `{'name': 'AVChannel', 'defined_in': 'libavutil/channel_layout.h'}`, `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `3` | `av_channel_layout_index_from_string` | function | `1` | `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `3` | `av_channel_layout_retype` | function | `1` | `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}`, `{'name': 'AVChannelOrder', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `3` | `av_channel_layout_standard` | function | `0` | `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `3` | `av_channel_layout_subset` | function | `0` | `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `3` | `av_channel_layout_uninit` | function | `7` | `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `3` | `av_opt_set_chlayout` | function | `0` | `{'name': 'AVChannelLayout', 'defined_in': 'libavutil/channel_layout.h'}` | `1` | `L3·b1` | `L3·b1` | fixed · record |
-| `4` | `av_frame_alloc` | function | `6` | `{'name': 'AVFrame', 'defined_in': 'libavutil/frame.h'}` | `1` | `L4·b0` | `L4·b0` | fixed · record |
-| `4` | `av_frame_clone` | function | `0` | `{'name': 'AVFrame', 'defined_in': 'libavutil/frame.h'}` | `1` | `L4·b0` | `L4·b0` | fixed · record |
-| `4` | `av_frame_copy` | function | `2` | `{'name': 'AVFrame', 'defined_in': 'libavutil/frame.h'}` | `1` | `L4·b0` | `L4·b0` | fixed · record |
-| `4` | `av_frame_copy_props` | function | `1` | `{'name': 'AVFrame', 'defined_in': 'libavutil/frame.h'}` | `1` | `L4·b0` | `L4·b0` | fixed · record |
-| `4` | `av_frame_free` | function | `7` | `{'name': 'AVFrame', 'defined_in': 'libavutil/frame.h'}` | `1` | `L4·b0` | `L4·b0` | fixed · record |
-| `4` | `av_frame_get_buffer` | function | `3` | `{'name': 'AVFrame', 'defined_in': 'libavutil/frame.h'}` | `1` | `L4·b0` | `L4·b0` | fixed · record |
-| `4` | `av_frame_get_side_data` | function | `1` | `{'name': 'AVFrame', 'defined_in': 'libavutil/frame.h'}`, `{'name': 'AVFrameSideData', 'defined_in': 'libavutil/frame.h'}`, `{'name': 'AVFrameSideDataType', 'defined_in': 'libavutil/frame.h'}` | `1` | `L4·b0` | `L4·b0` | fixed · record |
-| `4` | `av_frame_is_writable` | function | `1` | `{'name': 'AVFrame', 'defined_in': 'libavutil/frame.h'}` | `1` | `L4·b0` | `L4·b0` | fixed · record |
-| `4` | `av_frame_make_writable` | function | `0` | `{'name': 'AVFrame', 'defined_in': 'libavutil/frame.h'}` | `1` | `L4·b0` | `L4·b0` | fixed · record |
-| `4` | `av_frame_new_side_data` | function | `11` | `{'name': 'AVFrame', 'defined_in': 'libavutil/frame.h'}`, `{'name': 'AVFrameSideData', 'defined_in': 'libavutil/frame.h'}`, `{'name': 'AVFrameSideDataType', 'defined_in': 'libavutil/frame.h'}` | `1` | `L4·b0` | `L4·b0` | fixed · record |
-| `4` | `av_frame_remove_side_data` | function | `0` | `{'name': 'AVFrame', 'defined_in': 'libavutil/frame.h'}`, `{'name': 'AVFrameSideDataType', 'defined_in': 'libavutil/frame.h'}` | `1` | `L4·b0` | `L4·b0` | fixed · record |
-| `4` | `av_frame_unref` | function | `8` | `{'name': 'AVFrame', 'defined_in': 'libavutil/frame.h'}` | `1` | `L4·b0` | `L4·b0` | fixed · record |
-| `4` | `av_hwframe_get_buffer` | function | `3` | `{'name': 'AVBufferRef', 'defined_in': 'libavutil/buffer.h'}`, `{'name': 'AVFrame', 'defined_in': 'libavutil/frame.h'}` | `1` | `L4·b0` | `L4·b0` | fixed · record |
-| `4` | `av_hwframe_transfer_data` | function | `2` | `{'name': 'AVFrame', 'defined_in': 'libavutil/frame.h'}` | `1` | `L4·b0` | `L4·b0` | fixed · record |
-| **Σ `164`** | | | **`497`** | | **`166`** | **`6` batches** | **`6` batches** | **`32` held · `132` fixed** |
+### Batches — review types
+
+`anthropic/claude-opus-5` via `claude`.
+
+| types | rv loc | rv $ | rv wall | rv $/type |
+|---|---|---|---|---|
+| `2` | `+25/-2` | `$7.87` | `13m56s` | `$3.93` |
+| `2` | `+36/-8` | `$5.13` | `9m33s` | `$2.57` |
+| `2` | `+100/-13` | `$3.55` | `6m19s` | `$1.78` |
+| `2` | `+156/-18` | `$4.46` | `7m57s` | `$2.23` |
+| `2` | `+64/-0` | `$3.44` | `6m21s` | `$1.72` |
+| `2` | `+0/-0` | `$12.58` | `23m01s` | `$6.29` |
+| `2` | `+110/-25` | `$6.18` | `11m15s` | `$3.09` |
+| `2` | `+174/-11` | `$4.07` | `8m34s` | `$2.03` |
+| `2` | `+0/-0` | `$5.32` | `10m39s` | `$2.66` |
+| `2` | `+18/-11` | `$7.40` | `13m21s` | `$3.70` |
+| `2` | `+0/-0` | `$5.82` | `10m08s` | `$2.91` |
+| `2` | `+0/-0` | `$4.54` | `10m07s` | `$2.27` |
+| `1` | `+0/-0` | `$5.05` | `9m40s` | `$5.05` |
+| `2` | `+462/-82` | `$11.73` | `20m14s` | `$5.87` |
+| `1` | `+348/-31` | `$7.20` | `13m00s` | `$7.20` |
+| `1` | `+186/-25` | `$6.15` | `11m40s` | `$6.15` |
+| `2` | `+524/-64` | `$17.78` | `22m36s` | `$8.89` |
+| `1` | `+526/-41` | `$17.51` | `24m37s` | `$17.51` |
+| **Σ `32`** | **`+2729/-331`** | **`$135.79`** | — | **`$4.24`** |
 
 ### Batches — symbols
 
-| DAG layer | units | loc | $ | wall | $/unit | $/loc |
+`openai/gpt-5.6-sol` via `codex`.
+
+| objective | symbols | loc | $ | wall | $/symbol | $/loc |
 |---|---|---|---|---|---|---|
-| `0` | `31` | `808` | `$5.46` | `12m39s` (`1.0`x) | `$0.18` | `$0.01` |
-| `1` | `82` | `2160` | `$12.64` | `18m40s` (`1.5`x) | `$0.15` | `$0.01` |
-| `2` | `21` | `685` | `$7.64` | `11m49s` (`1.0`x) | `$0.36` | `$0.01` |
-| `3` | `16` | `322` | `$3.60` | `7m43s` (`1.0`x) | `$0.22` | `$0.01` |
-| `4` | `14` | `250` | `$2.85` | `6m11s` (`1.0`x) | `$0.20` | `$0.01` |
-| **Σ** | **`164`** | **`4225`** | **`$32.19`** | **`1h05m44s`** (**`1.0`x**, session wall) | **`$0.20`** | **`$0.01`** |
+| wrap | `31` | `808` | `$5.46` | `12m40s` | `$0.18` | `$0.007` |
+| wrap | `50` | `1135` | `$7.93` | `18m40s` | `$0.16` | `$0.007` |
+| wrap | `32` | `1025` | `$4.71` | `9m24s` | `$0.15` | `$0.005` |
+| wrap | `21` | `685` | `$7.64` | `11m50s` | `$0.36` | `$0.011` |
+| wrap | `16` | `322` | `$3.60` | `7m43s` | `$0.22` | `$0.011` |
+| wrap | `14` | `250` | `$2.85` | `6m12s` | `$0.20` | `$0.011` |
+| **Σ** | **`164`** | **`4225`** | **`$32.19`** | | **`$0.20`** | **`$0.008`** |
 
-### Batches — review
+### Batches — review symbols
 
-One agent per judged batch, same split as the wave it judges. `rv loc` is the
-net `.rs` delta of the landing commit; a review that confirms without changing
-code reads `+0/-0`.
+`anthropic/claude-opus-5` via `claude`.
 
-| session | batch | units | rv loc | rv $ | rv wall | $/symbol | $/type |
-|---|---|---|---|---|---|---|---|
-| `82c3` | `L3·b0` | `1 types` | `+526/-41` | `$17.51` | `24m37s` | — | `$17.51` |
-| `82c3` | `L3·b1` | `16 symbols` | `+355/-23` | `$12.95` | `19m31s` | `$0.81` | — |
-| `82c3` | `L4·b0` | `14 symbols` | `+329/-15` | `$11.54` | `16m37s` | `$0.82` | — |
-| `f119` | `L0·b0` | `2 types` | `+25/-2` | `$7.87` | `13m56s` | — | `$3.93` |
-| `f119` | `L0·b1` | `2 types` | `+36/-8` | `$5.13` | `9m33s` | — | `$2.57` |
-| `f119` | `L0·b2` | `2 types` | `+100/-13` | `$3.55` | `6m18s` | — | `$1.78` |
-| `f119` | `L0·b3` | `2 types` | `+156/-18` | `$4.46` | `7m57s` | — | `$2.23` |
-| `f119` | `L0·b4` | `2 types` | `+64/-0` | `$3.44` | `6m20s` | — | `$1.72` |
-| `f119` | `L0·b5` | `2 types` | `+0/-0` | `$12.58` | `23m00s` | — | `$6.29` |
-| `f119` | `L0·b6` | `2 types` | `+110/-25` | `$6.18` | `11m14s` | — | `$3.09` |
-| `f119` | `L0·b7` | `2 types` | `+174/-11` | `$4.07` | `8m34s` | — | `$2.03` |
-| `f119` | `L0·b8` | `2 types` | `+0/-0` | `$5.32` | `10m38s` | — | `$2.66` |
-| `f119` | `L0·b9` | `2 types` | `+18/-11` | `$7.40` | `13m20s` | — | `$3.70` |
-| `f119` | `L0·b10` | `2 types` | `+0/-0` | `$5.82` | `10m08s` | — | `$2.91` |
-| `f119` | `L0·b11` | `2 types` | `+0/-0` | `$4.54` | `10m06s` | — | `$2.27` |
-| `f119` | `L0·b12` | `1 types` | `+0/-0` | `$5.05` | `9m39s` | — | `$5.05` |
-| `f119` | `L0·b13` | `31 symbols` | `+733/-26` | `$19.47` | `28m29s` | `$0.63` | — |
-| `f119` | `L1·b0` | `2 types` | `+462/-82` | `$11.73` | `20m13s` | — | `$5.87` |
-| `f119` | `L1·b1` | `1 types` | `+348/-31` | `$7.20` | `12m59s` | — | `$7.20` |
-| `f119` | `L1·b2` | `1 types` | `+186/-25` | `$6.15` | `11m39s` | — | `$6.15` |
-| `f119` | `L1·b3` | `50 symbols` | `+325/-27` | `$11.31` | `18m55s` | `$0.23` | — |
-| `f119` | `L1·b4` | `32 symbols` | `+0/-0` | `$19.95` | `29m01s` | `$0.62` | — |
-| `f119` | `L2·b0` | `2 types` | `+524/-64` | `$17.78` | `22m35s` | — | `$8.89` |
-| `f119` | `L2·b1` | `21 symbols` | `+128/-9` | `$9.18` | `15m37s` | `$0.44` | — |
-| **Σ** | **`24` agents** | **`32` types · `164` symbols** | **`+4599/-431`** | **`$220.19`** | **`29m01s`** (longest; **`6h01m07s`** serial, **`12.4`x**) | **`$0.51`** | **`$4.24`** |
+| symbols | rv loc | rv $ | rv wall | rv $/symbol |
+|---|---|---|---|---|
+| `31` | `+733/-26` | `$19.47` | `28m29s` | `$0.63` |
+| `50` | `+325/-27` | `$11.31` | `18m55s` | `$0.23` |
+| `32` | `+0/-0` | `$19.95` | `29m01s` | `$0.62` |
+| `21` | `+128/-9` | `$9.18` | `15m38s` | `$0.44` |
+| `16` | `+355/-23` | `$12.95` | `19m31s` | `$0.81` |
+| `14` | `+329/-15` | `$11.54` | `16m37s` | `$0.82` |
+| **Σ `164`** | **`+1870/-100`** | **`$84.40`** | — | **`$0.51`** |
 
 ## Safety audit
 
-`crustify-audit <crate> unsafe`, unseeded — tree-wide, not
-per seed. Two snapshots: the tree the review pass judged, and the tree it
-produced.
+Deterministic `crustify-audit unsafe`; no model.
+
+### Snapshots
 
 | | before review (`5fd5c3a7d7`) | after review (`414ff93355`) |
 |---|---|---|
@@ -416,50 +277,66 @@ produced.
 | `void_ptr_sanctioned` | `45` | `45` | `0` | `*c_void` in a seam / `ffi_export` / `extern "C"` signature |
 | `void_ptr_smell` | `1` | `1` | `0` | `*c_void` elsewhere; `void_ptr_sites` names each one |
 
-### What the review moved
-
-**The one metric that is a defect count went to zero.** `raw_ptr_wrapped` —
-a raw pointer whose pointee is a C type that already has a wrapper — was `2`
-before the review and is `0` after. Those were the only positions where the
-crate held a pointer it had a safe type for.
-
-**Every target-`0` metric held at `0`, and an unchanged `0` here is a result.**
-`ref_to_type_wrapper` is `0` against `15` layout newtypes — read as a pair, so
-it is a real zero and not the vacuous one you get when `wrapper_newtypes` is
-itself `0`. `field_ref_wrapped`, `field_proj_outside_impl`,
-`raw_ptr_derefs_outside_impl` and `wrapper_declared_nonconformant` were `0`
-before and after. `wrapper_newtypes_declared` equals `wrapper_newtypes` at
-`15`, with `0` undeclared, so no hand-written layout newtype escaped the
-`CCell` declaration.
-
-**The raw-pointer surface shrank.** `raw_ptr_rets` fell `63 → 61` while
-`raw_ptr_args` and `raw_ptr_seam` held, taking the non-seam smell from `10` to
-`8`. The `8` that remain are `ffibox` handle-construction seams.
-
-**The unsafe surface grew, and that is the review working rather than
-regressing.** `unsafe_blocks` `501 → 519`, `unsafe_fns` `103 → 111`,
-`ffi_calls` `184 → 188`, against `code_lines` `4114 → 4372`. The review added
-accessors, falsifiable layout assertions and two documented
-`assume_init` routines; folding those into fewer, larger blocks would improve
-the count and make the crate worse. The ratio actually fell, `24.7% → 24.2%`.
-The `unsafe fn` smell rose `26 → 33`; every one of the `18` `pub unsafe fn` in
-the tree carries a `# Safety` section, and they are raw-pointer constructors
-(`from_raw`, `from_ptr`, `from_raw_parts`) and invariant-bearing setters
-(`set_opaque`, `set_line_size`, `replace_buffer`) whose obligation the type
-system cannot carry.
-
-**`void_ptr_smell` stayed at `1`, deliberately.** It is `freep_raw` at
-`mem.rs:697` — a private helper behind a sealed trait, taking `*mut c_void`
-because `av_freep` takes `void**` and needs a real pointer slot to null out.
-The safe surface over it is `AvFreepTarget::free_with_av_freep`, implemented
-only for `CVoidBox<AvFree>` and `CVec<T, AvFree>`. A necessary seam, left in
-place with its justification, which is what the playbook asks for.
-
 ## Notes
 
 The only prose outside the setup and legend above: pitfalls, findings, and the
 context each table cannot carry. One `###` subsection per finding, titled by
-what it is about.
+what it is about. Describe the EXPERIMENT and its results — a fix made to
+crustify-cli or ffibox along the way belongs in that repo's history, not here.
+
+> Gate misses and anything the oracle and `translate` disagreed on; a wave that
+> was superseded and why; what each wave's diff actually contained beyond its
+> row counts; where a metric moved and what moved it; what the judge found and
+> whether it held. Everything else stays in the tables.
+
+Some of it is structural and belongs here every time: that a review pass is a
+sub-campaign of its own because the oracle re-batches the units it judges, so
+its rows never line up with the wave underneath; which units a review schedule
+dropped and why; which sub-campaigns the Overview lists but no table details,
+and the cost that leaves unaccounted; and any column a campaign could not fill,
+said once rather than left as a field of em-dashes.
+
+### What this campaign could not fill, and what the tables leave unaccounted
+
+**A review pass is a sub-campaign of its own.** The oracle re-batches the
+units it judges under the review schedule's own budgets, so review rows never
+line up with the wave underneath. This campaign is an unusual case worth
+stating: `review-final` was scheduled over exactly the `libavutil-wrap`
+selection and re-derived the same `24` batches across the same `5` layers, so
+the mapping happens to be `1:1` here. Do not read that as the general case —
+it is what identical budgets over an identical unit set produced, not a
+property of the pass.
+
+**Which units the review schedule dropped: none.** All `196` units were
+scheduled and all `196` were judged, across three sessions. The `31` units of
+layers 3–4 were judged by `review-final-continuation` after the first session
+stopped; see the two notes below.
+
+**Sub-campaigns the Overview lists but no table details.**
+`review-void-correction` and `review-void-free-correction` are tracked wave
+plans that landed two focused ownership corrections — `av_memdup` and `free` —
+as agent branches with no session log directory. They therefore have no
+`usage.json`, no recorded cost and no wall, and they appear in no table,
+including the Overview. Their landed line delta is `+115/-37` and `+165/-11`
+respectively. The corresponding cost is unrecorded rather than zero.
+
+**The cost the Target set tables leave unaccounted.** `Batches — types, wrap`
+plus `Batches — symbols` sum to `$124.06`, which is the whole
+`libavutil-wrap` row. `Batches — review types` plus `Batches — review symbols`
+sum to `$220.19`, which is **`$10.75` short** of the `$230.95` on the review
+Overview row. That gap is the spend on agents whose output was discarded and
+redone; it is charged to no batch because no batch kept it. See *Two layer-3
+review agents were killed mid-flight*.
+
+**Columns this campaign could not fill.** `Batches — types, port` is empty:
+this is a wrap campaign, the objective never changed, and no unit was
+escalated. `Review, in-model` is empty for a different reason — every review
+in this campaign, including both raw tiers, ran under
+`anthropic/claude-opus-5` against an `openai/gpt-5.6-sol` implementation, so
+all of it is independent review and none of it is in-model. The `orchestrator`
+row carries no figure at all: the orchestrator session writes no `usage.json`,
+so its supervision cost is not recorded anywhere and is not estimated here.
+Every campaign total in this document is therefore agents-only.
 
 ### The agentic UB pass found four soundness bugs the deterministic pass cannot see
 
@@ -473,15 +350,6 @@ overshoots by however long the last one takes.
 **4 advisories, 14 lead notes.** Every advisory is a reproduction that
 `#![forbid(unsafe_code)]`, depends on the audited crate, and calls only its
 public API.
-
-Cost `$54.40` over `71.5m` wall (agent 1 `$42.25`/`48.8m`, agent 2
-`$12.15`/`22.7m`), which takes the campaign to **`$438.73`**. That figure is
-computed here rather than by `crustify-log-cost`: `crustify-audit ub` writes a
-different usage schema — a `records` list with epoch `started_at`/`ended_at` and
-no `provider`/`model` — which the campaign parser reads as `$0.00`. Priced from
-the same Anthropic rate table the campaign agents were priced from, so the
-numbers remain comparable. A second, smaller tooling gap alongside the one
-below.
 
 | advisory | reachable by | instrument | consequence |
 |---|---|---|---|
@@ -584,6 +452,45 @@ aliasing violation would not be caught by it — the four classic wrapper shapes
 the largest module at 2,462 lines, is clean only because it is unreachable:
 every constructor of an `OptionObjectMut` is a `pub unsafe fn`.
 
+### What the review moved
+
+**The one metric that is a defect count went to zero.** `raw_ptr_wrapped` —
+a raw pointer whose pointee is a C type that already has a wrapper — was `2`
+before the review and is `0` after. Those were the only positions where the
+crate held a pointer it had a safe type for.
+
+**Every target-`0` metric held at `0`, and an unchanged `0` here is a result.**
+`ref_to_type_wrapper` is `0` against `15` layout newtypes — read as a pair, so
+it is a real zero and not the vacuous one you get when `wrapper_newtypes` is
+itself `0`. `field_ref_wrapped`, `field_proj_outside_impl`,
+`raw_ptr_derefs_outside_impl` and `wrapper_declared_nonconformant` were `0`
+before and after. `wrapper_newtypes_declared` equals `wrapper_newtypes` at
+`15`, with `0` undeclared, so no hand-written layout newtype escaped the
+`CCell` declaration.
+
+**The raw-pointer surface shrank.** `raw_ptr_rets` fell `63 → 61` while
+`raw_ptr_args` and `raw_ptr_seam` held, taking the non-seam smell from `10` to
+`8`. The `8` that remain are `ffibox` handle-construction seams.
+
+**The unsafe surface grew, and that is the review working rather than
+regressing.** `unsafe_blocks` `501 → 519`, `unsafe_fns` `103 → 111`,
+`ffi_calls` `184 → 188`, against `code_lines` `4114 → 4372`. The review added
+accessors, falsifiable layout assertions and two documented
+`assume_init` routines; folding those into fewer, larger blocks would improve
+the count and make the crate worse. The ratio actually fell, `24.7% → 24.2%`.
+The `unsafe fn` smell rose `26 → 33`; every one of the `18` `pub unsafe fn` in
+the tree carries a `# Safety` section, and they are raw-pointer constructors
+(`from_raw`, `from_ptr`, `from_raw_parts`) and invariant-bearing setters
+(`set_opaque`, `set_line_size`, `replace_buffer`) whose obligation the type
+system cannot carry.
+
+**`void_ptr_smell` stayed at `1`, deliberately.** It is `freep_raw` at
+`mem.rs:697` — a private helper behind a sealed trait, taking `*mut c_void`
+because `av_freep` takes `void**` and needs a real pointer slot to null out.
+The safe surface over it is `AvFreepTarget::free_with_av_freep`, implemented
+only for `CVoidBox<AvFree>` and `CVec<T, AvFree>`. A necessary seam, left in
+place with its justification, which is what the playbook asks for.
+
 ### The review branch named in the recovery snapshot was the wrong one
 
 `crustify/status.md`, written when the interrupted session was recovered,
@@ -630,7 +537,7 @@ So the campaign paid for that work three times, twice for nothing:
 | **Σ discarded** | **`$10.75`** | **`19m24s`** |
 
 The per-batch review table sums to `$220.19`; the review campaigns' total
-agent spend is `$230.94`. The `$10.75` gap is exactly this, and it is charged
+agent spend is `$230.95`. The `$10.75` gap is exactly this, and it is charged
 to no batch because no batch kept the output. Any per-unit review cost quoted
 from the table is therefore the cost of the work that **landed**, not the cost
 the campaign incurred.
@@ -657,8 +564,7 @@ on.
 
 ### Four `Replaces:` anchors in a wrap campaign are correct
 
-The tree carries `198` `/// Wraps:` anchors, `107` `/// Field:` and `4`
-`/// Replaces:` — a native
+The tree carries `305` `/// Wraps:` anchors and `4` `/// Replaces:` — a native
 Rust translation anchor, which normally belongs to a port. All four are in
 `rational.rs`: `av_make_q`, `av_inv_q`, `av_q2d` and `av_cmp_q`. Each is
 `static inline` in `rational.h`, so it has no linkable symbol for a `-sys`
@@ -685,57 +591,56 @@ No public function taking `search_flags` reaches C unguarded.
 This is the review pass behaving as designed: a cross-batch defect surfaced by
 the agent that could see it and repaired by the agent that owned it.
 
-### Reading the wall-clock columns
-
-`wall (actual)` in the types batches table is the **layer's** measured elapsed
-time from `session.log`, and a layer runs its type and symbol batches
-concurrently. It is therefore not attributable to the type batches alone, and
-the `Σ` of that column is the whole wrap session (`1h05m44s`), not the sum of
-type-batch time. `wall (longest)` and `serial Σ` are per-kind and do sum
-cleanly. Layer 0 is where concurrency paid: `2h04m17s` of agent time in
-`15m56s` of wall, `7.8`x.
-
 ### Gate results, and what the deterministic scan is evidence of
 
-On the final tree (`b19afcb3f0`, review + UB patch): `crates validate` clean;
-`cargo build --workspace` clean; `cargo clippy --workspace --all-targets` clean
-with zero warnings under a workspace lint that **denies**
-`clippy::undocumented_unsafe_blocks`, so every one of the `519` unsafe blocks
-carries a `SAFETY:` comment; `215` libavutil tests and `8` `ffibox` tests pass,
-`0` failures, with the ASan+UBSan-built `libavutil.so` loaded and
-`detect_leaks=1`; `1` doctest, the `compile_fail,E0133` gate on `av_file_map`;
-`0` surviving `crustify:todo` anchors.
+On the promoted tree (`414ff93355`): `crates validate` clean; `cargo build
+--workspace` clean; `cargo clippy --workspace --all-targets` clean with zero
+warnings under a workspace lint that **denies** `clippy::undocumented_unsafe_blocks`,
+so every one of the `519` unsafe blocks carries a `SAFETY:` comment; `211`
+libavutil tests and `8` `ffibox` tests pass, `0` failures, with the
+ASan+UBSan-built `libavutil.so` loaded and `detect_leaks=1`; `0` surviving
+`crustify:todo` anchors.
 
 `make -j64 fate-libavutil` returns `60/60`, exit `0`, matching the recorded
-baseline of *60/60 under ASan+UBSan, disabled tests: none*. Neither the review
-nor the UB patch changed a C file, so this gate was expected to hold and does;
-it is evidence that the wrapper tree does not perturb the C library, not that
-the wrappers are correct. The UB pass is what produced evidence about the
-wrappers, and it found four bugs.
+baseline of *60/60 under ASan+UBSan, disabled tests: none*. The review changed
+no C file, so this gate was expected to hold and does; it is evidence that the
+wrapper tree does not perturb the C library, not that the wrappers are correct.
 
-Three environment notes for anyone re-running these, all of which cost time here.
+Two environment notes for anyone re-running these. The Rust tests need the
+ASan runtime preloaded (`LD_PRELOAD=$(gcc -print-file-name=libasan.so)`,
+`ASAN_OPTIONS=verify_asan_link_order=0`) because they load an instrumented
+`libavutil.so`; that preload makes non-instrumented host binaries — `rustdoc`,
+and the zero-test placeholder `-sys` harnesses — die with repeated
+`AddressSanitizer:DEADLYSIGNAL`. Run the `libavutil` crate with the preload and
+the rest without it. The crate has `0` doctests, so nothing is lost.
 
-**Never run `cargo` itself under `LD_PRELOAD=libasan.so`.** It crashes `rustc`
-mid-build and leaves the target directory in a state where *every later* cargo
-invocation dies with `rustc -vV (signal: 11, SIGSEGV)` — including plain
-`cargo check`, and surviving `cargo clean`. The failure looks like a broken
-toolchain and is not. Build in a clean environment, then run the **test binary**
-under the preload:
+### The tree was migrated to the current schemas after the campaign ran
 
-```
-cargo test --no-run                      # clean env
-LD_LIBRARY_PATH=<repo>/libavutil \
-LD_PRELOAD=$(gcc -print-file-name=libasan.so) \
-ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1 \
-  target/debug/deps/libavutil-<hash>
-```
+Everything above describes work that ran against the previous artifact
+schemas; the tree and its artifacts were migrated afterwards, and the tables
+report the migrated state. Three things moved.
 
-**Expect roughly one run in three to die before `main`** with repeated
-`AddressSanitizer:DEADLYSIGNAL` and no output — a GCC-ASan-via-`LD_PRELOAD`
-shadow-mapping collision with ASLR. `setarch -R` is not permitted in this
-container, so retry. Redirect to a file rather than piping to `head`: SIGPIPE
-lands inside ASan's own reporting path and produces the same spam.
+**Campaign artifacts are scoped by target.** Nine per-campaign directories,
+each holding a fixed `campaign.json`, became named wave plans under
+`crustify/campaigns/libavutil/`, and eight session log directories merged into
+that target's shared `logs/` namespace. No session name collided. The
+sub-campaign names in the Overview are those wave-plan basenames.
 
-**The crate has `0` doctests before the UB patch and `1` after**, so a doctest
-run that reports `0 passed` on the pre-patch tree is correct, not a failure to
-collect.
+**Wave documents moved to schema version 2**, whose only structural change
+here was the top-level `waves` key becoming `steps`. `crustify.wave.load` is
+strict — there is no `waves` alias — so all nine were re-validated through the
+real loader rather than by inspection.
+
+**Field accessors carry a new anchor.** `conventions.md` gained
+`/// Field: <name>.<field>`, and campaign coverage now counts distinct
+`type.field` paths that reached one. All `107` owner-qualified anchors in this
+tree were field accessors — getters, getter/setter macro pairs, and window
+views — and were rewritten from `Wraps:` to `Field:`, checked against
+representative sites first rather than renamed blind. The tree now carries
+`198` whole-item `Wraps:`, `107` `Field:` and `4` `Replaces:`. The coverage
+figure did not move: the same `91` distinct `type.field` paths, which is also
+the `fields` column of `Batches — types, wrap`, since the oracle's
+`field_anchors` and the emitted accessors agree exactly.
+
+The migrated tree was re-gated: `crates validate` clean, `cargo build` clean,
+clippy `0` warnings, `215` libavutil tests passing under ASan+LSan.
