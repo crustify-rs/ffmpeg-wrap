@@ -49,3 +49,5 @@ AVDOVIDataMapping *crustify_av_dovi_get_mapping(const AVDOVIMetadata *data);
 AVDOVIColorMetadata *crustify_av_dovi_get_color(const AVDOVIMetadata *data);
 void crustify_av_bprintf_string(AVBPrint *buf, const char *text);
 void crustify_av_vbprintf_string(AVBPrint *buf, const char *text);
+void *crustify_av_iamf_param_definition_get_subblock(const AVIAMFParamDefinition *par,
+                                                     unsigned int idx);

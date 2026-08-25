@@ -2,6 +2,7 @@
 #include <libavutil/common.h>
 #include <libavutil/dovi_meta.h>
 #include <libavutil/bprint.h>
+#include <libavutil/iamf.h>
 #include <stdarg.h>
 
 int crustify_av_ceil_log2_c(int value) { return av_ceil_log2_c(value); }
@@ -31,3 +32,7 @@ static void crustify_call_vbprintf(AVBPrint *buf, const char *fmt, ...) {
     va_end(ap);
 }
 void crustify_av_vbprintf_string(AVBPrint *buf, const char *text) { crustify_call_vbprintf(buf, "%s", text); }
+void *crustify_av_iamf_param_definition_get_subblock(const AVIAMFParamDefinition *par,
+                                                     unsigned int idx) {
+    return av_iamf_param_definition_get_subblock(par, idx);
+}

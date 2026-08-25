@@ -1565,3 +1565,211 @@ mod submix_element_tests {
         drop(annotations);
     }
 }
+/// A shared view of one runtime-typed parameter-definition subblock.
+pub enum AVIAMFParamSubblockRef<'a> {
+    /// Mix-gain parameter data.
+    MixGain(AVIAMFMixGainRef<'a>),
+    /// Demixing parameter data.
+    Demixing(AVIAMFDemixingInfoRef<'a>),
+    /// Reconstruction-gain parameter data.
+    ReconGain(AVIAMFReconGainRef<'a>),
+}
+
+/// An exclusive view of one runtime-typed parameter-definition subblock.
+pub enum AVIAMFParamSubblockMut<'a> {
+    /// Mix-gain parameter data.
+    MixGain(AVIAMFMixGainMut<'a>),
+    /// Demixing parameter data.
+    Demixing(AVIAMFDemixingInfoMut<'a>),
+    /// Reconstruction-gain parameter data.
+    ReconGain(AVIAMFReconGainMut<'a>),
+}
+
+/// Wraps: av_iamf_param_definition_get_subblock
+///
+/// Returns the subblock at `idx`, tied to the lifetime of `par`. `None` means
+/// that the index is out of range or that the definition carries an unknown
+/// parameter type. Unlike the C inline helper, this checked form never aborts
+/// for an out-of-range index and does not expose the helper's mutable pointer
+/// through a shared borrow.
+#[must_use]
+pub fn av_iamf_param_definition_get_subblock<'a>(
+    par: AVIAMFParamDefinitionRef<'a>,
+    idx: u32,
+) -> Option<AVIAMFParamSubblockRef<'a>> {
+    if idx >= par.nb_subblocks() {
+        return None;
+    }
+
+    let parameter_type = par.parameter_type();
+    if parameter_type != AVIAMFParamDefinitionType::MIX_GAIN
+        && parameter_type != AVIAMFParamDefinitionType::DEMIXING
+        && parameter_type != AVIAMFParamDefinitionType::RECON_GAIN
+    {
+        return None;
+    }
+
+    // SAFETY: `par` is a live parameter definition, and the range check
+    // establishes the C inline helper's index precondition. The returned
+    // pointer selects initialized trailing storage within `par` and therefore
+    // remains live for `'a`.
+    let subblock =
+        unsafe { ffi::crustify_av_iamf_param_definition_get_subblock(par.as_ptr(), idx) };
+
+    if parameter_type == AVIAMFParamDefinitionType::MIX_GAIN {
+        // SAFETY: the definition's type discriminator establishes that this
+        // erased pointer addresses an `AVIAMFMixGain` for the lifetime of par.
+        unsafe { AVIAMFMixGainRef::from_void_ptr(subblock) }.map(AVIAMFParamSubblockRef::MixGain)
+    } else if parameter_type == AVIAMFParamDefinitionType::DEMIXING {
+        // SAFETY: the definition's type discriminator establishes that this
+        // erased pointer addresses an `AVIAMFDemixingInfo` for the lifetime of par.
+        unsafe { AVIAMFDemixingInfoRef::from_void_ptr(subblock) }
+            .map(AVIAMFParamSubblockRef::Demixing)
+    } else {
+        // SAFETY: the only remaining accepted discriminator establishes that
+        // this erased pointer addresses an `AVIAMFReconGain` for `'a`.
+        unsafe { AVIAMFReconGainRef::from_void_ptr(subblock) }
+            .map(AVIAMFParamSubblockRef::ReconGain)
+    }
+}
+
+/// Mutable variant of [`av_iamf_param_definition_get_subblock`].
+///
+/// Consuming the exclusive parent handle ensures that no safe shared parent
+/// view can coexist with the returned mutable subblock view.
+#[must_use]
+pub fn av_iamf_param_definition_get_subblock_mut<'a>(
+    mut par: AVIAMFParamDefinitionMut<'a>,
+    idx: u32,
+) -> Option<AVIAMFParamSubblockMut<'a>> {
+    if idx >= par.as_ref().nb_subblocks() {
+        return None;
+    }
+
+    let parameter_type = par.as_ref().parameter_type();
+    if parameter_type != AVIAMFParamDefinitionType::MIX_GAIN
+        && parameter_type != AVIAMFParamDefinitionType::DEMIXING
+        && parameter_type != AVIAMFParamDefinitionType::RECON_GAIN
+    {
+        return None;
+    }
+
+    // SAFETY: the exclusive live parent handle is consumed by this function,
+    // and the range check establishes the inline helper's precondition. Its
+    // trailing subblock remains exclusively borrowed for `'a`.
+    let subblock =
+        unsafe { ffi::crustify_av_iamf_param_definition_get_subblock(par.as_mut_ptr(), idx) };
+
+    if parameter_type == AVIAMFParamDefinitionType::MIX_GAIN {
+        // SAFETY: the discriminator and consumed exclusive parent handle make
+        // this a live, exclusive `AVIAMFMixGain` borrow for `'a`.
+        unsafe { AVIAMFMixGainMut::from_ptr(subblock.cast()) }.map(AVIAMFParamSubblockMut::MixGain)
+    } else if parameter_type == AVIAMFParamDefinitionType::DEMIXING {
+        // SAFETY: the discriminator and consumed exclusive parent handle make
+        // this a live, exclusive `AVIAMFDemixingInfo` borrow for `'a`.
+        unsafe { AVIAMFDemixingInfoMut::from_ptr(subblock.cast()) }
+            .map(AVIAMFParamSubblockMut::Demixing)
+    } else {
+        // SAFETY: the remaining accepted discriminator and exclusive parent
+        // handle make this a live `AVIAMFReconGain` borrow for `'a`.
+        unsafe { AVIAMFReconGainMut::from_ptr(subblock.cast()) }
+            .map(AVIAMFParamSubblockMut::ReconGain)
+    }
+}
+
+#[cfg(test)]
+mod subblock_tests {
+    use core::mem::{align_of, size_of};
+
+    use ffibox::CBox;
+
+    use super::*;
+
+    fn definition_with_subblock(
+        parameter_type: AVIAMFParamDefinitionType,
+        subblock_size: usize,
+        subblock_align: usize,
+    ) -> CBox<AVIAMFParamDefinition> {
+        let header_size = size_of::<ffi::AVIAMFParamDefinition>();
+        let subblocks_offset = (header_size + subblock_align - 1) & !(subblock_align - 1);
+        let allocation_size = subblocks_offset + subblock_size;
+
+        // SAFETY: `av_mallocz` accepts this nonzero byte count and returns
+        // suitably aligned zeroed storage or null. The allocation is retained
+        // by the `CBox` constructed below and released with matching `av_free`.
+        let definition =
+            unsafe { ffi::av_mallocz(allocation_size) }.cast::<ffi::AVIAMFParamDefinition>();
+        assert!(!definition.is_null());
+
+        // SAFETY: the allocation covers the complete header and one aligned
+        // subblock. Zero is valid for every remaining bindgen C field; these
+        // raw writes establish the trailing-array metadata read by the helper.
+        unsafe {
+            addr_of_mut!((*definition).subblocks_offset).write(subblocks_offset);
+            addr_of_mut!((*definition).subblock_size).write(subblock_size);
+            addr_of_mut!((*definition).nb_subblocks).write(1);
+            addr_of_mut!((*definition).type_).write(parameter_type.as_raw());
+        }
+
+        // SAFETY: the pointer is the base of one fully initialized,
+        // av_malloc-family allocation. The definition and its zero-initialized
+        // inline subblock require no teardown beyond `av_free`.
+        unsafe { CBox::from_raw(definition) }.expect("av_mallocz returned non-null")
+    }
+
+    #[test]
+    fn checked_subblock_views_preserve_type_bounds_and_exclusivity() {
+        let mut mix_gain = definition_with_subblock(
+            AVIAMFParamDefinitionType::MIX_GAIN,
+            size_of::<ffi::AVIAMFMixGain>(),
+            align_of::<ffi::AVIAMFMixGain>(),
+        );
+
+        assert!(
+            av_iamf_param_definition_get_subblock(mix_gain.as_ref(), 1).is_none(),
+            "an out-of-range index must not reach the aborting C helper"
+        );
+        {
+            let subblock = av_iamf_param_definition_get_subblock_mut(mix_gain.as_mut(), 0).unwrap();
+            match subblock {
+                AVIAMFParamSubblockMut::MixGain(mut subblock) => {
+                    subblock.set_subblock_duration(37);
+                }
+                _ => panic!("mix-gain discriminator returned the wrong variant"),
+            }
+        }
+        match av_iamf_param_definition_get_subblock(mix_gain.as_ref(), 0).unwrap() {
+            AVIAMFParamSubblockRef::MixGain(subblock) => {
+                assert_eq!(subblock.subblock_duration(), 37);
+            }
+            _ => panic!("mix-gain discriminator returned the wrong variant"),
+        }
+
+        let demixing = definition_with_subblock(
+            AVIAMFParamDefinitionType::DEMIXING,
+            size_of::<ffi::AVIAMFDemixingInfo>(),
+            align_of::<ffi::AVIAMFDemixingInfo>(),
+        );
+        assert!(matches!(
+            av_iamf_param_definition_get_subblock(demixing.as_ref(), 0),
+            Some(AVIAMFParamSubblockRef::Demixing(_))
+        ));
+
+        let recon_gain = definition_with_subblock(
+            AVIAMFParamDefinitionType::RECON_GAIN,
+            size_of::<ffi::AVIAMFReconGain>(),
+            align_of::<ffi::AVIAMFReconGain>(),
+        );
+        assert!(matches!(
+            av_iamf_param_definition_get_subblock(recon_gain.as_ref(), 0),
+            Some(AVIAMFParamSubblockRef::ReconGain(_))
+        ));
+
+        let unknown = definition_with_subblock(
+            AVIAMFParamDefinitionType::from_raw(99),
+            size_of::<ffi::AVIAMFMixGain>(),
+            align_of::<ffi::AVIAMFMixGain>(),
+        );
+        assert!(av_iamf_param_definition_get_subblock(unknown.as_ref(), 0).is_none());
+    }
+}

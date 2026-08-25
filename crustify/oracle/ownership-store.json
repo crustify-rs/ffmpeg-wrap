@@ -6964,6 +6964,45 @@
    ]
   },
   {
+   "name": "av_iamf_param_definition_get_subblock",
+   "defined_in": "libavutil/iamf.h",
+   "ptr_args": [
+    {
+     "name": "par",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:par"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "The inline body reads the live parameter-definition header and does not retain or release it. The public contract requires a non-null initialized definition."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:par"
+     },
+     "nullable": false,
+     "mutable": true,
+     "note": "Returns one non-null element within par's trailing allocation. Its concrete pointee type is selected by par->type; the C API deliberately casts away const so callers can mutate the selected subblock. The pointer remains valid only while par remains live."
+    }
+   }
+  },
+  {
    "name": "av_image_alloc",
    "defined_in": "libavutil/imgutils.c"
   },
