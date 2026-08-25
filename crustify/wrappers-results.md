@@ -90,8 +90,10 @@ in Notes.
 - **C LoC** — `3,135`
 - **ported types** — `0`
 - **ported symbols** — `0`
-- **wrapped types** — `32`
-- **wrapped symbols** — `164`
+- **wrapped types** — `32` (`18%` of API)
+- **wrapped symbols** — `164` (`24%` of API)
+- **remaining types** — `149`
+- **remaining symbols** — `507`
 
 Implementation `openai/gpt-5.6-sol` via `codex`; review
 `anthropic/claude-opus-5` via `claude`. Each row names the model that produced
@@ -420,6 +422,24 @@ An entity appears once, under the last objective it ran. This campaign makes
 that trivial: it is wrap-only, no unit was ever escalated, so `0` types and `0`
 symbols are ported and no entity took both paths. Callbacks count with
 symbols; the oracle scheduled none separately here.
+
+**The API percentages and the remaining counts are against the public API
+closure**, which is what `api_headers` publishes: `181` types (`132` struct,
+`49` enum) and `671` linkable symbols (`589` exported functions, `67`
+header-inline functions, `10` `extern` globals, `5` callbacks). The `374`
+macros the headers also publish are excluded — they become generated constants
+in the `-sys` crate and are never scheduled as units. That closure is
+self-contained: taking the transitive dependency closure of all `181` types and
+`671` symbols adds exactly one node, the macro `FF_PAD_STRUCTURE`.
+
+Every scheduled unit sits inside that set, so coverage is a clean subset rather
+than an overlap. What remains is `149` types and `507` symbols, spread over
+`124` headers; the heaviest single cluster is the rest of the `AVOption` system
+in `opt.c` (`40`), followed by the Dolby Vision and IAMF metadata families
+(`56` between them). Note also that the API closure is itself a slice of the
+library: `libavutil/` implements `228` targeted types and `2,014` targeted
+symbols, so most of what it contains is internal and out of scope by
+construction.
 
 ### The agentic UB pass found four soundness bugs the deterministic pass cannot see
 
