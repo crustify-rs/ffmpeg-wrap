@@ -9580,8 +9580,8 @@
        "lifetime": "arg:obj"
       },
       "nullable": false,
-      "mutable": true,
-      "note": "Live AVClass-bearing option object borrowed for the call; lookup may traverse its class callbacks but retains no object pointer."
+      "mutable": false,
+      "note": "Shared borrow of a live AVClass-bearing option object, read only: av_opt_find2 walks the class table and the option's storage is read as av_channel_layout_copy's source. Nothing is written through obj -- the state_flags write path belongs to opt_set_init, not to this getter -- and no object pointer is retained, so obj is not mutable here, matching av_opt_get / av_opt_query_ranges / av_opt_serialize."
      }
     }
    ]

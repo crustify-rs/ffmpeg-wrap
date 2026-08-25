@@ -2577,6 +2577,63 @@ mod scheduled_chlayout_tests {
         );
     }
 
+    /// The getter's three refusals, none of which reaches the destination:
+    /// an unknown name and a fake-object search both stop in `av_opt_find2`
+    /// (the flag makes it hand back a NULL target, which the getter checks),
+    /// and a non-CHLAYOUT option stops at the type check before `dst` is
+    /// formed. The fake-object case is where this getter differs from
+    /// `av_opt_set_chlayout`, which loads a class out of that same NULL.
+    #[test]
+    fn the_layout_getter_refuses_without_writing_the_destination() {
+        let options = options();
+        let class = class(&options);
+        let mut object = object(&class);
+        // SAFETY: `object` is live, initialized, and read through this handle
+        // only; its first field is the class pointer C follows.
+        let handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+
+        // AVERROR_OPTION_NOT_FOUND.
+        assert_eq!(
+            av_opt_get_chlayout(handle.as_ref(), c"missing", 0).err(),
+            Some(-1_414_549_496)
+        );
+        assert_eq!(
+            av_opt_get_chlayout(
+                handle.as_ref(),
+                c"chlayout",
+                ffi::AV_OPT_SEARCH_FAKE_OBJ as i32,
+            )
+            .err(),
+            Some(-1_414_549_496)
+        );
+        assert_eq!(
+            object.ch_layout.as_ref().order(),
+            AVChannelOrder::UNSPECIFIED,
+            "a refusal leaves the object alone"
+        );
+
+    }
+
+    /// The same option field described as an int: C rejects the type mismatch
+    /// before it ever forms a pointer into the object, so the wrapper's
+    /// zeroed destination is returned untouched to its `CVal`.
+    #[test]
+    fn the_layout_getter_refuses_an_option_of_another_type() {
+        let mut options = options();
+        options[0].type_ = ffi::AVOptionType_AV_OPT_TYPE_INT;
+        let class = class(&options);
+        let mut object = object(&class);
+        // SAFETY: `object` is live, initialized, and read through this handle
+        // only; its first field is the class pointer C follows.
+        let handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+
+        // AVERROR(EINVAL).
+        assert_eq!(
+            av_opt_get_chlayout(handle.as_ref(), c"chlayout", 0).err(),
+            Some(-22)
+        );
+    }
+
     #[test]
     fn the_chlayout_setter_rejects_a_fake_object_search() {
         // The twelfth setter, on the same terms as its eleven siblings:
@@ -4201,6 +4258,48 @@ mod scheduled_child_class_tests {
         core::ptr::null()
     }
 
+    /// Mirrors C's `static const AVClass`: a process-lifetime immutable
+    /// record whose only pointer field addresses a string literal.
+    #[repr(transparent)]
+    struct StaticClass(ffi::AVClass);
+
+    // SAFETY: the value is never mutated after initialization and the one
+    // pointer it holds addresses immutable static storage, so concurrent
+    // shared access observes only constants.
+    unsafe impl Sync for StaticClass {}
+
+    static CHILD_CLASS: StaticClass = StaticClass(ffi::AVClass {
+        class_name: c"crustify-child".as_ptr(),
+        item_name: None,
+        option: core::ptr::null(),
+        version: 0,
+        log_level_offset_offset: 0,
+        parent_log_context_offset: 0,
+        category: 0,
+        get_category: None,
+        query_ranges: None,
+        child_next: None,
+        child_class_iterate: None,
+        state_flags_offset: 0,
+    });
+
+    /// Yields `CHILD_CLASS` once, using the caller's slot to remember that it
+    /// already did — the protocol every real `child_class_iterate` follows.
+    unsafe extern "C" fn one_child(state: *mut *mut c_void) -> *const ffi::AVClass {
+        CALLBACK_CALLS.fetch_add(1, Ordering::Relaxed);
+        // SAFETY: the caller supplies a live writable slot holding either null
+        // or a value this callback itself previously wrote.
+        if unsafe { state.read() }.is_null() {
+            let class: *const ffi::AVClass = &raw const CHILD_CLASS.0;
+            // SAFETY: the same live writable slot; the opaque token's meaning
+            // belongs to this callback and C only relays it.
+            unsafe { state.write(class.cast_mut().cast::<c_void>()) };
+            class
+        } else {
+            core::ptr::null()
+        }
+    }
+
     fn class() -> ffi::AVClass {
         ffi::AVClass {
             class_name: c"parent".as_ptr(),
@@ -4227,6 +4326,40 @@ mod scheduled_child_class_tests {
         let parent = unsafe { AVClassRef::from_ptr((&raw const raw).cast_mut()) }.unwrap();
         assert!(av_opt_child_class_iterate(parent).next().is_none());
         assert_eq!(CALLBACK_CALLS.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn a_parent_without_a_callback_iterates_nothing() {
+        // The branch that belongs to the dispatcher rather than to any
+        // callback: `child_class_iterate` is optional, and C answers NULL for
+        // a parent that installs none. Nothing reachable through
+        // `AVClassChildClassIterateCallback` can exercise it, because that
+        // wrapper only exists once the callback does.
+        let mut raw = class();
+        raw.child_class_iterate = None;
+        // SAFETY: the initialized class stays live for the iterator, which
+        // borrows it for the whole expression.
+        let parent = unsafe { AVClassRef::from_ptr((&raw const raw).cast_mut()) }.unwrap();
+        assert!(av_opt_child_class_iterate(parent).next().is_none());
+    }
+
+    #[test]
+    fn the_opaque_state_survives_the_round_trip_through_c() {
+        // What the iterator's `state` field is for: C forwards the slot to
+        // the callback, which writes its own token into it, and the next
+        // `next()` must hand that same token back or iteration never ends.
+        CALLBACK_CALLS.store(0, Ordering::Relaxed);
+        let mut raw = class();
+        raw.child_class_iterate = Some(one_child);
+        // SAFETY: as above.
+        let parent = unsafe { AVClassRef::from_ptr((&raw const raw).cast_mut()) }.unwrap();
+
+        let mut classes = av_opt_child_class_iterate(parent);
+        let child = classes.next().expect("the one child class");
+        assert_eq!(child.class_name(), Some(c"crustify-child"));
+        assert_eq!(child.as_ptr(), &raw const CHILD_CLASS.0);
+        assert!(classes.next().is_none());
+        assert_eq!(CALLBACK_CALLS.load(Ordering::Relaxed), 2);
     }
 }
 
