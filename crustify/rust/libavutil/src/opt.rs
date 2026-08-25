@@ -6,9 +6,10 @@ use core::ptr::{NonNull, addr_of, addr_of_mut};
 
 use ffibox::{CBox, CDropped, CVal, CrustifyStr};
 
-use crate::channel_layout::AVChannelLayoutRef;
+use crate::channel_layout::{AVChannelLayout, AVChannelLayoutRef};
 use crate::dict::AVDictionary;
 use crate::ffi;
+use crate::log::AVClassRef;
 use crate::mem::AvFree;
 use crate::pixfmt::AVPixelFormat;
 use crate::rational::AVRationalRef;
@@ -2541,6 +2542,36 @@ mod scheduled_chlayout_tests {
     }
 
     #[test]
+    fn the_layout_getter_returns_an_independent_copy() {
+        let options = options();
+        let class = class(&options);
+        let mut object = object(&class);
+        object.ch_layout =
+            av_channel_layout_from_string(c"FL@head+FR@tail").expect("a custom layout");
+
+        // SAFETY: `object` and its class table remain live for the call; the
+        // handle shares the initialized option object without exposing fields.
+        let handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+        let copy = av_opt_get_chlayout(handle.as_ref(), c"chlayout", 0).expect("get layout");
+
+        assert_eq!(
+            av_channel_layout_compare(object.ch_layout.as_ref(), copy.as_ref()),
+            Ok(true)
+        );
+        assert_ne!(
+            object
+                .ch_layout
+                .as_ref()
+                .custom_map()
+                .unwrap()
+                .get(0)
+                .unwrap()
+                .as_ptr(),
+            copy.as_ref().custom_map().unwrap().get(0).unwrap().as_ptr()
+        );
+    }
+
+    #[test]
     fn the_chlayout_setter_rejects_a_fake_object_search() {
         // The twelfth setter, on the same terms as its eleven siblings:
         // `opt_set_init` resolves the option, gets no target object back —
@@ -3594,4 +3625,109 @@ pub fn av_opt_query_ranges_default(
 /// Wraps: av_opt_freep_ranges
 pub fn av_opt_freep_ranges(ranges: Option<CBox<AVOptionRanges>>) {
     drop(ranges);
+}
+
+/// Iterator produced by [`av_opt_child_class_iterate`].
+pub struct AVOptChildClasses<'a> {
+    parent: AVClassRef<'a>,
+    state: *mut c_void,
+}
+
+impl<'a> Iterator for AVOptChildClasses<'a> {
+    type Item = AVClassRef<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // SAFETY: `state` starts null and is fed back only to this parent's
+        // callback. The parent handle keeps its immutable class metadata live,
+        // and C returns null or an immutable child class bounded by that class.
+        let pointer =
+            unsafe { ffi::av_opt_child_class_iterate(self.parent.as_ptr(), &raw mut self.state) };
+        // SAFETY: the C callback contract establishes layout, initialization
+        // and the parent-bounded lifetime for every non-null result.
+        unsafe { AVClassRef::from_ptr(pointer.cast_mut()) }
+    }
+}
+
+/// Wraps: av_opt_child_class_iterate
+///
+/// Starts a fresh traversal of the potential child classes of `parent`.
+#[must_use]
+pub fn av_opt_child_class_iterate(parent: AVClassRef<'_>) -> AVOptChildClasses<'_> {
+    AVOptChildClasses {
+        parent,
+        state: core::ptr::null_mut(),
+    }
+}
+
+/// Wraps: av_opt_get_chlayout
+///
+/// Returns an independently disposable deep copy of the selected layout.
+pub fn av_opt_get_chlayout(
+    object: OptionObjectRef<'_>,
+    name: &CStr,
+    search_flags: i32,
+) -> Result<CVal<AVChannelLayout>, i32> {
+    let mut output = CVal::new(AVChannelLayout::zeroed());
+    // SAFETY: the object and name borrows are live, while output is one
+    // initialized, exclusively borrowed layout slot. On success C leaves it
+    // owning an independent map; on failure it remains ours to normalize.
+    let status = unsafe {
+        ffi::av_opt_get_chlayout(
+            object.as_ptr(),
+            name.as_ptr(),
+            search_flags,
+            output.as_mut().as_mut_ptr(),
+        )
+    };
+    if status < 0 {
+        // SAFETY: a failed copy leaves either the original zero layout or a
+        // partial destination whose map is null or exclusively ours. Uninit
+        // normalizes both to a disposable zero layout before `CVal` drops it.
+        unsafe { ffi::av_channel_layout_uninit(output.as_mut().as_mut_ptr()) };
+        Err(status)
+    } else {
+        Ok(output)
+    }
+}
+
+#[cfg(test)]
+mod scheduled_child_class_tests {
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+
+    static CALLBACK_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+    unsafe extern "C" fn no_children(_state: *mut *mut c_void) -> *const ffi::AVClass {
+        CALLBACK_CALLS.fetch_add(1, Ordering::Relaxed);
+        core::ptr::null()
+    }
+
+    fn class() -> ffi::AVClass {
+        ffi::AVClass {
+            class_name: c"parent".as_ptr(),
+            item_name: None,
+            option: core::ptr::null(),
+            version: 0,
+            log_level_offset_offset: 0,
+            parent_log_context_offset: 0,
+            category: 0,
+            get_category: None,
+            query_ranges: None,
+            child_next: None,
+            child_class_iterate: Some(no_children),
+            state_flags_offset: 0,
+        }
+    }
+
+    #[test]
+    fn iterator_calls_the_parent_callback() {
+        CALLBACK_CALLS.store(0, Ordering::Relaxed);
+        let raw = class();
+        // SAFETY: the initialized class stays live for the iterator and its
+        // callback obeys the state-slot and nullable-result contract.
+        let parent = unsafe { AVClassRef::from_ptr((&raw const raw).cast_mut()) }.unwrap();
+        assert!(av_opt_child_class_iterate(parent).next().is_none());
+        assert_eq!(CALLBACK_CALLS.load(Ordering::Relaxed), 1);
+    }
 }

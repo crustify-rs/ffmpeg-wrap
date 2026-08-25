@@ -3777,6 +3777,45 @@
    }
   },
   {
+   "name": "av_dovi_get_mapping",
+   "defined_in": "libavutil/dovi_meta.h",
+   "ptr_args": [
+    {
+     "name": "data",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:data"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required shared borrow of the live contiguous metadata allocation; the inline helper reads only mapping_offset and retains nothing."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:data"
+     },
+     "nullable": false,
+     "mutable": true,
+     "note": "Embedded mapping aliases the metadata allocation at mapping_offset and remains live only with it. C exposes a writable pointer and libavcodec writes through it; safe Rust must split shared and exclusive-borrow variants rather than derive mutation from a shared metadata handle."
+    }
+   }
+  },
+  {
    "name": "av_dovi_metadata_alloc",
    "defined_in": "libavutil/dovi_meta.c",
    "ptr_args": [
@@ -7198,6 +7237,67 @@
    "defined_in": "libavutil/rational.c"
   },
   {
+   "name": "av_opt_child_class_iterate",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "iter",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": false,
+        "borrowed": {
+         "lifetime": "arg:iter"
+        }
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:iter"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Required mutable iterator-state slot. Its initially-null inner void pointer is an opaque callback token, written by the callback and fed back only to that same callback."
+     }
+    },
+    {
+     "name": "parent",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:parent"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required shared borrow of immutable AVClass metadata; the function reads its optional callback and retains no pointer."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:parent"
+     },
+     "nullable": true,
+     "mutable": false,
+     "note": "Null ends iteration; a non-null result is immutable child-class metadata whose safe borrow is conservatively bounded by the parent class."
+    }
+   }
+  },
+  {
    "name": "av_opt_child_next",
    "defined_in": "libavutil/opt.c",
    "ptr_args": [
@@ -8259,6 +8359,63 @@
       "nullable": false,
       "mutable": true,
       "note": ""
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_get_chlayout",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "cl",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:cl"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Required output layout slot. On success av_channel_layout_copy initializes an independently disposable deep copy; on allocation failure the partial destination remains caller-owned and must be uninitialized before reuse."
+     }
+    },
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required NUL-terminated option name read only during the call and not retained."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Live AVClass-bearing option object borrowed for the call; lookup may traverse its class callbacks but retains no object pointer."
      }
     }
    ]

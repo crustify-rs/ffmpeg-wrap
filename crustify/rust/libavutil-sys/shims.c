@@ -21,6 +21,7 @@ int crustify_av_isgraph(int value) { return av_isgraph(value); }
 int crustify_av_isspace(int value) { return av_isspace(value); }
 int crustify_av_isxdigit(int value) { return av_isxdigit(value); }
 AVDOVIRpuDataHeader *crustify_av_dovi_get_header(const AVDOVIMetadata *data) { return av_dovi_get_header(data); }
+AVDOVIDataMapping *crustify_av_dovi_get_mapping(const AVDOVIMetadata *data) { return av_dovi_get_mapping(data); }
 AVDOVIColorMetadata *crustify_av_dovi_get_color(const AVDOVIMetadata *data) { return av_dovi_get_color(data); }
 void crustify_av_bprintf_string(AVBPrint *buf, const char *text) { av_bprintf(buf, "%s", text); }
 static void crustify_call_vbprintf(AVBPrint *buf, const char *fmt, ...) {

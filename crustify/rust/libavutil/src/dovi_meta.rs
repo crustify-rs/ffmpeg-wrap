@@ -2180,3 +2180,74 @@ mod data_mapping_tests {
         assert_eq!(shared.curves().get(1).unwrap().num_pivots(), 2);
     }
 }
+
+/// Wraps: av_dovi_get_mapping
+///
+/// Borrows the mapping embedded in the same allocation as `metadata`.
+#[must_use]
+pub fn av_dovi_get_mapping<'a>(metadata: AVDOVIMetadataRef<'a>) -> AVDOVIDataMappingRef<'a> {
+    // SAFETY: the metadata handle keeps the complete offset-based allocation
+    // live. The inline helper returns its non-null embedded mapping record;
+    // this shared variant does not expose C's const-discarding return type.
+    unsafe {
+        AVDOVIDataMappingRef::from_ptr(ffi::crustify_av_dovi_get_mapping(metadata.as_ptr()))
+            .expect("a live metadata allocation has embedded mapping metadata")
+    }
+}
+
+/// Wraps: av_dovi_get_mapping
+///
+/// Exclusively borrows the embedded mapping. This separate variant represents
+/// the C API's writable return without deriving mutation from a shared handle.
+#[must_use]
+pub fn av_dovi_get_mapping_mut<'a>(
+    mut metadata: AVDOVIMetadataMut<'a>,
+) -> AVDOVIDataMappingMut<'a> {
+    // SAFETY: consuming the exclusive metadata handle preserves its exclusive
+    // borrow for `'a`. The helper returns the mapping inside that allocation,
+    // so the new exclusive handle cannot outlive or alias its parent borrow.
+    unsafe {
+        AVDOVIDataMappingMut::from_ptr(ffi::crustify_av_dovi_get_mapping(metadata.as_mut_ptr()))
+            .expect("a live metadata allocation has embedded mapping metadata")
+    }
+}
+
+#[cfg(test)]
+mod mapping_borrow_tests {
+    use super::*;
+
+    #[repr(C)]
+    struct MetadataWithMapping {
+        metadata: ffi::AVDOVIMetadata,
+        mapping: ffi::AVDOVIDataMapping,
+    }
+
+    fn storage() -> MetadataWithMapping {
+        // SAFETY: both records contain only integer-backed values and fixed
+        // inline arrays, for which all-zero is an initialized representation.
+        let mut storage: MetadataWithMapping = unsafe { core::mem::zeroed() };
+        storage.metadata.mapping_offset = core::mem::offset_of!(MetadataWithMapping, mapping);
+        storage
+    }
+
+    #[test]
+    fn shared_borrow_uses_the_mapping_offset() {
+        let mut storage = storage();
+        // SAFETY: the live aggregate contains mapping at the installed offset.
+        let metadata = unsafe { AVDOVIMetadataRef::from_ptr(&mut storage.metadata) }.unwrap();
+        assert_eq!(
+            av_dovi_get_mapping(metadata).as_ptr(),
+            &raw const storage.mapping
+        );
+    }
+
+    #[test]
+    fn exclusive_borrow_can_update_the_mapping() {
+        let mut storage = storage();
+        // SAFETY: the aggregate is live and exclusively accessed by this
+        // handle, and its mapping offset addresses the initialized member.
+        let metadata = unsafe { AVDOVIMetadataMut::from_ptr(&mut storage.metadata) }.unwrap();
+        av_dovi_get_mapping_mut(metadata).set_vdr_rpu_id(9);
+        assert_eq!(storage.mapping.vdr_rpu_id, 9);
+    }
+}

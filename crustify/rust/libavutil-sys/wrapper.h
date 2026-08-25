@@ -45,6 +45,7 @@ int crustify_av_isgraph(int value);
 int crustify_av_isspace(int value);
 int crustify_av_isxdigit(int value);
 AVDOVIRpuDataHeader *crustify_av_dovi_get_header(const AVDOVIMetadata *data);
+AVDOVIDataMapping *crustify_av_dovi_get_mapping(const AVDOVIMetadata *data);
 AVDOVIColorMetadata *crustify_av_dovi_get_color(const AVDOVIMetadata *data);
 void crustify_av_bprintf_string(AVBPrint *buf, const char *text);
 void crustify_av_vbprintf_string(AVBPrint *buf, const char *text);

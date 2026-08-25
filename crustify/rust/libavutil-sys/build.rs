@@ -78,7 +78,7 @@ fn main() {
         .allowlist_function("^av_hash_(alloc|final|final_b64|final_bin|final_hex|get_name|get_size|init|update)$")
         .allowlist_function("^av_image_(check_sar|check_size2|copy|copy_uc_from|fill_color|fill_linesizes|fill_plane_sizes|get_linesize)$")
         .allowlist_function("^av_opt_(get_array|get_dict_val|get_pixel_fmt|get_q|get_sample_fmt|get_video_rate|set_dict2|set_dict_val)$")
-        .allowlist_function("^crustify_av_dovi_get_header$")
+        .allowlist_function("^crustify_av_dovi_get_(header|mapping)$")
         .allowlist_function("^av_(image_(copy_to_buffer|fill_arrays|fill_black|fill_pointers|get_buffer_size)|md5_(alloc|final|init|update)|mul_q|nearer_q|opt_set_(array|dict|pixel_fmt|q|sample_fmt|video_rate)|q2intfloat|rescale_(q|q_rnd|rnd)|sample_fmt_is_planar|samples_(alloc|alloc_array_and_samples|copy|fill_arrays|get_buffer_size|set_silence)|sub_q)$")
         .allowlist_type("^AV(ComponentDescriptor|Dictionary|PixFmtDescriptor)$")
         .allowlist_type(
@@ -87,7 +87,7 @@ fn main() {
         .allowlist_function(
             "^av_channel_layout_(channel_from_(index|string)|check|compare|copy|default|describe|from_(mask|string)|index_from_(channel|string)|retype|standard|subset|uninit)$",
         )
-        .allowlist_function("^av_opt_set_chlayout$")
+        .allowlist_function("^av_opt_(child_class_iterate|get_chlayout|set_chlayout)$")
         .allowlist_var("^AV_CHANNEL_LAYOUT_RETYPE_FLAG_(LOSSLESS|CANONICAL)$")
         .allowlist_function(
             "^av_buffer_(alloc|allocz|get_ref_count|is_writable|make_writable|realloc|ref|unref)$",
