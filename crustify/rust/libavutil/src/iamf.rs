@@ -3067,23 +3067,67 @@ mod mix_presentation_tests {
     }
 
     #[test]
-    fn cbox_runs_the_published_destructor() {
-        let class = test_class();
-        // SAFETY: request one correctly aligned presentation allocation.
-        let pointer = unsafe { ffi::av_malloc(size_of::<ffi::AVIAMFMixPresentation>()) }
-            .cast::<ffi::AVIAMFMixPresentation>();
-        assert!(!pointer.is_null());
-        // SAFETY: initialize the fresh allocation as an empty presentation.
-        // The borrowed inert class remains live until the owner is dropped.
-        let owner = unsafe {
-            pointer.write(ffi::AVIAMFMixPresentation {
-                av_class: addr_of!(class),
-                submixes: core::ptr::null_mut(),
-                nb_submixes: 0,
-                annotations: core::ptr::null_mut(),
-            });
-            CBox::<AVIAMFMixPresentation>::from_raw(pointer).unwrap()
-        };
+    fn cbox_runs_the_published_destructor_over_a_libavutil_graph() {
+        // SAFETY: the published constructor returns null or one fresh, fully
+        // initialized presentation whose sole ownership transfers to the
+        // caller, which is exactly what this owner adopts.
+        let mut owner = unsafe {
+            CBox::<AVIAMFMixPresentation>::from_raw(ffi::av_iamf_mix_presentation_alloc())
+        }
+        .expect("av_iamf_mix_presentation_alloc succeeds");
+        assert_eq!(
+            owner.as_ref().av_class().class_name(),
+            Some(c"AVIAMFMixPresentation")
+        );
+        assert_eq!(owner.as_ref().nb_submixes(), 0);
+        assert_eq!(owner.as_ref().submixes().count(), 0);
+
+        // SAFETY: each call mutably borrows the live presentation for its own
+        // duration only. This is the sole routine allowed to grow the owned
+        // table, and the children it appends are released with the parent.
+        let added = [
+            unsafe { ffi::av_iamf_mix_presentation_add_submix(owner.as_ptr()) },
+            unsafe { ffi::av_iamf_mix_presentation_add_submix(owner.as_ptr()) },
+        ];
+        assert!(added.iter().all(|submix| !submix.is_null()));
+
+        // The wrapper's distinctness invariant is what makes the exclusive
+        // iterator sound, so check it against the pointers libavutil stored.
+        assert_eq!(owner.as_ref().nb_submixes(), 2);
+        let mut submixes = owner.as_ref().submixes();
+        let first = submixes.next().expect("the first added submix");
+        let second = submixes.next().expect("the second added submix");
+        assert!(submixes.next().is_none());
+        assert_eq!(first.as_ptr(), added[0]);
+        assert_eq!(second.as_ptr(), added[1]);
+        assert_ne!(first.as_ptr(), second.as_ptr());
+
+        for (index, mut submix) in owner.as_mut().submixes_mut().enumerate() {
+            submix.default_mix_gain_mut().set_num(index as i32 + 1);
+        }
+        assert_eq!(
+            owner
+                .as_ref()
+                .submixes()
+                .map(|submix| submix.default_mix_gain().num())
+                .sum::<i32>(),
+            3
+        );
+
+        // Installing an owner in the annotations slot hands it to the C
+        // destructor, which reaches it through this class's option table.
+        let mut dictionary = crate::dict::Dictionary::default();
+        crate::dict::av_dict_set(&mut dictionary, c"en", Some(c"mix"), 0).unwrap();
+        assert!(
+            owner
+                .as_mut()
+                .replace_annotations(dictionary.into_owner())
+                .is_none()
+        );
+        assert_eq!(crate::dict::av_dict_count(owner.as_ref().annotations()), 1);
+
+        // Releases the annotations dictionary, both submixes, the pointer
+        // table, and the presentation allocation.
         drop(owner);
     }
 }

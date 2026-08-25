@@ -64,7 +64,7 @@ fn main() {
         .allowlist_type(
             "^AVIAMF((ParamDefinition|SubmixLayout)Type|MixPresentation|ReconGain|Submix|SubmixElement|SubmixLayout)$",
         )
-        .allowlist_function("^av_iamf_mix_presentation_free$")
+        .allowlist_function("^av_iamf_mix_presentation_(add_submix|alloc|free)$")
         .allowlist_type("^AVStereo3DPrimaryEye$")
         // Needed to build an option-bearing object at all: every av_opt_set*
         // target is a struct whose first field is a `const AVClass *`.
