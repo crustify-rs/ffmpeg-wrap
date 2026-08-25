@@ -1,6 +1,7 @@
 #include <libavutil/audio_fifo.h>
 #include <libavutil/avutil.h>
 #include <libavutil/avstring.h>
+#include <libavutil/bprint.h>
 #include <libavutil/buffer_internal.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/dict.h>

@@ -21,6 +21,7 @@ fn main() {
         .allowlist_type("^(AVEscapeMode|AVFifo|AVFilmGrainAOMParams)$")
         .allowlist_type("^(AVChannelOrder|AVChromaLocation)$")
         .allowlist_type("^AVRational$")
+        .allowlist_type("^(AVBPrint|AVCIExy|AVDOVIColorMetadata)$")
         .allowlist_type("^AVDOVIDmLevel[3-6]$")
         .allowlist_type("^AVDynamicHDRSmpte2094App5$")
         .allowlist_type(

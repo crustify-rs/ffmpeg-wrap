@@ -26,6 +26,28 @@
    ]
   },
   {
+   "name": "AVBPrint",
+   "defined_in": "libavutil/bprint.h",
+   "_comment_agent": "AVBPrint is a caller-owned, address-sensitive by-value header: av_bprint_init points str into its own reserved_internal_buffer until growth, while av_bprint_init_for_buffer points it into caller storage and growth may replace the internal pointer with an owned av_realloc allocation. av_bprint_finalize releases or transfers only a dynamic allocation and retains the header; moving an initialized header while str selects the internal buffer invalidates the self-pointer, so the type must not be offered through a movable inline owner.",
+   "fields": [
+    {
+     "name": "str",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": true,
+      "borrowed": {
+       "lifetime": "other"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Runtime-conditional string storage: it borrows the enclosing header's reserved_internal_buffer after av_bprint_init, borrows caller storage after av_bprint_init_for_buffer, or owns an av_realloc allocation after growth. It is writable and NUL-terminated while the print buffer is usable. av_bprint_finalize sets an allocated str to NULL when freeing or transferring it, so NULL is reachable in the retained finalized header. The structured lifetime uses 'other' because one slot cannot encode the two borrowed sources (self and the external buffer)."
+     }
+    }
+   ]
+  },
+  {
    "name": "AVBuffer",
    "defined_in": "libavutil/buffer_internal.h",
    "_comment_agent": "AVBuffer is public only as an opaque identity behind AVBufferRef. Its internal data allocation is released by the stored callback at the last reference; opaque is runtime-polymorphic callback state and may either be transferred to that callback or borrowed until it runs; free is installed to a non-null static callback on construction. No independent AVBuffer storage dropper is valid because pool entries embed the object.",
@@ -125,6 +147,12 @@
    ]
   },
   {
+   "name": "AVCIExy",
+   "defined_in": "libavutil/csp.h",
+   "_comment_agent": "AVCIExy is plain by-value storage containing two AVRational values and has no pointer fields or lifecycle operation.",
+   "fields": []
+  },
+  {
    "name": "AVChannel",
    "defined_in": "libavutil/channel_layout.h",
    "_comment_agent": "AVChannel is a by-value C enum with no pointer or lifecycle slots. The inclusive ambisonic endpoint range contains values without individual enumerators, so the Rust surface must remain integer-representable.",
@@ -215,6 +243,12 @@
    "name": "AVComponentDescriptor",
    "defined_in": "libavutil/pixdesc.h",
    "_comment_agent": "AVComponentDescriptor is a pointer-free by-value POD of five ints. It has no lifecycle of its own: it is never heap-allocated on its own, and its only published storage is the inline four-element AVPixFmtDescriptor.comp array in libavutil.s immutable process-lifetime descriptor table, whose entries are freed by nothing. Reviewed 2026-08-23; no ownership slots exist to record.",
+   "fields": []
+  },
+  {
+   "name": "AVDOVIColorMetadata",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "AVDOVIColorMetadata is plain by-value storage containing integer scalars and fixed arrays of AVRational; it owns no resource and needs no C teardown.",
    "fields": []
   },
   {
@@ -1525,6 +1559,55 @@
      "note": "Returns a suffix of path, or a static dot literal when path is null/empty."
     }
    }
+  },
+  {
+   "name": "av_bprint_finalize",
+   "defined_in": "libavutil/bprint.c",
+   "lifetime": {
+    "for": "buf",
+    "is_dropper": false,
+    "is_disposer": true,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Mutably borrows a caller-owned initialized AVBPrint header. It releases or transfers dynamic string storage while retaining the header; the header is finalized and only len and size remain usable."
+     }
+    },
+    {
+     "name": "ret_str",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ret_str"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Optional borrowed output slot. When supplied, the callee writes a transferred av_malloc-family NUL-terminated string pointer, or NULL on allocation failure; the caller owns that returned pointee and must release it with av_free."
+     }
+    }
+   ]
   },
   {
    "name": "av_buffer_alloc",

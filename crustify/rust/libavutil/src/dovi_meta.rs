@@ -3,9 +3,10 @@
 use core::ffi::c_void;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::{CDropped, CValued, define_ctype};
+use ffibox::{CDropped, CSlice, CSliceMut, CVal, CValued, define_ctype};
 
 use crate::ffi;
+use crate::rational::AVRational;
 
 /// Wraps: AVDOVICompression
 ///
@@ -1732,5 +1733,209 @@ mod reshaping_curve_tests {
         assert_eq!(view.mmr_order()[2], 3);
         assert_eq!(view.mmr_constant()[7], 4);
         assert_eq!(view.mmr_coef()[7][2][6], 5);
+    }
+}
+
+define_ctype!(
+    /// Wraps: AVDOVIColorMetadata
+    ///
+    /// ABI-compatible Dolby Vision RPU colorspace metadata. The type is plain
+    /// by-value storage and contains no pointers or owned resources.
+    AVDOVIColorMetadata,
+    AVDOVIColorMetadataRef,
+    AVDOVIColorMetadataMut,
+    ffi::AVDOVIColorMetadata
+);
+
+// SAFETY: the structure contains only integer scalars and fixed arrays of
+// by-value AVRational pairs, so disposing an inline value is a no-op.
+unsafe impl CValued for AVDOVIColorMetadata {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+impl AVDOVIColorMetadata {
+    /// Creates zero-initialized colorspace metadata in owned inline storage.
+    #[must_use]
+    pub fn new() -> CVal<Self> {
+        CVal::new(Self::zeroed())
+    }
+}
+
+scalar_accessors! {
+    AVDOVIColorMetadataRef, AVDOVIColorMetadataMut, u16;
+    /// Field: AVDOVIColorMetadata.source_diagonal
+    source_diagonal, set_source_diagonal, source_diagonal;
+    /// Field: AVDOVIColorMetadata.source_max_pq
+    source_max_pq, set_source_max_pq, source_max_pq;
+    /// Field: AVDOVIColorMetadata.source_min_pq
+    source_min_pq, set_source_min_pq, source_min_pq;
+    /// Field: AVDOVIColorMetadata.signal_eotf_param1
+    signal_eotf_param1, set_signal_eotf_param1, signal_eotf_param1;
+    /// Field: AVDOVIColorMetadata.signal_eotf_param0
+    signal_eotf_param0, set_signal_eotf_param0, signal_eotf_param0;
+    /// Field: AVDOVIColorMetadata.signal_eotf
+    signal_eotf, set_signal_eotf, signal_eotf;
+}
+
+scalar_accessors! {
+    AVDOVIColorMetadataRef, AVDOVIColorMetadataMut, u32;
+    /// Field: AVDOVIColorMetadata.signal_eotf_param2
+    signal_eotf_param2, set_signal_eotf_param2, signal_eotf_param2;
+}
+
+scalar_accessors! {
+    AVDOVIColorMetadataRef, AVDOVIColorMetadataMut, u8;
+    /// Field: AVDOVIColorMetadata.signal_chroma_format
+    signal_chroma_format, set_signal_chroma_format, signal_chroma_format;
+    /// Field: AVDOVIColorMetadata.signal_color_space
+    signal_color_space, set_signal_color_space, signal_color_space;
+    /// Field: AVDOVIColorMetadata.signal_bit_depth
+    signal_bit_depth, set_signal_bit_depth, signal_bit_depth;
+    /// Field: AVDOVIColorMetadata.scene_refresh_flag
+    scene_refresh_flag, set_scene_refresh_flag, scene_refresh_flag;
+    /// Field: AVDOVIColorMetadata.dm_metadata_id
+    dm_metadata_id, set_dm_metadata_id, dm_metadata_id;
+}
+
+impl AVDOVIColorMetadataRef<'_> {
+    /// Field: AVDOVIColorMetadata.signal_full_range_flag
+    #[must_use]
+    pub fn signal_full_range_flag(&self) -> u8 {
+        // SAFETY: the shared handle addresses initialized metadata; raw-place
+        // projection copies one byte without forming a Rust reference.
+        unsafe { addr_of!((*self.as_ptr()).signal_full_range_flag).read() }
+    }
+}
+
+impl AVDOVIColorMetadataMut<'_> {
+    /// Sets the full-range signal flag.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `value` is outside the C header's documented range `0..=3`.
+    pub fn set_signal_full_range_flag(&mut self, value: u8) {
+        assert!(value <= 3, "signal_full_range_flag must be in 0..=3");
+        // SAFETY: the exclusive handle supplies write provenance; raw-place
+        // projection writes the validated byte without forming a reference.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).signal_full_range_flag).write(value) }
+    }
+}
+
+macro_rules! color_rational_array {
+    ($(#[$meta:meta])* $field:ident, $field_mut:ident, $len:expr) => {
+        impl<'a> AVDOVIColorMetadataRef<'a> {
+            $(#[$meta])*
+            #[must_use]
+            pub fn $field(&self) -> CSlice<'a, AVRational> {
+                // SAFETY: raw-place projection locates the fixed array without
+                // forming a reference. It contains exactly `$len` initialized
+                // AVRational values and lives for the metadata handle's
+                // lifetime.
+                unsafe {
+                    let pointer = addr_of!((*self.as_ptr()).$field)
+                        .cast::<AVRational>()
+                        .cast_mut();
+                    CSlice::from_raw_parts(NonNull::new_unchecked(pointer), $len)
+                }
+            }
+        }
+
+        impl AVDOVIColorMetadataMut<'_> {
+            #[doc = concat!("Exclusively borrows [`", stringify!($field), "`](AVDOVIColorMetadataRef::", stringify!($field), ").")]
+            #[must_use]
+            pub fn $field_mut(&mut self) -> CSliceMut<'_, AVRational> {
+                // SAFETY: the exclusive handle supplies write provenance to
+                // the fixed initialized array, and the returned view is bound
+                // to this mutable borrow.
+                unsafe {
+                    let pointer = addr_of_mut!((*self.as_mut_ptr()).$field)
+                        .cast::<AVRational>();
+                    CSliceMut::from_raw_parts(NonNull::new_unchecked(pointer), $len)
+                }
+            }
+        }
+    };
+}
+
+color_rational_array!(
+    /// Field: AVDOVIColorMetadata.rgb_to_lms_matrix
+    rgb_to_lms_matrix,
+    rgb_to_lms_matrix_mut,
+    9
+);
+color_rational_array!(
+    /// Field: AVDOVIColorMetadata.ycc_to_rgb_offset
+    ycc_to_rgb_offset,
+    ycc_to_rgb_offset_mut,
+    3
+);
+color_rational_array!(
+    /// Field: AVDOVIColorMetadata.ycc_to_rgb_matrix
+    ycc_to_rgb_matrix,
+    ycc_to_rgb_matrix_mut,
+    9
+);
+
+#[cfg(test)]
+mod color_metadata_tests {
+    use super::*;
+
+    #[test]
+    fn layout_and_field_access_cover_scalars_and_rational_arrays() {
+        assert_eq!(
+            core::mem::size_of::<AVDOVIColorMetadata>(),
+            core::mem::size_of::<ffi::AVDOVIColorMetadata>()
+        );
+        assert_eq!(
+            core::mem::align_of::<AVDOVIColorMetadata>(),
+            core::mem::align_of::<ffi::AVDOVIColorMetadata>()
+        );
+
+        let mut metadata = AVDOVIColorMetadata::new();
+        let mut view = metadata.as_mut();
+        view.set_dm_metadata_id(7);
+        view.set_scene_refresh_flag(1);
+        view.set_signal_eotf(2);
+        view.set_signal_eotf_param0(3);
+        view.set_signal_eotf_param1(4);
+        view.set_signal_eotf_param2(5);
+        view.set_signal_bit_depth(12);
+        view.set_signal_color_space(6);
+        view.set_signal_chroma_format(7);
+        view.set_signal_full_range_flag(3);
+        view.set_source_min_pq(8);
+        view.set_source_max_pq(9);
+        view.set_source_diagonal(10);
+
+        {
+            let mut matrix = view.ycc_to_rgb_matrix_mut();
+            let mut first = matrix.get_mut(0).unwrap();
+            first.set_num(11);
+            first.set_den(12);
+        }
+        {
+            let mut offset = view.ycc_to_rgb_offset_mut();
+            offset.get_mut(2).unwrap().set_num(13);
+        }
+        {
+            let mut matrix = view.rgb_to_lms_matrix_mut();
+            matrix.get_mut(8).unwrap().set_den(14);
+        }
+
+        let shared = view.as_ref();
+        assert_eq!(shared.dm_metadata_id(), 7);
+        assert_eq!(shared.signal_full_range_flag(), 3);
+        assert_eq!(shared.source_diagonal(), 10);
+        assert_eq!(shared.ycc_to_rgb_matrix().get(0).unwrap().num(), 11);
+        assert_eq!(shared.ycc_to_rgb_offset().get(2).unwrap().num(), 13);
+        assert_eq!(shared.rgb_to_lms_matrix().get(8).unwrap().den(), 14);
+    }
+
+    #[test]
+    #[should_panic(expected = "signal_full_range_flag must be in 0..=3")]
+    fn full_range_flag_rejects_out_of_range_values() {
+        AVDOVIColorMetadata::new()
+            .as_mut()
+            .set_signal_full_range_flag(4);
     }
 }
