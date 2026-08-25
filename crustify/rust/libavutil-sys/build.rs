@@ -4,6 +4,7 @@ fn main() {
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let repo = manifest.join("../../..").canonicalize().unwrap();
     println!("cargo:rerun-if-changed=wrapper.h");
+    println!("cargo:rerun-if-changed=shims.c");
     println!(
         "cargo:rustc-link-search=native={}",
         repo.join("libavutil").display()
@@ -87,9 +88,16 @@ fn main() {
         .allowlist_function(
             "^(av_add_q|av_alpha_mode_from_name|av_alpha_mode_name|av_audio_fifo_(drain|peek|peek_at|read|realloc|reset|size|space|write)|av_channel_(description|from_string|name)|av_chroma_location_(enum_to_pos|name|pos_to_enum)|av_color_(primaries|range|space|transfer)_name|av_d2q|av_dict_(copy|count|get|get_string|iterate|parse_string|set|set_int)|av_div_q|av_frame_side_data_name|av_gcd_q|av_get_bytes_per_sample|av_get_media_type_string|av_get_packed_sample_fmt|av_get_pix_fmt|av_get_pix_fmt_name|av_get_planar_sample_fmt|av_get_sample_fmt|av_get_sample_fmt_name|av_hwdevice_(find_type_by_name|get_type_name|iterate_types)|av_image_alloc)$",
         )
+        .allowlist_function("^av_(append_path_component|asprintf|basename|calloc|color_(primaries|range|space|transfer)_from_name|dirname|dynarray2_add|dynarray_add_nofree|fast_malloc|fast_mallocz|fast_realloc|get_token|hash_names|image_check_size|image_copy_plane|image_copy_plane_uc_from|match_list|max_alloc|memcpy_backptr|opt_child_next|opt_copy|opt_flag_is_set|opt_free|opt_get|opt_get_array_size|opt_get_double|opt_get_image_size|opt_get_int|opt_get_key_value|opt_is_set_to_default_by_name)$")
+        .allowlist_function("^crustify_av_(ceil_log2_c|clip64_c|clip_c|clip_int16_c|clip_int8_c|clip_intp2_c|clip_uint16_c|clip_uint8_c|clip_uintp2_c|clipd_c|clipf_c|clipl_int32_c|isdigit|isgraph|isspace|isxdigit)$")
         .generate()
         .expect("generate libavutil bindings");
     bindings
         .write_to_file(PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("bindings.rs"))
         .expect("write libavutil bindings");
+
+    cc::Build::new()
+        .file("shims.c")
+        .include(&repo)
+        .compile("libavutil_crustify_shims");
 }

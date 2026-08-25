@@ -14,6 +14,33 @@ use crate::pixfmt::AVPixelFormat;
 use crate::rational::AVRationalRef;
 use crate::samplefmt::AVSampleFormat;
 
+/// Shared borrowed handle to a well-formed AVClass-bearing object.
+#[derive(Clone, Copy)]
+pub struct OptionObjectRef<'a> {
+    pointer: NonNull<c_void>,
+    _borrow: PhantomData<&'a c_void>,
+}
+
+impl<'a> OptionObjectRef<'a> {
+    /// Constructs a shared option-object handle.
+    ///
+    /// # Safety
+    ///
+    /// `pointer` must remain live for `'a`, start with a valid `AVClass *`, and
+    /// every option field and child returned by that class must satisfy the
+    /// representation and lifetime contract declared by its `AVOption`.
+    pub unsafe fn from_raw(pointer: NonNull<c_void>) -> Self {
+        Self {
+            pointer,
+            _borrow: PhantomData,
+        }
+    }
+
+    fn as_ptr(self) -> *mut c_void {
+        self.pointer.as_ptr()
+    }
+}
+
 /// Exclusive borrowed handle to an AVClass-bearing object whose concrete type
 /// has not yet been translated. It keeps the unavoidable erased pointer at one
 /// explicit construction seam instead of repeating it in every option setter.
@@ -28,11 +55,20 @@ impl<'a> OptionObjectMut<'a> {
     /// # Safety
     ///
     /// `pointer` must remain live and exclusively borrowed for `'a`; it must
-    /// identify either an object whose first field is `AVClass *`, or the fake
-    /// object shape required by the search flags passed to a setter.
+    /// identify an object whose first field is a valid `AVClass *`. Every field
+    /// described by that class's options must hold a valid value of the declared
+    /// C representation, including any owned allocation it names.
     pub unsafe fn from_raw(pointer: NonNull<c_void>) -> Self {
         Self {
             pointer,
+            _borrow: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn as_ref(&self) -> OptionObjectRef<'_> {
+        OptionObjectRef {
+            pointer: self.pointer,
             _borrow: PhantomData,
         }
     }
@@ -2687,5 +2723,238 @@ mod option_range_tests {
         let second = range.take_string().expect("string was stored");
         assert_eq!(second.as_c_str(), c"second");
         assert!(range.as_ref().string().is_none());
+    }
+}
+
+/// Wraps: av_opt_child_next
+#[must_use]
+pub fn av_opt_child_next<'a>(
+    object: OptionObjectRef<'a>,
+    previous: Option<OptionObjectRef<'a>>,
+) -> Option<OptionObjectRef<'a>> {
+    // SAFETY: the handle invariant includes the class callback contract: it may
+    // inspect these borrowed objects and returns null or another well-formed
+    // child kept alive by the root object for `'a`.
+    let pointer = unsafe {
+        ffi::av_opt_child_next(
+            object.as_ptr(),
+            previous.map_or(core::ptr::null_mut(), OptionObjectRef::as_ptr),
+        )
+    };
+    NonNull::new(pointer).map(|pointer| OptionObjectRef {
+        pointer,
+        _borrow: PhantomData,
+    })
+}
+
+/// Wraps: av_opt_copy
+pub fn av_opt_copy(
+    destination: &mut OptionObjectMut<'_>,
+    source: OptionObjectRef<'_>,
+) -> Result<(), i32> {
+    // SAFETY: both handles guarantee well-formed fields for one identical class;
+    // Rust makes the destination exclusive and source shared for the call.
+    let status = unsafe { ffi::av_opt_copy(destination.as_mut_ptr(), source.as_ptr()) };
+    if status < 0 { Err(status) } else { Ok(()) }
+}
+
+/// Wraps: av_opt_flag_is_set
+#[must_use]
+pub fn av_opt_flag_is_set(
+    object: OptionObjectRef<'_>,
+    field_name: &CStr,
+    flag_name: &CStr,
+) -> bool {
+    // SAFETY: the handle carries a well-formed option object and both names are
+    // live terminated strings read only during the call.
+    unsafe {
+        ffi::av_opt_flag_is_set(object.as_ptr(), field_name.as_ptr(), flag_name.as_ptr()) != 0
+    }
+}
+
+/// Wraps: av_opt_free
+///
+/// Disposes all option-owned fields without freeing the object itself.
+pub fn av_opt_free(object: &mut OptionObjectMut<'_>) {
+    // SAFETY: the handle invariant guarantees every option-owned field is valid;
+    // exclusive access permits C to dispose and reset those fields.
+    unsafe { ffi::av_opt_free(object.as_mut_ptr()) }
+}
+
+/// Wraps: av_opt_get
+pub fn av_opt_get(
+    object: OptionObjectRef<'_>,
+    name: &CStr,
+    search_flags: i32,
+) -> Result<Option<CrustifyStr<AvFree>>, i32> {
+    let mut output = core::ptr::null_mut();
+    // SAFETY: the object and name borrows are live; `output` is a writable slot.
+    // C returns null or a new av_malloc-family terminated string.
+    let status = unsafe {
+        ffi::av_opt_get(
+            object.as_ptr(),
+            name.as_ptr(),
+            search_flags,
+            &raw mut output,
+        )
+    };
+    if status < 0 {
+        Err(status)
+    } else {
+        // SAFETY: the successful C contract described above transfers ownership.
+        Ok(unsafe { CrustifyStr::from_raw(output.cast()) })
+    }
+}
+
+/// Wraps: av_opt_get_array_size
+pub fn av_opt_get_array_size(
+    object: OptionObjectRef<'_>,
+    name: &CStr,
+    search_flags: i32,
+) -> Result<u32, i32> {
+    let mut output = 0;
+    // SAFETY: the object and name are live and output is one writable `unsigned`.
+    let status = unsafe {
+        ffi::av_opt_get_array_size(
+            object.as_ptr(),
+            name.as_ptr(),
+            search_flags,
+            &raw mut output,
+        )
+    };
+    if status < 0 { Err(status) } else { Ok(output) }
+}
+
+/// Wraps: av_opt_get_double
+pub fn av_opt_get_double(
+    object: OptionObjectRef<'_>,
+    name: &CStr,
+    search_flags: i32,
+) -> Result<f64, i32> {
+    let mut output = 0.0;
+    // SAFETY: the object and name are live and output is one writable `double`.
+    let status = unsafe {
+        ffi::av_opt_get_double(
+            object.as_ptr(),
+            name.as_ptr(),
+            search_flags,
+            &raw mut output,
+        )
+    };
+    if status < 0 { Err(status) } else { Ok(output) }
+}
+
+/// Wraps: av_opt_get_image_size
+pub fn av_opt_get_image_size(
+    object: OptionObjectRef<'_>,
+    name: &CStr,
+    search_flags: i32,
+) -> Result<(i32, i32), i32> {
+    let (mut width, mut height) = (0, 0);
+    // SAFETY: the object and name are live and both outputs are writable ints.
+    let status = unsafe {
+        ffi::av_opt_get_image_size(
+            object.as_ptr(),
+            name.as_ptr(),
+            search_flags,
+            &raw mut width,
+            &raw mut height,
+        )
+    };
+    if status < 0 {
+        Err(status)
+    } else {
+        Ok((width, height))
+    }
+}
+
+/// Wraps: av_opt_get_int
+pub fn av_opt_get_int(
+    object: OptionObjectRef<'_>,
+    name: &CStr,
+    search_flags: i32,
+) -> Result<i64, i32> {
+    let mut output = 0;
+    // SAFETY: the object and name are live and output is one writable int64.
+    let status = unsafe {
+        ffi::av_opt_get_int(
+            object.as_ptr(),
+            name.as_ptr(),
+            search_flags,
+            &raw mut output,
+        )
+    };
+    if status < 0 { Err(status) } else { Ok(output) }
+}
+
+pub struct OptKeyValue {
+    pub key: Option<CrustifyStr<AvFree>>,
+    pub value: CrustifyStr<AvFree>,
+}
+
+/// Wraps: av_opt_get_key_value
+pub fn av_opt_get_key_value(
+    options: &mut &CStr,
+    key_value_separators: &CStr,
+    pair_separators: &CStr,
+    flags: u32,
+) -> Result<OptKeyValue, i32> {
+    let mut cursor = options.as_ptr();
+    let (mut key, mut value) = (core::ptr::null_mut(), core::ptr::null_mut());
+    // SAFETY: cursor and both separator strings are terminated and live; the
+    // three local pointer slots are writable. C advances cursor within the
+    // original string and returns newly allocated terminated strings.
+    let status = unsafe {
+        ffi::av_opt_get_key_value(
+            &raw mut cursor,
+            key_value_separators.as_ptr(),
+            pair_separators.as_ptr(),
+            flags,
+            &raw mut key,
+            &raw mut value,
+        )
+    };
+    if status < 0 {
+        return Err(status);
+    }
+    // SAFETY: success leaves cursor within the original terminated string.
+    *options = unsafe { CStr::from_ptr(cursor) };
+    // SAFETY: successful outputs are null or fresh av_malloc-family strings;
+    // value is guaranteed non-null by the C success path.
+    let key = unsafe { CrustifyStr::from_raw(key) };
+    // SAFETY: as above; `av_get_token` must have succeeded for status zero.
+    let value =
+        unsafe { CrustifyStr::from_raw(value) }.expect("C returned a null value on success");
+    Ok(OptKeyValue { key, value })
+}
+
+/// Wraps: av_opt_is_set_to_default_by_name
+pub fn av_opt_is_set_to_default_by_name(
+    object: OptionObjectRef<'_>,
+    name: &CStr,
+    search_flags: i32,
+) -> Result<bool, i32> {
+    // SAFETY: the object and name are live and read-only for the call.
+    let status = unsafe {
+        ffi::av_opt_is_set_to_default_by_name(object.as_ptr(), name.as_ptr(), search_flags)
+    };
+    if status < 0 {
+        Err(status)
+    } else {
+        Ok(status != 0)
+    }
+}
+
+#[cfg(test)]
+mod scheduled_get_tests {
+    use super::*;
+
+    #[test]
+    fn parses_owned_key_value_strings_and_advances() {
+        let mut options = c" key = 'some value',next=2";
+        let parsed = av_opt_get_key_value(&mut options, c"=", c",", 0).unwrap();
+        assert_eq!(parsed.key.unwrap().as_c_str(), c"key");
+        assert_eq!(parsed.value.as_c_str(), c"some value");
+        assert_eq!(options, c",next=2");
     }
 }

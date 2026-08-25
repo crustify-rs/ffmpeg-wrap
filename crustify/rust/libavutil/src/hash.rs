@@ -1,5 +1,6 @@
 //! Wrappers for `libavutil/hash.c`.
 
+use core::ffi::CStr;
 use core::ptr::{NonNull, addr_of_mut};
 
 use ffibox::{CCell, CDropped, CPtr, CType};
@@ -133,5 +134,30 @@ mod tests {
         // as `None` without invoking the destructor.
         let owner = unsafe { CBox::<AVHashContext>::from_raw(core::ptr::null_mut()) };
         assert!(owner.is_none());
+    }
+}
+
+/// Wraps: av_hash_names
+#[must_use]
+pub fn av_hash_names(index: i32) -> Option<&'static CStr> {
+    // SAFETY: C returns null or a pointer into its immutable static hash table.
+    let pointer = unsafe { ffi::av_hash_names(index) };
+    if pointer.is_null() {
+        None
+    } else {
+        // SAFETY: a non-null table entry is a static NUL-terminated name.
+        Some(unsafe { CStr::from_ptr(pointer) })
+    }
+}
+
+#[cfg(test)]
+mod scheduled_name_tests {
+    use super::*;
+
+    #[test]
+    fn indexes_static_hash_names() {
+        assert_eq!(av_hash_names(0), Some(c"MD5"));
+        assert_eq!(av_hash_names(-1), None);
+        assert_eq!(av_hash_names(i32::MAX), None);
     }
 }

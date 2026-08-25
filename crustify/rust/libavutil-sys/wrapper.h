@@ -25,3 +25,20 @@
 #include <libavutil/pixfmt.h>
 #include <libavutil/stereo3d.h>
 #include <libavutil/time.h>
+
+int crustify_av_ceil_log2_c(int value);
+int64_t crustify_av_clip64_c(int64_t value, int64_t min, int64_t max);
+int crustify_av_clip_c(int value, int min, int max);
+int16_t crustify_av_clip_int16_c(int value);
+int8_t crustify_av_clip_int8_c(int value);
+int crustify_av_clip_intp2_c(int value, int bits);
+uint16_t crustify_av_clip_uint16_c(int value);
+uint8_t crustify_av_clip_uint8_c(int value);
+unsigned crustify_av_clip_uintp2_c(int value, int bits);
+double crustify_av_clipd_c(double value, double min, double max);
+float crustify_av_clipf_c(float value, float min, float max);
+int32_t crustify_av_clipl_int32_c(int64_t value);
+int crustify_av_isdigit(int value);
+int crustify_av_isgraph(int value);
+int crustify_av_isspace(int value);
+int crustify_av_isxdigit(int value);

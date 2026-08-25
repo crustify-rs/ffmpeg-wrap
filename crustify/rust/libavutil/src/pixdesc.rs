@@ -922,3 +922,76 @@ mod scheduled_descriptor_tests {
         assert!(av_pix_fmt_desc_next(Some(first)).is_some());
     }
 }
+
+fn color_from_name<T>(
+    name: &CStr,
+    parse: unsafe extern "C" fn(*const core::ffi::c_char) -> i32,
+    convert: impl FnOnce(i32) -> T,
+) -> Result<T, i32> {
+    // SAFETY: `name` is a live terminated string and the selected parser only
+    // reads it for this call.
+    let value = unsafe { parse(name.as_ptr()) };
+    if value < 0 {
+        Err(value)
+    } else {
+        Ok(convert(value))
+    }
+}
+
+/// Wraps: av_color_primaries_from_name
+pub fn av_color_primaries_from_name(name: &CStr) -> Result<crate::pixfmt::AVColorPrimaries, i32> {
+    color_from_name(name, ffi::av_color_primaries_from_name, |value| {
+        crate::pixfmt::AVColorPrimaries::from_raw(value as ffi::AVColorPrimaries)
+    })
+}
+
+/// Wraps: av_color_range_from_name
+pub fn av_color_range_from_name(name: &CStr) -> Result<crate::pixfmt::AVColorRange, i32> {
+    color_from_name(name, ffi::av_color_range_from_name, |value| {
+        crate::pixfmt::AVColorRange::from_raw(value as ffi::AVColorRange)
+    })
+}
+
+/// Wraps: av_color_space_from_name
+pub fn av_color_space_from_name(name: &CStr) -> Result<crate::pixfmt::AVColorSpace, i32> {
+    color_from_name(name, ffi::av_color_space_from_name, |value| {
+        crate::pixfmt::AVColorSpace::from_raw(value as ffi::AVColorSpace)
+    })
+}
+
+/// Wraps: av_color_transfer_from_name
+pub fn av_color_transfer_from_name(
+    name: &CStr,
+) -> Result<crate::pixfmt::AVColorTransferCharacteristic, i32> {
+    color_from_name(name, ffi::av_color_transfer_from_name, |value| {
+        crate::pixfmt::AVColorTransferCharacteristic::from_raw(
+            value as ffi::AVColorTransferCharacteristic,
+        )
+    })
+}
+
+#[cfg(test)]
+mod scheduled_name_tests {
+    use super::*;
+    use crate::pixfmt::{
+        AVColorPrimaries, AVColorRange, AVColorSpace, AVColorTransferCharacteristic,
+    };
+
+    #[test]
+    fn parses_color_property_names() {
+        assert_eq!(
+            av_color_primaries_from_name(c"bt709"),
+            Ok(AVColorPrimaries::BT709)
+        );
+        assert_eq!(av_color_range_from_name(c"pc"), Ok(AVColorRange::JPEG));
+        assert_eq!(
+            av_color_space_from_name(c"bt2020nc"),
+            Ok(AVColorSpace::BT2020_NCL)
+        );
+        assert_eq!(
+            av_color_transfer_from_name(c"smpte2084"),
+            Ok(AVColorTransferCharacteristic::SMPTE2084)
+        );
+        assert!(av_color_range_from_name(c"missing").is_err());
+    }
+}

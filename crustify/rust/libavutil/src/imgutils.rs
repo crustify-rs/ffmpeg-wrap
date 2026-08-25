@@ -8,6 +8,7 @@ use crate::pixfmt::{AVColorRange, AVPixelFormat};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ImageError {
     LengthOverflow,
+    PlaneLayout,
     BufferTooSmall {
         required: usize,
     },
@@ -698,5 +699,171 @@ mod scheduled_alloc_tests {
             );
         }
         assert!(av_image_alloc(16, 16, AVPixelFormat::YUV420P, 1).is_ok());
+    }
+}
+
+/// Wraps: av_image_check_size
+pub fn av_image_check_size(
+    width: u32,
+    height: u32,
+    log_context: Option<crate::log::LogContextRef<'_>>,
+) -> Result<(), ImageError> {
+    // SAFETY: the optional context handle carries a live AVClass-bearing
+    // object; C only uses it for logging during this call.
+    let status = unsafe {
+        ffi::av_image_check_size(
+            width,
+            height,
+            0,
+            log_context.map_or(core::ptr::null_mut(), crate::log::LogContextRef::as_ptr),
+        )
+    };
+    if status < 0 {
+        Err(ImageError::Library(status))
+    } else {
+        Ok(())
+    }
+}
+
+fn plane_extent(stride: usize, width: usize, height: usize) -> Result<usize, ImageError> {
+    if height == 0 || width == 0 {
+        return Ok(0);
+    }
+    if stride < width {
+        return Err(ImageError::PlaneLayout);
+    }
+    (height - 1)
+        .checked_mul(stride)
+        .and_then(|prefix| prefix.checked_add(width))
+        .ok_or(ImageError::LengthOverflow)
+}
+
+fn check_plane_buffers(
+    destination: &[u8],
+    destination_stride: usize,
+    source: &[u8],
+    source_stride: usize,
+    byte_width: usize,
+    height: usize,
+) -> Result<(), ImageError> {
+    let destination_extent = plane_extent(destination_stride, byte_width, height)?;
+    let source_extent = plane_extent(source_stride, byte_width, height)?;
+    if destination.len() < destination_extent || source.len() < source_extent {
+        Err(ImageError::BufferTooSmall {
+            required: destination_extent.max(source_extent),
+        })
+    } else {
+        Ok(())
+    }
+}
+
+/// Wraps: av_image_copy_plane
+///
+/// This safe surface uses non-negative strides; callers express a bottom-up
+/// plane by slicing/reordering it before the call rather than by placing C's
+/// starting pointer in the middle of a Rust slice.
+pub fn av_image_copy_plane(
+    destination: &mut [u8],
+    destination_stride: usize,
+    source: &[u8],
+    source_stride: usize,
+    byte_width: usize,
+    height: usize,
+) -> Result<(), ImageError> {
+    check_plane_buffers(
+        destination,
+        destination_stride,
+        source,
+        source_stride,
+        byte_width,
+        height,
+    )?;
+    if byte_width == 0 || height == 0 {
+        return Ok(());
+    }
+    let dst_stride = i32::try_from(destination_stride).map_err(|_| ImageError::LengthOverflow)?;
+    let src_stride = i32::try_from(source_stride).map_err(|_| ImageError::LengthOverflow)?;
+    let width = i32::try_from(byte_width).map_err(|_| ImageError::LengthOverflow)?;
+    let height = i32::try_from(height).map_err(|_| ImageError::LengthOverflow)?;
+    // SAFETY: the extent check proves every row's source range readable and
+    // destination range writable. Rust's borrows also make the planes disjoint.
+    unsafe {
+        ffi::av_image_copy_plane(
+            destination.as_mut_ptr(),
+            dst_stride,
+            source.as_ptr(),
+            src_stride,
+            width,
+            height,
+        )
+    }
+    Ok(())
+}
+
+/// Wraps: av_image_copy_plane_uc_from
+pub fn av_image_copy_plane_uc_from(
+    destination: &mut [u8],
+    destination_stride: usize,
+    source: &[u8],
+    source_stride: usize,
+    byte_width: usize,
+    height: usize,
+) -> Result<(), ImageError> {
+    check_plane_buffers(
+        destination,
+        destination_stride,
+        source,
+        source_stride,
+        byte_width,
+        height,
+    )?;
+    if byte_width == 0 || height == 0 {
+        return Ok(());
+    }
+    let dst_stride = isize::try_from(destination_stride).map_err(|_| ImageError::LengthOverflow)?;
+    let src_stride = isize::try_from(source_stride).map_err(|_| ImageError::LengthOverflow)?;
+    let width = isize::try_from(byte_width).map_err(|_| ImageError::LengthOverflow)?;
+    let height = i32::try_from(height).map_err(|_| ImageError::LengthOverflow)?;
+    // SAFETY: the extent check proves every row's source range readable and
+    // destination range writable. The generic C fallback accepts normal memory
+    // as well as genuinely uncacheable source memory.
+    unsafe {
+        ffi::av_image_copy_plane_uc_from(
+            destination.as_mut_ptr(),
+            dst_stride,
+            source.as_ptr(),
+            src_stride,
+            width,
+            height,
+        )
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod scheduled_copy_tests {
+    use super::*;
+
+    #[test]
+    fn checks_geometry_and_copies_rows() {
+        av_image_check_size(16, 16, None).unwrap();
+        assert!(av_image_check_size(u32::MAX, u32::MAX, None).is_err());
+        let source = [1, 2, 9, 9, 3, 4, 9, 9];
+        let mut destination = [0; 8];
+        av_image_copy_plane(&mut destination, 4, &source, 4, 2, 2).unwrap();
+        assert_eq!(destination, [1, 2, 0, 0, 3, 4, 0, 0]);
+        let mut destination = [0; 8];
+        av_image_copy_plane_uc_from(&mut destination, 4, &source, 4, 2, 2).unwrap();
+        assert_eq!(destination, [1, 2, 0, 0, 3, 4, 0, 0]);
+    }
+
+    #[test]
+    fn rejects_under_sized_planes() {
+        let mut destination = [0; 3];
+        assert!(av_image_copy_plane(&mut destination, 2, &[1; 4], 2, 2, 2).is_err());
+        assert_eq!(
+            av_image_copy_plane(&mut [0; 4], 1, &[1; 4], 2, 2, 2),
+            Err(ImageError::PlaneLayout)
+        );
     }
 }

@@ -1,6 +1,7 @@
 //! Ownership strategies for memory allocated by libavutil.
 
 use core::ffi::{CStr, c_char, c_void};
+use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 
 use ffibox::{CCloned, CDropped, CLenCloned, CLenDropped, CVec, CVoidBox, CrustifyStr};
@@ -899,5 +900,325 @@ mod scheduled_symbol_tests {
         av_dynarray_add(&mut array, None).expect("add");
         assert_eq!(array.count(), 1);
         assert!(array.as_slice()[0].is_null());
+    }
+}
+
+/// Wraps: av_calloc
+///
+/// Returns the complete zero-filled extent as bytes. Keeping the element type
+/// erased is intentional: all-zero is not a valid value of every Rust type.
+#[must_use]
+pub fn av_calloc(count: usize, element_size: usize) -> Option<CVec<u8, AvFree>> {
+    let byte_len = count.checked_mul(element_size)?;
+    // SAFETY: a non-null result is a fresh av_malloc-family allocation whose
+    // requested `byte_len` bytes C initialized to zero.
+    unsafe { CVec::from_raw_parts(ffi::av_calloc(count, element_size).cast(), byte_len) }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DynArray2AddError {
+    EmptyElement,
+    ElementSizeChanged,
+    CountOverflow,
+    LengthOverflow,
+    AllocationFailed,
+}
+
+/// An initialized byte array grown with `av_dynarray2_add`.
+pub struct AvByteDynArray {
+    storage: Option<CVec<u8, AvFree>>,
+    element_size: usize,
+    elements: usize,
+}
+
+impl AvByteDynArray {
+    #[must_use]
+    pub const fn new(element_size: usize) -> Self {
+        Self {
+            storage: None,
+            element_size,
+            elements: 0,
+        }
+    }
+
+    #[must_use]
+    pub fn element_size(&self) -> usize {
+        self.element_size
+    }
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.elements
+    }
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.elements == 0
+    }
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.storage.as_ref().map_or(&[], CVec::as_slice)
+    }
+}
+
+/// Wraps: av_dynarray2_add
+///
+/// Appends one fully initialized byte element. The dedicated owner preserves
+/// the geometric spare-capacity invariant required by the C growth macro.
+pub fn av_dynarray2_add(
+    array: &mut AvByteDynArray,
+    element: &[u8],
+) -> Result<(), DynArray2AddError> {
+    if element.is_empty() {
+        return Err(DynArray2AddError::EmptyElement);
+    }
+    if array.element_size == 0 {
+        array.element_size = element.len();
+    } else if array.element_size != element.len() {
+        return Err(DynArray2AddError::ElementSizeChanged);
+    }
+    let next_elements = array
+        .elements
+        .checked_add(1)
+        .ok_or(DynArray2AddError::CountOverflow)?;
+    next_elements
+        .checked_mul(array.element_size)
+        .ok_or(DynArray2AddError::LengthOverflow)?;
+    let mut count = i32::try_from(array.elements).map_err(|_| DynArray2AddError::CountOverflow)?;
+    let mut pointer = array.storage.take().map_or(core::ptr::null_mut(), |owner| {
+        owner.into_raw_parts().0.cast::<c_void>()
+    });
+    // SAFETY: `pointer` is null or the uniquely owned allocation this type only
+    // ever obtains from the same geometric C grower. `element` supplies exactly
+    // one initialized element and both local slots are writable.
+    let appended = unsafe {
+        ffi::av_dynarray2_add(
+            &raw mut pointer,
+            &raw mut count,
+            array.element_size,
+            element.as_ptr(),
+        )
+    };
+    if appended.is_null() {
+        debug_assert!(pointer.is_null());
+        array.elements = 0;
+        return Err(DynArray2AddError::AllocationFailed);
+    }
+    let elements = usize::try_from(count).expect("C returned a negative dynarray count");
+    let byte_len = elements
+        .checked_mul(array.element_size)
+        .ok_or(DynArray2AddError::LengthOverflow)?;
+    // SAFETY: C returned a unique av_malloc-family allocation and initialized
+    // the newly appended element; all earlier logical elements were initialized
+    // by prior calls. Spare capacity remains outside this logical byte count.
+    array.storage = unsafe { CVec::from_raw_parts(pointer.cast(), byte_len) };
+    array.elements = elements;
+    Ok(())
+}
+
+/// Wraps: av_dynarray_add_nofree
+///
+/// Like [`av_dynarray_add`], but allocation failure preserves the old table.
+pub fn av_dynarray_add_nofree<T>(
+    array: &mut AvDynArray<T>,
+    element: Option<NonNull<T>>,
+) -> Result<(), DynArrayAddError> {
+    let old_count = array.count();
+    let mut count = i32::try_from(old_count).map_err(|_| DynArrayAddError::CountOverflow)?;
+    let mut pointer = array
+        .table
+        .take()
+        .map_or(core::ptr::null_mut(), |owner| owner.into_raw_parts().0);
+    let old_pointer = pointer;
+    // SAFETY: the array invariant supplies the geometric capacity C assumes;
+    // C only copies the opaque element pointer and does not retain it elsewhere.
+    let status = unsafe {
+        ffi::av_dynarray_add_nofree(
+            (&raw mut pointer).cast(),
+            &raw mut count,
+            element
+                .map_or(core::ptr::null_mut(), NonNull::as_ptr)
+                .cast(),
+        )
+    };
+    if status < 0 {
+        // SAFETY: `av_realloc` failure leaves the original allocation live and
+        // unchanged; ownership is restored with its original logical count.
+        array.table = unsafe { CVec::from_raw_parts(old_pointer, old_count) };
+        return Err(DynArrayAddError::AllocationFailed);
+    }
+    let count = usize::try_from(count).expect("C returned a negative dynarray count");
+    // SAFETY: success returns the unique grown table with `count` initialized
+    // pointer elements and the same geometric capacity invariant.
+    array.table = unsafe { CVec::from_raw_parts(pointer, count) };
+    Ok(())
+}
+
+/// Owned storage managed by the `av_fast_*` family.
+pub struct AvFastBuffer {
+    storage: Option<CVec<MaybeUninit<u8>, AvFree>>,
+}
+
+impl Default for AvFastBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AvFastBuffer {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { storage: None }
+    }
+    #[must_use]
+    pub fn capacity(&self) -> usize {
+        self.storage.as_ref().map_or(0, CVec::count)
+    }
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.storage.is_none()
+    }
+}
+
+fn fast_malloc(buffer: &mut AvFastBuffer, min_size: usize, zeroed: bool) -> bool {
+    let mut size = match u32::try_from(buffer.capacity()) {
+        Ok(size) => size,
+        Err(_) => return false,
+    };
+    let mut pointer = buffer
+        .storage
+        .take()
+        .map_or(core::ptr::null_mut(), |owner| {
+            owner.into_raw_parts().0.cast::<c_void>()
+        });
+    // SAFETY: the pointer slot contains null or one unique av_malloc-family
+    // allocation, paired with its exact capacity. C consumes/replaces it only
+    // when growth is required and writes both local slots consistently.
+    unsafe {
+        if zeroed {
+            ffi::av_fast_mallocz((&raw mut pointer).cast(), &raw mut size, min_size);
+        } else {
+            ffi::av_fast_malloc((&raw mut pointer).cast(), &raw mut size, min_size);
+        }
+    }
+    // SAFETY: C returned null or unique av_malloc-family storage of `size`
+    // bytes. `MaybeUninit<u8>` makes no initialization assertion.
+    buffer.storage = unsafe { CVec::from_raw_parts(pointer.cast(), size as usize) };
+    !pointer.is_null()
+}
+
+/// Wraps: av_fast_malloc
+pub fn av_fast_malloc(buffer: &mut AvFastBuffer, min_size: usize) -> bool {
+    fast_malloc(buffer, min_size, false)
+}
+
+/// Wraps: av_fast_mallocz
+pub fn av_fast_mallocz(buffer: &mut AvFastBuffer, min_size: usize) -> bool {
+    fast_malloc(buffer, min_size, true)
+}
+
+/// Wraps: av_fast_realloc
+///
+/// On failure the old allocation is restored to `buffer` rather than leaked.
+pub fn av_fast_realloc(buffer: &mut AvFastBuffer, min_size: usize) -> bool {
+    let old_count = buffer.capacity();
+    let mut size = match u32::try_from(old_count) {
+        Ok(size) => size,
+        Err(_) => return false,
+    };
+    let original = buffer
+        .storage
+        .take()
+        .map_or(core::ptr::null_mut(), |owner| {
+            owner.into_raw_parts().0.cast::<c_void>()
+        });
+    // SAFETY: `original` is null or unique av_malloc-family storage paired with
+    // `size`; C returns that allocation, its resized successor, or null while
+    // leaving the original live.
+    let resized = unsafe { ffi::av_fast_realloc(original, &raw mut size, min_size) };
+    if resized.is_null() {
+        // SAFETY: on failure av_realloc leaves the old allocation live.
+        buffer.storage = unsafe { CVec::from_raw_parts(original.cast(), old_count) };
+        false
+    } else {
+        // SAFETY: success returns unique storage of the reported capacity.
+        buffer.storage = unsafe { CVec::from_raw_parts(resized.cast(), size as usize) };
+        true
+    }
+}
+
+/// Wraps: av_max_alloc
+pub fn av_max_alloc(maximum: usize) {
+    // SAFETY: C atomically updates a process-global numeric limit.
+    unsafe { ffi::av_max_alloc(maximum) }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BackPointerError {
+    RangeOverflow,
+    InvalidBackDistance,
+    DestinationTooSmall,
+}
+
+/// Wraps: av_memcpy_backptr
+pub fn av_memcpy_backptr(
+    buffer: &mut [u8],
+    destination: usize,
+    back: usize,
+    count: usize,
+) -> Result<(), BackPointerError> {
+    if back == 0 || back > destination {
+        return Err(BackPointerError::InvalidBackDistance);
+    }
+    let end = destination
+        .checked_add(count)
+        .ok_or(BackPointerError::RangeOverflow)?;
+    if end > buffer.len() {
+        return Err(BackPointerError::DestinationTooSmall);
+    }
+    let back = i32::try_from(back).map_err(|_| BackPointerError::RangeOverflow)?;
+    let count = i32::try_from(count).map_err(|_| BackPointerError::RangeOverflow)?;
+    // SAFETY: the checked range provides `back` initialized bytes before the
+    // destination and `count` writable bytes at it. C's overlap algorithm is
+    // specifically defined to repeat from that prefix.
+    unsafe { ffi::av_memcpy_backptr(buffer.as_mut_ptr().add(destination), back, count) }
+    Ok(())
+}
+
+#[cfg(test)]
+mod scheduled_more_tests {
+    use super::*;
+
+    #[test]
+    fn calloc_and_byte_dynarray_own_initialized_bytes() {
+        let zeroes = av_calloc(4, 3).expect("calloc");
+        assert_eq!(zeroes.as_slice(), &[0; 12]);
+        let mut array = AvByteDynArray::new(2);
+        av_dynarray2_add(&mut array, &[1, 2]).unwrap();
+        av_dynarray2_add(&mut array, &[3, 4]).unwrap();
+        assert_eq!(array.as_bytes(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn nofree_array_and_fast_buffers_preserve_ownership() {
+        let mut value = 7;
+        let mut array = AvDynArray::new();
+        av_dynarray_add_nofree(&mut array, Some(NonNull::from(&mut value))).unwrap();
+        assert_eq!(array.count(), 1);
+        let mut buffer = AvFastBuffer::new();
+        assert!(av_fast_malloc(&mut buffer, 10));
+        assert!(buffer.capacity() >= 10);
+        assert!(av_fast_realloc(&mut buffer, 100));
+        assert!(buffer.capacity() >= 100);
+        assert!(av_fast_mallocz(&mut buffer, 200));
+    }
+
+    #[test]
+    fn copies_from_an_initialized_back_reference() {
+        let mut bytes = *b"abc.........";
+        av_memcpy_backptr(&mut bytes, 3, 3, 9).unwrap();
+        assert_eq!(&bytes, b"abcabcabcabc");
+        assert_eq!(
+            av_memcpy_backptr(&mut bytes, 2, 3, 1),
+            Err(BackPointerError::InvalidBackDistance)
+        );
     }
 }
