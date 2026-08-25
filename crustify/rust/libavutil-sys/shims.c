@@ -21,6 +21,19 @@ int crustify_av_isdigit(int value) { return av_isdigit(value); }
 int crustify_av_isgraph(int value) { return av_isgraph(value); }
 int crustify_av_isspace(int value) { return av_isspace(value); }
 int crustify_av_isxdigit(int value) { return av_isxdigit(value); }
+size_t crustify_av_strnlen(const char *s, size_t len) { return av_strnlen(s, len); }
+int crustify_av_tolower(int value) { return av_tolower(value); }
+int crustify_av_toupper(int value) { return av_toupper(value); }
+unsigned crustify_av_zero_extend_c(unsigned value, unsigned bits) { return av_zero_extend_c(value, bits); }
+int crustify_av_popcount_c(uint32_t value) { return av_popcount_c(value); }
+int crustify_av_popcount64_c(uint64_t value) { return av_popcount64_c(value); }
+int crustify_av_parity_c(uint32_t value) { return av_parity_c(value); }
+int crustify_av_sat_add32_c(int a, int b) { return av_sat_add32_c(a, b); }
+int crustify_av_sat_sub32_c(int a, int b) { return av_sat_sub32_c(a, b); }
+int crustify_av_sat_dadd32_c(int a, int b) { return av_sat_dadd32_c(a, b); }
+int crustify_av_sat_dsub32_c(int a, int b) { return av_sat_dsub32_c(a, b); }
+int64_t crustify_av_sat_add64_c(int64_t a, int64_t b) { return av_sat_add64_c(a, b); }
+int64_t crustify_av_sat_sub64_c(int64_t a, int64_t b) { return av_sat_sub64_c(a, b); }
 AVDOVIRpuDataHeader *crustify_av_dovi_get_header(const AVDOVIMetadata *data) { return av_dovi_get_header(data); }
 AVDOVIDataMapping *crustify_av_dovi_get_mapping(const AVDOVIMetadata *data) { return av_dovi_get_mapping(data); }
 AVDOVIColorMetadata *crustify_av_dovi_get_color(const AVDOVIMetadata *data) { return av_dovi_get_color(data); }

@@ -30,6 +30,12 @@ impl<'a> OptionObjectRef<'a> {
     /// `pointer` must remain live for `'a`, start with a valid `AVClass *`, and
     /// every option field and child returned by that class must satisfy the
     /// representation and lifetime contract declared by its `AVOption`.
+    ///
+    /// The class's `child_next` callback must also accept, as its cursor,
+    /// `NULL` or any handle a previous [`av_opt_child_next`] returned for this
+    /// object. C documents that pairing as the caller's obligation and an
+    /// implementation is entitled to read the cursor, which no safe signature
+    /// can enforce once handles to two objects exist.
     pub unsafe fn from_raw(pointer: NonNull<c_void>) -> Self {
         Self {
             pointer,
@@ -2849,14 +2855,21 @@ mod option_range_tests {
 }
 
 /// Wraps: av_opt_child_next
+///
+/// Steps one position through `object`'s option-bearing children. `previous`
+/// is `None` for the first child and otherwise the handle the previous call
+/// returned for this same object — C's `child_next` callback is free to read
+/// it, and the obligation to pass a cursor from this iteration is part of what
+/// [`OptionObjectRef::from_raw`] made the caller vouch for.
 #[must_use]
 pub fn av_opt_child_next<'a>(
     object: OptionObjectRef<'a>,
     previous: Option<OptionObjectRef<'a>>,
 ) -> Option<OptionObjectRef<'a>> {
-    // SAFETY: the handle invariant includes the class callback contract: it may
-    // inspect these borrowed objects and returns null or another well-formed
-    // child kept alive by the root object for `'a`.
+    // SAFETY: `object` carries a valid class pointer, so the `child_next`
+    // callback loaded from it is the one its own construction vouched for; the
+    // same obligation covers the cursor it is handed and makes any non-null
+    // result a well-formed child the root object keeps alive for `'a`.
     let pointer = unsafe {
         ffi::av_opt_child_next(
             object.as_ptr(),
@@ -2870,12 +2883,22 @@ pub fn av_opt_child_next<'a>(
 }
 
 /// Wraps: av_opt_copy
+///
+/// Copies every option value from `source` to `destination`, releasing what
+/// the destination held and duplicating each owned allocation. The two must
+/// carry the same class: C compares them itself and refuses a mismatch with
+/// `EINVAL`, so that is an error rather than a caller obligation.
 pub fn av_opt_copy(
     destination: &mut OptionObjectMut<'_>,
     source: OptionObjectRef<'_>,
 ) -> Result<(), i32> {
-    // SAFETY: both handles guarantee well-formed fields for one identical class;
-    // Rust makes the destination exclusive and source shared for the call.
+    // SAFETY: each handle carries a valid class pointer and a valid current
+    // value in every option-described field, which is what lets C release the
+    // destination's and duplicate the source's. Class identity is C's own
+    // precondition and C's own check, not one asserted here. Rust makes the
+    // destination exclusive and the source shared, so the two cannot be the
+    // same object — the aliasing case in which C would free a field through
+    // one handle and then duplicate it through the other.
     let status = unsafe { ffi::av_opt_copy(destination.as_mut_ptr(), source.as_ptr()) };
     if status < 0 { Err(status) } else { Ok(()) }
 }
@@ -3729,5 +3752,406 @@ mod scheduled_child_class_tests {
         let parent = unsafe { AVClassRef::from_ptr((&raw const raw).cast_mut()) }.unwrap();
         assert!(av_opt_child_class_iterate(parent).next().is_none());
         assert_eq!(CALLBACK_CALLS.load(Ordering::Relaxed), 1);
+    }
+}
+
+/// Wraps: av_opt_set_defaults
+///
+/// Writes every option's declared default into the object. A string, binary or
+/// array option releases whatever it currently holds first, which is why this
+/// takes the exclusive handle and why the handle invariant — every
+/// option-described field holds a valid value of its declared representation —
+/// is what makes the call safe rather than a free of uninitialized storage.
+pub fn av_opt_set_defaults(object: &mut OptionObjectMut<'_>) {
+    // SAFETY: the handle invariant guarantees a valid class pointer and a
+    // valid current value in every option-described field, so C may release
+    // each one before storing its default. Exclusive access permits the writes.
+    unsafe { ffi::av_opt_set_defaults(object.as_mut_ptr()) }
+}
+
+/// Wraps: av_opt_set_defaults2
+///
+/// [`av_opt_set_defaults`] restricted to the options whose flag word satisfies
+/// `flags == option_flags & mask`. `AV_OPT_FLAG_READONLY` entries are skipped
+/// either way.
+pub fn av_opt_set_defaults2(object: &mut OptionObjectMut<'_>, mask: i32, flags: i32) {
+    // SAFETY: as in `av_opt_set_defaults` — a valid class and valid current
+    // field values, written through an exclusive handle. The two flag words
+    // only select which options are visited.
+    unsafe { ffi::av_opt_set_defaults2(object.as_mut_ptr(), mask, flags) }
+}
+
+/// Wraps: av_opt_show2
+///
+/// Logs the object's option table through the libavutil log callback.
+/// `log_context` supplies the object whose class and log level the lines are
+/// attributed to; `None` is C's null, which logs unattributed.
+///
+/// C's only failure is a null object, which this signature cannot express, so
+/// there is no status to return.
+pub fn av_opt_show2(
+    object: OptionObjectRef<'_>,
+    log_context: Option<crate::log::LogContextRef<'_>>,
+    required_flags: i32,
+    rejected_flags: i32,
+) {
+    // SAFETY: both handles carry live AVClass-bearing objects. C only reads the
+    // option table and the current values it prints, and releases every range
+    // aggregate it queries along the way.
+    let status = unsafe {
+        ffi::av_opt_show2(
+            object.as_ptr(),
+            log_context.map_or(core::ptr::null_mut(), crate::log::LogContextRef::as_ptr),
+            required_flags,
+            rejected_flags,
+        )
+    };
+    debug_assert_eq!(status, 0, "a non-null object cannot fail av_opt_show2");
+}
+
+/// The most shorthand names one [`av_opt_set_from_string`] call accepts.
+///
+/// C wants a NULL-terminated `const char *const *`, which no borrowed Rust
+/// slice is: the terminator has to live in an array the wrapper owns. This
+/// crate is `no_std`, so that array is a fixed-size stack frame rather than a
+/// heap allocation, and its capacity becomes part of the contract.
+pub const MAX_SHORTHAND_NAMES: usize = 32;
+
+/// A failed [`av_opt_set_from_string`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OptSetFromStringError {
+    /// More names than [`MAX_SHORTHAND_NAMES`] were supplied.
+    TooManyShorthandNames,
+    Library(i32),
+}
+
+/// Wraps: av_opt_set_from_string
+///
+/// Parses `options` as a list of `key=value` pairs and applies each one.
+/// `shorthand` names the options a value may be given for without its key, in
+/// order; an empty slice is C's null table. Returns the number of pairs set.
+pub fn av_opt_set_from_string(
+    object: &mut OptionObjectMut<'_>,
+    options: Option<&CStr>,
+    shorthand: &[&CStr],
+    key_value_separators: &CStr,
+    pair_separators: &CStr,
+) -> Result<usize, OptSetFromStringError> {
+    if shorthand.len() >= MAX_SHORTHAND_NAMES {
+        return Err(OptSetFromStringError::TooManyShorthandNames);
+    }
+    // The unused tail stays null, so the first spare slot is the terminator C
+    // stops at. C never walks past it: the only advance past a name happens
+    // after reading a non-null one.
+    let mut table = [core::ptr::null::<c_char>(); MAX_SHORTHAND_NAMES];
+    for (slot, name) in table.iter_mut().zip(shorthand) {
+        *slot = name.as_ptr();
+    }
+    // SAFETY: the exclusive handle carries a well-formed option object; the
+    // option text and both separators are live terminated strings, and `table`
+    // is a live NUL-terminated name vector whose entries outlive the call. C
+    // retains none of them.
+    let status = unsafe {
+        ffi::av_opt_set_from_string(
+            object.as_mut_ptr(),
+            options.map_or(core::ptr::null(), CStr::as_ptr),
+            table.as_ptr(),
+            key_value_separators.as_ptr(),
+            pair_separators.as_ptr(),
+        )
+    };
+    if status < 0 {
+        Err(OptSetFromStringError::Library(status))
+    } else {
+        Ok(usize::try_from(status).expect("a non-negative option count"))
+    }
+}
+
+/// Wraps: av_set_options_string
+///
+/// The shorthand-free form of [`av_opt_set_from_string`]: every pair in
+/// `options` must carry its own key. Returns the number of pairs set.
+pub fn av_set_options_string(
+    object: &mut OptionObjectMut<'_>,
+    options: Option<&CStr>,
+    key_value_separators: &CStr,
+    pair_separators: &CStr,
+) -> Result<usize, i32> {
+    // SAFETY: the exclusive handle carries a well-formed option object and the
+    // option text and both separators are live terminated strings C only reads.
+    let status = unsafe {
+        ffi::av_set_options_string(
+            object.as_mut_ptr(),
+            options.map_or(core::ptr::null(), CStr::as_ptr),
+            key_value_separators.as_ptr(),
+            pair_separators.as_ptr(),
+        )
+    };
+    if status < 0 {
+        Err(status)
+    } else {
+        Ok(usize::try_from(status).expect("a non-negative option count"))
+    }
+}
+
+/// A failed [`av_opt_serialize`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OptSerializeError {
+    /// C refuses a NUL, a backslash, or two equal separators, because the
+    /// result it would produce could not be parsed back.
+    InvalidSeparators,
+    Library(i32),
+}
+
+/// Wraps: av_opt_serialize
+///
+/// Renders the object's options as a `key=value` list joined by
+/// `pair_separator`, the inverse of [`av_set_options_string`]. `flags` is a set
+/// of `AV_OPT_SERIALIZE_*` values and `option_flags` selects options by their
+/// own flag word.
+pub fn av_opt_serialize(
+    object: OptionObjectRef<'_>,
+    option_flags: i32,
+    flags: i32,
+    key_value_separator: u8,
+    pair_separator: u8,
+) -> Result<CrustifyStr<AvFree>, OptSerializeError> {
+    let mut buffer = core::ptr::null_mut();
+    // SAFETY: the handle carries a well-formed option object C only reads;
+    // `buffer` is a writable slot which receives a finalized av_malloc-family
+    // string on success. Both separators are copied `char` values.
+    let status = unsafe {
+        ffi::av_opt_serialize(
+            object.as_ptr(),
+            option_flags,
+            flags,
+            &raw mut buffer,
+            key_value_separator as c_char,
+            pair_separator as c_char,
+        )
+    };
+    if status < 0 {
+        // C's own separator validation runs first and is the one failure a
+        // caller can fix by choosing different ones.
+        return Err(
+            if invalid_serialize_separators(key_value_separator, pair_separator) {
+                OptSerializeError::InvalidSeparators
+            } else {
+                OptSerializeError::Library(status)
+            },
+        );
+    }
+    // SAFETY: on success `av_bprint_finalize` transferred one non-null
+    // av_malloc-family terminated string into the slot.
+    Ok(unsafe { CrustifyStr::from_raw(buffer) }
+        .expect("av_opt_serialize succeeded without returning a string"))
+}
+
+/// The separator rule `av_opt_serialize` checks before anything else.
+fn invalid_serialize_separators(key_value_separator: u8, pair_separator: u8) -> bool {
+    pair_separator == 0
+        || key_value_separator == 0
+        || pair_separator == key_value_separator
+        || pair_separator == b'\\'
+        || key_value_separator == b'\\'
+}
+
+#[cfg(test)]
+mod scheduled_defaults_tests {
+    use core::mem::offset_of;
+
+    use super::*;
+
+    /// The smallest object the whole-table entry points need: a class pointer,
+    /// one numeric field and one owned-string field, so a default, a parse and
+    /// a serialization each have something to act on.
+    #[repr(C)]
+    struct DefaultsObject {
+        class: *const ffi::AVClass,
+        integer: i64,
+        text: *mut c_char,
+    }
+
+    const TYPE_INT64: ffi::AVOptionType = ffi::AVOptionType_AV_OPT_TYPE_INT64;
+    const TYPE_STRING: ffi::AVOptionType = ffi::AVOptionType_AV_OPT_TYPE_STRING;
+
+    fn options() -> [ffi::AVOption; 3] {
+        [
+            ffi::AVOption {
+                name: c"integer".as_ptr(),
+                help: core::ptr::null(),
+                offset: i32::try_from(offset_of!(DefaultsObject, integer)).expect("small offset"),
+                type_: TYPE_INT64,
+                default_val: ffi::AVOption__bindgen_ty_1 { i64_: 5 },
+                min: 0.0,
+                max: 1000.0,
+                flags: 1,
+                unit: core::ptr::null(),
+            },
+            ffi::AVOption {
+                name: c"text".as_ptr(),
+                help: core::ptr::null(),
+                offset: i32::try_from(offset_of!(DefaultsObject, text)).expect("small offset"),
+                type_: TYPE_STRING,
+                default_val: ffi::AVOption__bindgen_ty_1 {
+                    str_: c"hello".as_ptr(),
+                },
+                min: 0.0,
+                max: 0.0,
+                flags: 1,
+                unit: core::ptr::null(),
+            },
+            // `av_opt_next` stops at the first entry with a NULL name.
+            ffi::AVOption {
+                name: core::ptr::null(),
+                help: core::ptr::null(),
+                offset: 0,
+                type_: TYPE_INT64,
+                default_val: ffi::AVOption__bindgen_ty_1 { i64_: 0 },
+                min: 0.0,
+                max: 0.0,
+                flags: 0,
+                unit: core::ptr::null(),
+            },
+        ]
+    }
+
+    fn class(options: &[ffi::AVOption; 3]) -> ffi::AVClass {
+        ffi::AVClass {
+            class_name: c"crustify-defaults-test".as_ptr(),
+            item_name: None,
+            option: options.as_ptr(),
+            version: 0,
+            log_level_offset_offset: 0,
+            parent_log_context_offset: 0,
+            category: 0,
+            get_category: None,
+            query_ranges: None,
+            child_next: None,
+            child_class_iterate: None,
+            state_flags_offset: 0,
+        }
+    }
+
+    impl DefaultsObject {
+        fn new(class: &ffi::AVClass) -> Self {
+            Self {
+                class: core::ptr::from_ref(class),
+                integer: 0,
+                text: core::ptr::null_mut(),
+            }
+        }
+
+        /// What `av_opt_free` would do for a real object: release the one
+        /// option-owned allocation, so the sanitiser run sees no leak.
+        fn release(&mut self) {
+            if !self.text.is_null() {
+                // SAFETY: every writer of this field — `av_opt_set_defaults`
+                // and `av_opt_set` alike — stores an `av_strdup` result, a
+                // uniquely owned NUL-terminated av_malloc-family string. The
+                // field is cleared so no second owner can form.
+                drop(unsafe { CrustifyStr::<AvFree>::from_raw(self.text) });
+                self.text = core::ptr::null_mut();
+            }
+        }
+    }
+
+    #[test]
+    fn defaults_replace_whatever_the_fields_held() {
+        let options = options();
+        let class = class(&options);
+        let mut object = DefaultsObject::new(&class);
+        {
+            // SAFETY: `object` is live, initialized, starts with a valid class
+            // pointer, and its one owned field is NULL — a valid `char *`
+            // option value. This handle is its only access for the block.
+            let mut handle =
+                unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            av_opt_set_defaults(&mut handle);
+            assert_eq!(av_opt_get_int(handle.as_ref(), c"integer", 0), Ok(5));
+
+            // Re-running it releases the string it stored last time; a missed
+            // free here is what the sanitiser run reports.
+            av_opt_set_defaults(&mut handle);
+
+            // The mask/flags form visits only the matching entries, so a mask
+            // no option satisfies leaves the object exactly as it was.
+            av_opt_set_int(&mut handle, c"integer", 42, 0).expect("set integer");
+            av_opt_set_defaults2(&mut handle, 2, 2);
+            assert_eq!(av_opt_get_int(handle.as_ref(), c"integer", 0), Ok(42));
+            av_opt_set_defaults2(&mut handle, 1, 1);
+            assert_eq!(av_opt_get_int(handle.as_ref(), c"integer", 0), Ok(5));
+        }
+        // SAFETY: the string field holds the `av_strdup` result C stored for
+        // the default, still live and terminated.
+        assert_eq!(unsafe { CStr::from_ptr(object.text) }, c"hello");
+        object.release();
+    }
+
+    #[test]
+    fn string_entry_points_parse_and_serialize_the_same_object() {
+        let options = options();
+        let class = class(&options);
+        let mut object = DefaultsObject::new(&class);
+        {
+            // SAFETY: as above — a live object exclusively borrowed here.
+            let mut handle =
+                unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            av_opt_set_defaults(&mut handle);
+
+            assert_eq!(
+                av_set_options_string(&mut handle, Some(c"integer=7:text=abc"), c"=", c":"),
+                Ok(2)
+            );
+            assert_eq!(av_opt_get_int(handle.as_ref(), c"integer", 0), Ok(7));
+
+            // A shorthand name lets the first value arrive without its key.
+            assert_eq!(
+                av_opt_set_from_string(&mut handle, Some(c"9:text=xyz"), &[c"integer"], c"=", c":"),
+                Ok(2)
+            );
+            assert_eq!(av_opt_get_int(handle.as_ref(), c"integer", 0), Ok(9));
+            assert_eq!(
+                av_opt_get(handle.as_ref(), c"text", 0)
+                    .unwrap()
+                    .unwrap()
+                    .as_c_str(),
+                c"xyz"
+            );
+
+            // An empty table is C's null one, so a keyless value has nothing
+            // to bind to and the parse fails without setting anything.
+            assert!(matches!(
+                av_opt_set_from_string(&mut handle, Some(c"9"), &[], c"=", c":"),
+                Err(OptSetFromStringError::Library(_))
+            ));
+
+            let too_many = [c"integer"; MAX_SHORTHAND_NAMES];
+            assert_eq!(
+                av_opt_set_from_string(&mut handle, Some(c""), &too_many, c"=", c":"),
+                Err(OptSetFromStringError::TooManyShorthandNames)
+            );
+
+            // `None` is C's null option text, which sets nothing and succeeds.
+            assert_eq!(av_set_options_string(&mut handle, None, c"=", c":"), Ok(0));
+
+            let serialized =
+                av_opt_serialize(handle.as_ref(), 0, 0, b'=', b':').expect("every option renders");
+            assert_eq!(serialized.as_c_str(), c"integer=9:text=xyz");
+
+            assert_eq!(
+                av_opt_serialize(handle.as_ref(), 0, 0, b'=', b'=').err(),
+                Some(OptSerializeError::InvalidSeparators)
+            );
+            assert_eq!(
+                av_opt_serialize(handle.as_ref(), 0, 0, b'\\', b':').err(),
+                Some(OptSerializeError::InvalidSeparators)
+            );
+
+            // Logging the table is a pure read; it must leave the values alone.
+            av_opt_show2(handle.as_ref(), None, 0, 0);
+            assert_eq!(av_opt_get_int(handle.as_ref(), c"integer", 0), Ok(9));
+        }
+        object.release();
     }
 }

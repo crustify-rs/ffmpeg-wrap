@@ -125,3 +125,138 @@ mod tests {
         assert_eq!(av_ceil_log2_c(9), 4);
     }
 }
+
+/// Wraps: av_parity_c
+///
+/// Returns the parity bit of `value`: one when it has an odd number of set
+/// bits, zero otherwise.
+#[must_use]
+pub fn av_parity_c(value: u32) -> i32 {
+    // SAFETY: the shim accepts every `uint32_t` and performs pure arithmetic.
+    unsafe { ffi::crustify_av_parity_c(value) }
+}
+
+/// Wraps: av_popcount_c
+#[must_use]
+pub fn av_popcount_c(value: u32) -> i32 {
+    // SAFETY: the shim accepts every `uint32_t` and performs pure arithmetic.
+    unsafe { ffi::crustify_av_popcount_c(value) }
+}
+
+/// Wraps: av_popcount64_c
+#[must_use]
+pub fn av_popcount64_c(value: u64) -> i32 {
+    // SAFETY: the shim accepts every `uint64_t` and performs pure arithmetic.
+    unsafe { ffi::crustify_av_popcount64_c(value) }
+}
+
+/// Wraps: av_zero_extend_c
+///
+/// Keeps the low `bits` bits of `value`. `None` reports the one input the C
+/// helper cannot accept: it forms `1U << bits`, so a shift count at or past
+/// the width of C `unsigned` is undefined rather than a saturating no-op.
+#[must_use]
+pub fn av_zero_extend_c(value: u32, bits: u32) -> Option<u32> {
+    (bits <= 31).then(|| {
+        // SAFETY: the checked shift count is within the width of C `unsigned`,
+        // which is the helper's documented 0..=31 precondition.
+        unsafe { ffi::crustify_av_zero_extend_c(value, bits) }
+    })
+}
+
+/// Wraps: av_sat_add32_c
+#[must_use]
+pub fn av_sat_add32_c(a: i32, b: i32) -> i32 {
+    // SAFETY: the sum is formed in `int64_t`, so every `int` pair is accepted.
+    unsafe { ffi::crustify_av_sat_add32_c(a, b) }
+}
+
+/// Wraps: av_sat_sub32_c
+#[must_use]
+pub fn av_sat_sub32_c(a: i32, b: i32) -> i32 {
+    // SAFETY: the difference is formed in `int64_t`, so every `int` pair is
+    // accepted.
+    unsafe { ffi::crustify_av_sat_sub32_c(a, b) }
+}
+
+/// Wraps: av_sat_dadd32_c
+///
+/// Computes `sat(a + sat(2 * b))`, saturating at both stages.
+#[must_use]
+pub fn av_sat_dadd32_c(a: i32, b: i32) -> i32 {
+    // SAFETY: both stages saturate through the 64-bit clip, so every `int`
+    // pair is accepted.
+    unsafe { ffi::crustify_av_sat_dadd32_c(a, b) }
+}
+
+/// Wraps: av_sat_dsub32_c
+///
+/// Computes `sat(a - sat(2 * b))`, saturating at both stages.
+#[must_use]
+pub fn av_sat_dsub32_c(a: i32, b: i32) -> i32 {
+    // SAFETY: both stages saturate through the 64-bit clip, so every `int`
+    // pair is accepted.
+    unsafe { ffi::crustify_av_sat_dsub32_c(a, b) }
+}
+
+/// Wraps: av_sat_add64_c
+#[must_use]
+pub fn av_sat_add64_c(a: i64, b: i64) -> i64 {
+    // SAFETY: the helper detects the overflow itself with a checked builtin,
+    // so every `int64_t` pair is accepted.
+    unsafe { ffi::crustify_av_sat_add64_c(a, b) }
+}
+
+/// Wraps: av_sat_sub64_c
+#[must_use]
+pub fn av_sat_sub64_c(a: i64, b: i64) -> i64 {
+    // SAFETY: the helper detects the overflow itself with a checked builtin,
+    // so every `int64_t` pair is accepted.
+    unsafe { ffi::crustify_av_sat_sub64_c(a, b) }
+}
+
+#[cfg(test)]
+mod bit_and_saturation_tests {
+    use super::*;
+
+    #[test]
+    fn counts_bits_and_parity() {
+        assert_eq!(av_popcount_c(0), 0);
+        assert_eq!(av_popcount_c(u32::MAX), 32);
+        assert_eq!(av_popcount_c(0b1011), 3);
+        assert_eq!(av_popcount64_c(u64::MAX), 64);
+        assert_eq!(av_popcount64_c(1 << 63), 1);
+        assert_eq!(av_parity_c(0b1011), 1);
+        assert_eq!(av_parity_c(0b1010), 0);
+    }
+
+    #[test]
+    fn zero_extend_checks_its_shift_domain() {
+        assert_eq!(av_zero_extend_c(0xFFFF_FFFF, 8), Some(0xFF));
+        assert_eq!(av_zero_extend_c(0xFFFF_FFFF, 0), Some(0));
+        assert_eq!(av_zero_extend_c(0xFFFF_FFFF, 31), Some(0x7FFF_FFFF));
+        assert_eq!(av_zero_extend_c(1, 32), None);
+    }
+
+    #[test]
+    fn saturating_arithmetic_clamps_at_both_widths() {
+        assert_eq!(av_sat_add32_c(i32::MAX, 1), i32::MAX);
+        assert_eq!(av_sat_sub32_c(i32::MIN, 1), i32::MIN);
+        assert_eq!(av_sat_add32_c(2, 3), 5);
+        assert_eq!(av_sat_sub32_c(2, 3), -1);
+
+        // The doubled stage saturates first, so the outer one sees `INT_MAX`
+        // rather than the `2 * INT_MAX` that would have wrapped.
+        assert_eq!(av_sat_dadd32_c(0, i32::MAX), i32::MAX);
+        assert_eq!(av_sat_dsub32_c(0, i32::MAX), -i32::MAX);
+        assert_eq!(av_sat_dadd32_c(1, 2), 5);
+        assert_eq!(av_sat_dsub32_c(1, 2), -3);
+
+        assert_eq!(av_sat_add64_c(i64::MAX, 1), i64::MAX);
+        assert_eq!(av_sat_add64_c(i64::MIN, -1), i64::MIN);
+        assert_eq!(av_sat_sub64_c(i64::MIN, 1), i64::MIN);
+        assert_eq!(av_sat_sub64_c(i64::MAX, -1), i64::MAX);
+        assert_eq!(av_sat_add64_c(2, 3), 5);
+        assert_eq!(av_sat_sub64_c(2, 3), -1);
+    }
+}

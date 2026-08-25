@@ -1102,22 +1102,35 @@ fn fast_malloc(buffer: &mut AvFastBuffer, min_size: usize, zeroed: bool) -> bool
     // SAFETY: C returned null or unique av_malloc-family storage of `size`
     // bytes. `MaybeUninit<u8>` makes no initialization assertion.
     buffer.storage = unsafe { CVec::from_raw_parts(pointer.cast(), size as usize) };
-    !pointer.is_null()
+    // C's void return states success as the capacity it left behind: it keeps
+    // the old buffer whenever `min_size` already fitted and zeroes the size on
+    // every failure. Reading that back covers the case a null test gets wrong —
+    // a zero `min_size` against an empty buffer, which C satisfies by doing
+    // nothing at all and which is not an allocation failure.
+    buffer.capacity() >= min_size
 }
 
 /// Wraps: av_fast_malloc
+///
+/// Grows `buffer` to at least `min_size` bytes, discarding its contents when
+/// it has to reallocate. `false` reports a failure, which leaves the buffer
+/// empty because C frees the old allocation on that path.
 pub fn av_fast_malloc(buffer: &mut AvFastBuffer, min_size: usize) -> bool {
     fast_malloc(buffer, min_size, false)
 }
 
 /// Wraps: av_fast_mallocz
+///
+/// [`av_fast_malloc`] with the new allocation zero-filled.
 pub fn av_fast_mallocz(buffer: &mut AvFastBuffer, min_size: usize) -> bool {
     fast_malloc(buffer, min_size, true)
 }
 
 /// Wraps: av_fast_realloc
 ///
-/// On failure the old allocation is restored to `buffer` rather than leaked.
+/// Grows `buffer` to at least `min_size` bytes, preserving its contents. On
+/// failure the old allocation is restored to `buffer` rather than leaked, so
+/// unlike [`av_fast_malloc`] a refused growth costs the caller nothing.
 pub fn av_fast_realloc(buffer: &mut AvFastBuffer, min_size: usize) -> bool {
     let old_count = buffer.capacity();
     let mut size = match u32::try_from(old_count) {
@@ -1135,14 +1148,19 @@ pub fn av_fast_realloc(buffer: &mut AvFastBuffer, min_size: usize) -> bool {
     // leaving the original live.
     let resized = unsafe { ffi::av_fast_realloc(original, &raw mut size, min_size) };
     if resized.is_null() {
-        // SAFETY: on failure av_realloc leaves the old allocation live.
+        // SAFETY: neither failure path frees or moves the input: an oversized
+        // request returns before touching it and a failed `av_realloc` leaves
+        // it live, so it still holds its original `old_count` bytes. C's
+        // `*size = 0` describes the allocation it did not make, not this one.
         buffer.storage = unsafe { CVec::from_raw_parts(original.cast(), old_count) };
-        false
     } else {
         // SAFETY: success returns unique storage of the reported capacity.
         buffer.storage = unsafe { CVec::from_raw_parts(resized.cast(), size as usize) };
-        true
     }
+    // As in `fast_malloc`: the surviving capacity is the success predicate. A
+    // null result is also C's answer when `min_size` already fitted an empty
+    // buffer, which is a success rather than a refusal.
+    buffer.capacity() >= min_size
 }
 
 /// Wraps: av_max_alloc
@@ -1212,6 +1230,27 @@ mod scheduled_more_tests {
     }
 
     #[test]
+    fn a_request_that_already_fits_is_a_success() {
+        // Nothing is allocated for a zero request, so C returns the NULL it
+        // was given. That is the capacity contract being met, not a refusal,
+        // and reporting it as failure would make an empty buffer permanently
+        // unusable to a caller that checks the result.
+        let mut buffer = AvFastBuffer::new();
+        assert!(av_fast_malloc(&mut buffer, 0));
+        assert!(av_fast_mallocz(&mut buffer, 0));
+        assert!(av_fast_realloc(&mut buffer, 0));
+        assert!(buffer.is_empty());
+
+        // A request past the process allocation limit does fail, and the two
+        // families differ in what they leave behind.
+        assert!(av_fast_malloc(&mut buffer, 64));
+        assert!(!av_fast_realloc(&mut buffer, usize::MAX));
+        assert!(buffer.capacity() >= 64, "a refused growth keeps the buffer");
+        assert!(!av_fast_malloc(&mut buffer, usize::MAX));
+        assert!(buffer.is_empty(), "a refused reallocation frees the buffer");
+    }
+
+    #[test]
     fn copies_from_an_initialized_back_reference() {
         let mut bytes = *b"abc.........";
         av_memcpy_backptr(&mut bytes, 3, 3, 9).unwrap();
@@ -1220,5 +1259,162 @@ mod scheduled_more_tests {
             av_memcpy_backptr(&mut bytes, 2, 3, 1),
             Err(BackPointerError::InvalidBackDistance)
         );
+    }
+}
+
+/// Wraps: av_size_mult
+///
+/// The multiplication guard the rest of the `av_*` allocators are built on.
+/// `None` is C's `AVERROR(EINVAL)`, the only failure it reports.
+#[must_use]
+pub fn av_size_mult(a: usize, b: usize) -> Option<usize> {
+    let mut product = 0;
+    // SAFETY: `product` is one live, writable `size_t` slot which C writes only
+    // on success; the two factors are copied values.
+    let status = unsafe { ffi::av_size_mult(a, b, &raw mut product) };
+    (status == 0).then_some(product)
+}
+
+/// Wraps: av_realloc_array
+///
+/// Resizes opaque av_malloc-family storage to `count * element_size` bytes.
+/// Like [`av_realloc`], failure returns the unchanged input allocation: the
+/// overflow check happens before C touches it and `realloc` leaves it live.
+pub fn av_realloc_array(
+    allocation: Option<CVoidBox<AvFree>>,
+    count: usize,
+    element_size: usize,
+) -> Result<CVoidBox<AvFree>, ReallocError> {
+    let original = allocation.map_or(core::ptr::null_mut(), CVoidBox::into_raw);
+    // SAFETY: `original` is null or a uniquely owned av_malloc-family
+    // allocation surrendered for this call.
+    let resized = unsafe { ffi::av_realloc_array(original, count, element_size) };
+    if resized.is_null() {
+        // SAFETY: neither the overflow guard nor a failed `realloc` frees or
+        // moves the input allocation, so it is still live and uniquely owned.
+        let allocation = unsafe { CVoidBox::from_raw(original) };
+        Err(ReallocError { allocation })
+    } else {
+        // SAFETY: success transfers the one resized allocation back, with
+        // `AvFree` still its matching destructor.
+        Ok(unsafe { CVoidBox::from_raw(resized) }.expect("non-null realloc result"))
+    }
+}
+
+/// Wraps: av_realloc_f
+///
+/// The failure-freeing sibling of [`av_realloc_array`]: on every failure path
+/// C calls `av_free` on the input allocation itself, so `None` reports storage
+/// that no longer exists rather than storage the caller still owns. That
+/// difference is why this cannot share [`ReallocError`].
+#[must_use]
+pub fn av_realloc_f(
+    allocation: Option<CVoidBox<AvFree>>,
+    count: usize,
+    element_size: usize,
+) -> Option<CVoidBox<AvFree>> {
+    let original = allocation.map_or(core::ptr::null_mut(), CVoidBox::into_raw);
+    // SAFETY: `original` is null or a uniquely owned av_malloc-family
+    // allocation whose ownership passes to C for this call: C either returns
+    // its resized successor or frees it and returns null.
+    unsafe { CVoidBox::from_raw(ffi::av_realloc_f(original, count, element_size)) }
+}
+
+/// Wraps: av_reallocp
+///
+/// Resizes the allocation held in an owner slot in place. Every failure path,
+/// and a zero size, leaves the slot empty because C frees the old allocation
+/// and stores NULL before returning.
+pub fn av_reallocp(slot: &mut Option<CVoidBox<AvFree>>, size: usize) -> Result<(), i32> {
+    let mut pointer = slot
+        .take()
+        .map_or(core::ptr::null_mut(), CVoidBox::into_raw);
+    // SAFETY: `pointer` is a live, initialized, writable pointer slot holding
+    // null or one uniquely owned av_malloc-family allocation surrendered here.
+    // C reads it, replaces its contents and never retains the slot address.
+    let status = unsafe { ffi::av_reallocp((&raw mut pointer).cast(), size) };
+    // SAFETY: C left the slot holding null or the one live allocation that is
+    // now the caller's; the old pointer is never left in it after a free.
+    *slot = unsafe { CVoidBox::from_raw(pointer) };
+    if status < 0 { Err(status) } else { Ok(()) }
+}
+
+/// Wraps: av_reallocp_array
+///
+/// The `count * element_size` form of [`av_reallocp`], built on
+/// [`av_realloc_f`] and so freeing the old allocation on failure too.
+pub fn av_reallocp_array(
+    slot: &mut Option<CVoidBox<AvFree>>,
+    count: usize,
+    element_size: usize,
+) -> Result<(), i32> {
+    let mut pointer = slot
+        .take()
+        .map_or(core::ptr::null_mut(), CVoidBox::into_raw);
+    // SAFETY: as in `av_reallocp` — one live writable pointer slot holding null
+    // or a uniquely owned av_malloc-family allocation surrendered to this call.
+    let status = unsafe { ffi::av_reallocp_array((&raw mut pointer).cast(), count, element_size) };
+    // SAFETY: C writes the surviving allocation, or null, back into the slot.
+    *slot = unsafe { CVoidBox::from_raw(pointer) };
+    if status < 0 { Err(status) } else { Ok(()) }
+}
+
+#[cfg(test)]
+mod scheduled_realloc_tests {
+    use super::*;
+
+    #[test]
+    fn size_mult_reports_only_overflow() {
+        assert_eq!(av_size_mult(0, usize::MAX), Some(0));
+        assert_eq!(av_size_mult(3, 7), Some(21));
+        assert_eq!(av_size_mult(usize::MAX, 2), None);
+    }
+
+    #[test]
+    fn realloc_array_keeps_the_input_on_failure() {
+        let allocation = av_malloc(8).expect("av_malloc failed");
+        let allocation = av_realloc_array(Some(allocation), 4, 8).expect("grow");
+
+        // The overflow guard runs before C touches the allocation, so the
+        // failure hands it back rather than consuming it.
+        let error = av_realloc_array(Some(allocation), usize::MAX, 2)
+            .expect_err("an overflowing element count cannot be allocated");
+        let allocation = error.allocation.expect("the input allocation survived");
+        drop(allocation);
+
+        drop(av_realloc_array(None, 2, 4).expect("a fresh allocation"));
+    }
+
+    #[test]
+    fn realloc_f_consumes_the_input_on_failure() {
+        let allocation = av_malloc(8).expect("av_malloc failed");
+        let allocation = av_realloc_f(Some(allocation), 4, 8).expect("grow");
+        // C frees the input itself here, so there is nothing to give back and
+        // nothing left for the sanitiser run to report as leaked.
+        assert!(av_realloc_f(Some(allocation), usize::MAX, 2).is_none());
+    }
+
+    #[test]
+    fn reallocp_empties_the_slot_on_failure_and_on_zero() {
+        let mut slot = av_malloc(8);
+        av_reallocp(&mut slot, 64).expect("grow in place");
+        assert!(slot.is_some());
+
+        av_reallocp(&mut slot, 0).expect("a zero size frees and succeeds");
+        assert!(slot.is_none());
+
+        let mut slot = av_malloc(8);
+        assert!(av_reallocp(&mut slot, usize::MAX).is_err());
+        assert!(slot.is_none(), "C freed the old allocation itself");
+    }
+
+    #[test]
+    fn reallocp_array_grows_and_clears_its_slot() {
+        let mut slot = None;
+        av_reallocp_array(&mut slot, 4, 8).expect("allocate through the slot");
+        assert!(slot.is_some());
+
+        assert!(av_reallocp_array(&mut slot, usize::MAX, 2).is_err());
+        assert!(slot.is_none(), "the overflowing call freed the old storage");
     }
 }

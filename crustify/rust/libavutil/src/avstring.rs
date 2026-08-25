@@ -1,6 +1,8 @@
 //! Wrappers for libavutil string utilities.
 
-use core::ffi::CStr;
+use core::cmp::Ordering;
+use core::ffi::{CStr, c_char};
+use core::marker::PhantomData;
 
 use ffibox::CrustifyStr;
 
@@ -318,5 +320,487 @@ mod escape_tests {
     fn returns_an_owned_escaped_string() {
         let escaped = av_escape(c"a:b", Some(c":"), AVEscapeMode::BACKSLASH, 0).unwrap();
         assert_eq!(escaped.as_c_str(), c"a\\:b");
+    }
+}
+
+/// A byte buffer that had to hold a C string but contains no NUL.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UnterminatedBuffer;
+
+/// Length of the C string a buffer starts with, which is also the offset of
+/// its terminator. Every wrapper below that lets C read or extend a string
+/// already in the buffer goes through this: C reaches the terminator with
+/// `strlen`, so without one it walks off the end of the Rust slice.
+fn terminated_length(buffer: &[u8]) -> Result<usize, UnterminatedBuffer> {
+    buffer
+        .iter()
+        .position(|byte| *byte == 0)
+        .ok_or(UnterminatedBuffer)
+}
+
+/// Wraps: av_strstart
+///
+/// Returns the remainder of `string` after `prefix`, or `None` when it is not
+/// a prefix. C's out-parameter is a pointer into `string`, so the result
+/// borrows it rather than owning anything.
+#[must_use]
+pub fn av_strstart<'a>(string: &'a CStr, prefix: &CStr) -> Option<&'a CStr> {
+    let mut rest = core::ptr::null();
+    // SAFETY: both strings are live and terminated, C only reads them, and
+    // `rest` is a writable slot C fills with a pointer into `string`.
+    let matched = unsafe { ffi::av_strstart(string.as_ptr(), prefix.as_ptr(), &raw mut rest) != 0 };
+    // SAFETY: on a match C set `rest` to a position inside `string`, so the
+    // suffix at it is terminated and lives as long as the borrow.
+    matched.then(|| unsafe { CStr::from_ptr(rest) })
+}
+
+/// Wraps: av_stristart
+///
+/// The ASCII case-insensitive form of [`av_strstart`].
+#[must_use]
+pub fn av_stristart<'a>(string: &'a CStr, prefix: &CStr) -> Option<&'a CStr> {
+    let mut rest = core::ptr::null();
+    // SAFETY: both strings are live and terminated, C only reads them, and
+    // `rest` is a writable slot C fills with a pointer into `string`.
+    let matched =
+        unsafe { ffi::av_stristart(string.as_ptr(), prefix.as_ptr(), &raw mut rest) != 0 };
+    // SAFETY: on a match C set `rest` to a position inside `string`.
+    matched.then(|| unsafe { CStr::from_ptr(rest) })
+}
+
+/// Wraps: av_stristr
+///
+/// Returns the tail of `haystack` starting at the first ASCII case-insensitive
+/// occurrence of `needle`. An empty needle matches at the start.
+#[must_use]
+pub fn av_stristr<'a>(haystack: &'a CStr, needle: &CStr) -> Option<&'a CStr> {
+    // SAFETY: both strings are live and terminated and C only reads them. The
+    // `char *` result is a position inside `haystack`, never a new allocation.
+    let found = unsafe { ffi::av_stristr(haystack.as_ptr(), needle.as_ptr()) };
+    if found.is_null() {
+        None
+    } else {
+        // SAFETY: a match points inside `haystack`, so the suffix at it is
+        // terminated and borrowed from the same string.
+        Some(unsafe { CStr::from_ptr(found) })
+    }
+}
+
+/// Wraps: av_strnstr
+///
+/// Searches at most `haystack.len()` bytes, so the haystack is a byte slice
+/// rather than a C string: C never reads past the supplied length and never
+/// requires a terminator inside it. The result is the matching tail of that
+/// slice.
+#[must_use]
+pub fn av_strnstr<'a>(haystack: &'a [u8], needle: &CStr) -> Option<&'a [u8]> {
+    // SAFETY: `haystack` provides exactly the `hay_length` readable bytes C is
+    // allowed to touch — its last comparison starts `needle` bytes before the
+    // end — and `needle` is live and terminated. Both are read-only here.
+    let found =
+        unsafe { ffi::av_strnstr(haystack.as_ptr().cast(), needle.as_ptr(), haystack.len()) };
+    if found.is_null() {
+        return None;
+    }
+    let offset = found as usize - haystack.as_ptr() as usize;
+    Some(&haystack[offset..])
+}
+
+/// Wraps: av_strlcpy
+///
+/// Copies `source` into `destination`, truncating to keep one terminator
+/// inside it, and returns the length `source` would have needed. An empty
+/// destination is written not at all, which is what C's `size == 0` case does.
+pub fn av_strlcpy(destination: &mut [u8], source: &CStr) -> usize {
+    // SAFETY: C writes at most `size` bytes at `dst`, terminator included, and
+    // `size` is this slice's own length; `source` is live and terminated and is
+    // only read. The two borrows cannot overlap.
+    unsafe {
+        ffi::av_strlcpy(
+            destination.as_mut_ptr().cast(),
+            source.as_ptr(),
+            destination.len(),
+        )
+    }
+}
+
+/// Wraps: av_strlcat
+///
+/// Appends `source` to the C string already in `destination` and returns the
+/// combined length that would have been needed. The buffer must already hold a
+/// terminator, because C locates the append position with `strlen`.
+pub fn av_strlcat(destination: &mut [u8], source: &CStr) -> Result<usize, UnterminatedBuffer> {
+    terminated_length(destination)?;
+    // SAFETY: the check above proves `strlen(dst) < size`, so C's `dst + len`
+    // stays inside this slice and it writes at most `size` bytes in total.
+    // `source` is live, terminated and only read.
+    Ok(unsafe {
+        ffi::av_strlcat(
+            destination.as_mut_ptr().cast(),
+            source.as_ptr(),
+            destination.len(),
+        )
+    })
+}
+
+/// Wraps: av_strlcatf
+///
+/// Appends `text` to the C string already in `destination`. The variadic C
+/// signature is projected onto its one safely expressible shape — a single
+/// `%s` conversion supplied by this argument — because forwarding a caller's
+/// format string would let it name conversions with no matching argument.
+/// Unlike [`av_strlcat`], the return value is `vsnprintf`'s, so it counts what
+/// would have been written even when nothing fitted.
+pub fn av_strlcatf(destination: &mut [u8], text: &CStr) -> Result<usize, UnterminatedBuffer> {
+    terminated_length(destination)?;
+    // SAFETY: the check above proves `strlen(dst) < size`, so C's `dst + len`
+    // stays inside the slice and `vsnprintf` receives the remaining capacity.
+    // The format is a literal with exactly one `%s`, matched by the one live
+    // terminated string passed for it.
+    Ok(unsafe {
+        ffi::av_strlcatf(
+            destination.as_mut_ptr().cast(),
+            destination.len(),
+            c"%s".as_ptr(),
+            text.as_ptr(),
+        )
+    })
+}
+
+/// Wraps: av_strnlen
+///
+/// Counts the leading non-zero bytes of `bytes`, stopping at its end. The
+/// slice supplies both the pointer and C's `len` bound, so no terminator is
+/// required.
+#[must_use]
+pub fn av_strnlen(bytes: &[u8]) -> usize {
+    // SAFETY: the shim reads at most `len` bytes from `s`, and the slice
+    // provides exactly that many readable bytes for the call.
+    unsafe { ffi::crustify_av_strnlen(bytes.as_ptr().cast(), bytes.len()) }
+}
+
+/// Wraps: av_tolower
+///
+/// Locale-independent ASCII lowercasing of a C `int` character value; every
+/// other value is returned unchanged.
+#[must_use]
+pub fn av_tolower(value: i32) -> i32 {
+    // SAFETY: the inline helper accepts every `int`.
+    unsafe { ffi::crustify_av_tolower(value) }
+}
+
+/// Wraps: av_toupper
+///
+/// Locale-independent ASCII uppercasing of a C `int` character value; every
+/// other value is returned unchanged.
+#[must_use]
+pub fn av_toupper(value: i32) -> i32 {
+    // SAFETY: the inline helper accepts every `int`.
+    unsafe { ffi::crustify_av_toupper(value) }
+}
+
+/// Wraps: av_strcasecmp
+///
+/// ASCII case-insensitive ordering. C's `int` is the difference of the first
+/// differing bytes, so only its sign carries meaning and [`Ordering`] states
+/// exactly that.
+#[must_use]
+pub fn av_strcasecmp(a: &CStr, b: &CStr) -> Ordering {
+    // SAFETY: both strings are live and terminated; C stops at either
+    // terminator and only reads.
+    let difference = unsafe { ffi::av_strcasecmp(a.as_ptr(), b.as_ptr()) };
+    difference.cmp(&0)
+}
+
+/// Wraps: av_strncasecmp
+///
+/// [`av_strcasecmp`] over at most `count` bytes. C stops at a terminator too,
+/// so a count past the end of either string is harmless.
+#[must_use]
+pub fn av_strncasecmp(a: &CStr, b: &CStr, count: usize) -> Ordering {
+    // SAFETY: both strings are live and terminated; C stops at the first
+    // terminator or after `count` bytes, whichever comes first, and only reads.
+    let difference = unsafe { ffi::av_strncasecmp(a.as_ptr(), b.as_ptr(), count) };
+    difference.cmp(&0)
+}
+
+/// A failed [`av_strireplace`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StringReplaceError {
+    /// C searches for `from` with `av_stristr`, which reports an empty pattern
+    /// as a match at the current position without consuming anything. Its
+    /// replacement loop then never advances and appends `to` to an unbounded
+    /// buffer forever, so the wrapper refuses that input instead of hanging.
+    EmptyPattern,
+    /// The growing buffer could not be allocated or finalized.
+    AllocationFailed,
+}
+
+/// Wraps: av_strireplace
+///
+/// Replaces every ASCII case-insensitive occurrence of `from` in `string` with
+/// `to`, returning a new owned string.
+pub fn av_strireplace(
+    string: &CStr,
+    from: &CStr,
+    to: &CStr,
+) -> Result<CrustifyStr<AvFree>, StringReplaceError> {
+    if from.is_empty() {
+        return Err(StringReplaceError::EmptyPattern);
+    }
+    // SAFETY: all three strings are live and terminated and C only reads them;
+    // the non-empty pattern makes the scan advance, so the loop terminates. A
+    // non-null result is a finalized av_malloc-family string owned by us.
+    unsafe {
+        CrustifyStr::from_raw(ffi::av_strireplace(
+            string.as_ptr(),
+            from.as_ptr(),
+            to.as_ptr(),
+        ))
+    }
+    .ok_or(StringReplaceError::AllocationFailed)
+}
+
+/// Wraps: av_strtok
+///
+/// A destructive tokenizer over a caller-owned buffer. C writes a terminator
+/// over each delimiter it consumes, which is why the buffer is borrowed
+/// exclusively, and it keeps its position in a `saveptr` this type owns.
+///
+/// A token borrows the tokenizer, so it must be finished with before the next
+/// one is taken: the following call may write a terminator further along the
+/// same buffer.
+pub struct AvStrTok<'a> {
+    /// C's `saveptr`: null once the buffer is exhausted, otherwise a position
+    /// inside the terminated string this tokenizer borrows.
+    save: *mut c_char,
+    buffer: PhantomData<&'a mut [u8]>,
+}
+
+impl<'a> AvStrTok<'a> {
+    /// Starts tokenizing the C string at the start of `buffer`, which must
+    /// contain a terminator.
+    pub fn new(buffer: &'a mut [u8]) -> Result<Self, UnterminatedBuffer> {
+        terminated_length(buffer)?;
+        Ok(Self {
+            save: buffer.as_mut_ptr().cast(),
+            buffer: PhantomData,
+        })
+    }
+
+    /// Returns the next token, or `None` once the buffer holds no more.
+    ///
+    /// `delimiters` is a set of single bytes, not a separator string.
+    pub fn next_token(&mut self, delimiters: &CStr) -> Option<&CStr> {
+        // Passing NULL is C's "continue where you left off"; the first call
+        // continues from the buffer start this type seeded `save` with, which
+        // is exactly what passing the buffer itself would have done.
+        //
+        // SAFETY: `save` is null or a position inside the terminated string in
+        // the exclusively borrowed buffer, so C reads to its terminator and
+        // writes at most one terminator over a delimiter inside it. The slot
+        // itself is live for the call and C does not retain its address.
+        let token = unsafe {
+            ffi::av_strtok(
+                core::ptr::null_mut(),
+                delimiters.as_ptr(),
+                &raw mut self.save,
+            )
+        };
+        if token.is_null() {
+            None
+        } else {
+            // SAFETY: C terminated the token inside the borrowed buffer, which
+            // outlives the borrow this reference is tied to.
+            Some(unsafe { CStr::from_ptr(token) })
+        }
+    }
+}
+
+/// A rejected UTF-8 sequence. In both cases the cursor has already advanced
+/// past the offending input, matching C's resynchronizing behaviour.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Utf8DecodeError {
+    /// The bytes were not a well-formed UTF-8 sequence, or encoded a value C
+    /// refuses outright.
+    InvalidSequence(i32),
+    /// A sequence decoded, and then `flags` rejected the code point it named.
+    RejectedCodePoint { status: i32, code_point: u32 },
+}
+
+/// Wraps: av_utf8_decode
+///
+/// Decodes one code point from the front of `input` and advances it past the
+/// bytes consumed. `Ok(None)` is C's empty-input result, which consumes
+/// nothing.
+///
+/// `flags` is a set of `AV_UTF8_FLAG_*` values.
+pub fn av_utf8_decode(input: &mut &[u8], flags: u32) -> Result<Option<u32>, Utf8DecodeError> {
+    // C writes a value in `0..=0x7FFFFFFF` here and writes nothing at all on
+    // the paths that reject a sequence before decoding it, so a negative
+    // sentinel distinguishes the two error shapes without ambiguity.
+    let mut code: i32 = -1;
+    let range = input.as_ptr_range();
+    let mut cursor: *const u8 = range.start;
+    // SAFETY: `code` and `cursor` are live writable slots; `cursor` and
+    // `range.end` delimit exactly the readable bytes of `input`, which is what
+    // bounds every read C makes. C retains neither slot.
+    let status = unsafe { ffi::av_utf8_decode(&raw mut code, &raw mut cursor, range.end, flags) };
+    let consumed = cursor as usize - range.start as usize;
+    *input = &input[consumed..];
+    if status >= 0 {
+        return Ok(u32::try_from(code).ok());
+    }
+    Err(match u32::try_from(code) {
+        Ok(code_point) => Utf8DecodeError::RejectedCodePoint { status, code_point },
+        Err(_) => Utf8DecodeError::InvalidSequence(status),
+    })
+}
+
+#[cfg(test)]
+mod scheduled_string_tests {
+    use super::*;
+
+    #[test]
+    fn prefix_and_substring_searches_borrow_their_haystack() {
+        assert_eq!(av_strstart(c"file:/tmp", c"file:"), Some(c"/tmp"));
+        assert_eq!(av_strstart(c"file:/tmp", c"FILE:"), None);
+        assert_eq!(av_stristart(c"file:/tmp", c"FILE:"), Some(c"/tmp"));
+        assert_eq!(av_stristart(c"file:/tmp", c"http:"), None);
+        // An empty prefix always matches, and leaves the whole string.
+        assert_eq!(av_strstart(c"abc", c""), Some(c"abc"));
+
+        assert_eq!(av_stristr(c"Hello World", c"WORLD"), Some(c"World"));
+        assert_eq!(av_stristr(c"Hello", c"z"), None);
+        assert_eq!(av_stristr(c"Hello", c""), Some(c"Hello"));
+    }
+
+    #[test]
+    fn length_bounded_search_needs_no_terminator() {
+        // No NUL anywhere in the haystack: the length is the only bound, and
+        // the sanitiser run is what proves C respects it.
+        let haystack = *b"abcdef";
+        assert_eq!(av_strnstr(&haystack, c"cd"), Some(&b"cdef"[..]));
+        assert_eq!(av_strnstr(&haystack, c"ef"), Some(&b"ef"[..]));
+        assert_eq!(av_strnstr(&haystack, c"fg"), None);
+        assert_eq!(av_strnstr(&haystack, c""), Some(&haystack[..]));
+        assert_eq!(av_strnstr(&[], c"a"), None);
+    }
+
+    #[test]
+    fn bounded_copies_truncate_and_report_the_full_length() {
+        let mut buffer = [0xAA_u8; 8];
+        assert_eq!(av_strlcpy(&mut buffer, c"abc"), 3);
+        assert_eq!(&buffer[..4], b"abc\0");
+
+        let mut small = [0xAA_u8; 4];
+        assert_eq!(av_strlcpy(&mut small, c"abcdef"), 6);
+        assert_eq!(&small, b"abc\0");
+
+        // C's `size == 0` case writes nothing at all.
+        let mut empty: [u8; 0] = [];
+        assert_eq!(av_strlcpy(&mut empty, c"abc"), 3);
+
+        let mut buffer = [0_u8; 8];
+        assert_eq!(av_strlcpy(&mut buffer, c"ab"), 2);
+        assert_eq!(av_strlcat(&mut buffer, c"cd"), Ok(4));
+        assert_eq!(&buffer[..5], b"abcd\0");
+        assert_eq!(av_strlcatf(&mut buffer, c"ef"), Ok(6));
+        assert_eq!(&buffer[..7], b"abcdef\0");
+
+        // A buffer with no terminator is refused before C runs `strlen` on it.
+        let mut unterminated = *b"abcd";
+        assert_eq!(av_strlcat(&mut unterminated, c"e"), Err(UnterminatedBuffer));
+        assert_eq!(
+            av_strlcatf(&mut unterminated, c"e"),
+            Err(UnterminatedBuffer)
+        );
+        assert_eq!(&unterminated, b"abcd");
+    }
+
+    #[test]
+    fn counts_bounded_lengths_and_folds_ascii_case() {
+        assert_eq!(av_strnlen(b"abc\0def"), 3);
+        assert_eq!(av_strnlen(b"abcdef"), 6);
+        assert_eq!(av_strnlen(&[]), 0);
+
+        assert_eq!(av_tolower(i32::from(b'A')), i32::from(b'a'));
+        assert_eq!(av_toupper(i32::from(b'a')), i32::from(b'A'));
+        assert_eq!(av_tolower(i32::from(b'-')), i32::from(b'-'));
+        assert_eq!(av_toupper(-1), -1);
+
+        assert_eq!(av_strcasecmp(c"AbC", c"aBc"), Ordering::Equal);
+        assert_eq!(av_strcasecmp(c"abc", c"abd"), Ordering::Less);
+        assert_eq!(av_strcasecmp(c"abd", c"abc"), Ordering::Greater);
+        assert_eq!(av_strncasecmp(c"abc", c"ABD", 2), Ordering::Equal);
+        assert_eq!(av_strncasecmp(c"abc", c"ABD", 3), Ordering::Less);
+        assert_eq!(av_strncasecmp(c"abc", c"xyz", 0), Ordering::Equal);
+    }
+
+    #[test]
+    fn replaces_every_case_insensitive_occurrence() {
+        let replaced = av_strireplace(c"aXbXc", c"x", c"--").expect("replace");
+        assert_eq!(replaced.as_c_str(), c"a--b--c");
+
+        let unchanged = av_strireplace(c"abc", c"z", c"!").expect("replace");
+        assert_eq!(unchanged.as_c_str(), c"abc");
+
+        // The input C cannot survive: `av_stristr` matches an empty pattern
+        // without consuming it, so C's replacement loop would never advance.
+        assert_eq!(
+            av_strireplace(c"abc", c"", c"!").err(),
+            Some(StringReplaceError::EmptyPattern)
+        );
+    }
+
+    #[test]
+    fn tokenizes_a_buffer_in_place() {
+        let mut buffer = *b"  one,two,,three \0";
+        let mut tokens = AvStrTok::new(&mut buffer).expect("a terminated buffer");
+        assert_eq!(tokens.next_token(c" ,"), Some(c"one"));
+        assert_eq!(tokens.next_token(c" ,"), Some(c"two"));
+        // Empty fields are delimiters, not tokens.
+        assert_eq!(tokens.next_token(c" ,"), Some(c"three"));
+        assert_eq!(tokens.next_token(c" ,"), None);
+        assert_eq!(tokens.next_token(c" ,"), None);
+
+        let mut unterminated = *b"abc";
+        assert!(AvStrTok::new(&mut unterminated).is_err());
+    }
+
+    #[test]
+    fn decodes_code_points_and_resynchronizes() {
+        let mut input: &[u8] = "aé€".as_bytes();
+        assert_eq!(av_utf8_decode(&mut input, 0), Ok(Some(u32::from('a'))));
+        assert_eq!(av_utf8_decode(&mut input, 0), Ok(Some(u32::from('é'))));
+        assert_eq!(av_utf8_decode(&mut input, 0), Ok(Some(u32::from('€'))));
+        assert_eq!(av_utf8_decode(&mut input, 0), Ok(None));
+        assert!(input.is_empty());
+
+        // A continuation byte on its own is rejected before anything decodes,
+        // and the cursor still advances so the caller can carry on.
+        let mut input: &[u8] = &[0x80, b'z'];
+        assert!(matches!(
+            av_utf8_decode(&mut input, 0),
+            Err(Utf8DecodeError::InvalidSequence(_))
+        ));
+        assert_eq!(input, b"z");
+
+        // A surrogate is well-formed as bytes: C decodes it, then the flags
+        // decide, so the rejected code point is still reported.
+        let mut input: &[u8] = &[0xED, 0xA0, 0x80];
+        assert!(matches!(
+            av_utf8_decode(&mut input, 0),
+            Err(Utf8DecodeError::RejectedCodePoint {
+                code_point: 0xD800,
+                ..
+            })
+        ));
+        assert!(input.is_empty());
+        let mut input: &[u8] = &[0xED, 0xA0, 0x80];
+        assert_eq!(
+            av_utf8_decode(&mut input, ffi::AV_UTF8_FLAG_ACCEPT_SURROGATES),
+            Ok(Some(0xD800))
+        );
     }
 }

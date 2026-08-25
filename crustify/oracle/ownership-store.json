@@ -7709,9 +7709,9 @@
       "borrowed": {
        "lifetime": "arg:dst"
       },
-      "nullable": false,
+      "nullable": true,
       "mutable": true,
-      "note": ""
+      "note": "Borrowed plane, written row by row. NULL is accepted: image_copy_plane returns immediately when either plane is NULL, so this is nullable in C even though a safe wrapper is free to require both. The readable/writable extent is (height - 1) * linesize + bytewidth, and av_assert0 requires |linesize| >= bytewidth."
      }
     },
     {
@@ -7726,9 +7726,9 @@
       "borrowed": {
        "lifetime": "arg:src"
       },
-      "nullable": false,
+      "nullable": true,
       "mutable": false,
-      "note": ""
+      "note": "Borrowed source plane, read row by row. NULL is accepted for the same reason as dst: image_copy_plane returns before touching either plane when one is NULL."
      }
     }
    ]
@@ -7749,9 +7749,9 @@
       "borrowed": {
        "lifetime": "arg:dst"
       },
-      "nullable": false,
+      "nullable": true,
       "mutable": true,
-      "note": ""
+      "note": "Borrowed plane, written row by row. NULL is accepted: image_copy_plane returns immediately when either plane is NULL, so this is nullable in C even though a safe wrapper is free to require both. The readable/writable extent is (height - 1) * linesize + bytewidth, and av_assert0 requires |linesize| >= bytewidth."
      }
     },
     {
@@ -7766,9 +7766,9 @@
       "borrowed": {
        "lifetime": "arg:src"
       },
-      "nullable": false,
+      "nullable": true,
       "mutable": false,
-      "note": ""
+      "note": "Borrowed source plane, read row by row. NULL is accepted for the same reason as dst: image_copy_plane returns before touching either plane when one is NULL."
      }
     }
    ]
@@ -8477,7 +8477,7 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": ""
+      "note": "Borrowed destination object, mutated in place: each option-owned field is released and replaced with a copy of the source's, so every field must already hold a valid value of its declared representation. Dereferenced through *(AVClass **)dst without a NULL check."
      }
     },
     {
@@ -8492,9 +8492,9 @@
       "borrowed": {
        "lifetime": "arg:src"
       },
-      "nullable": false,
+      "nullable": true,
       "mutable": false,
-      "note": ""
+      "note": "Borrowed source object, read only. NULL is explicitly checked and refused with EINVAL -- the record previously claimed it was not nullable. C also compares the two class pointers itself and refuses a mismatch with EINVAL, so matching classes is C's own check rather than a caller obligation."
      }
     }
    ]
@@ -9260,10 +9260,16 @@
       },
       "nullable": false,
       "mutable": true,
-      "note": ""
+      "note": "Borrowed AVClass-bearing object whose option-owned FIELDS are released and reset while the object's own storage is untouched -- a field disposer, which the record previously left unstated. It is the c_dispose of any wrapped option-bearing struct. The `void` pointee is an erasure of that shape, not a licence to pass arbitrary byte storage: C dereferences *(AVClass **)obj and walks the option table it names."
      }
     }
-   ]
+   ],
+   "lifetime": {
+    "for": "obj",
+    "is_dropper": false,
+    "is_disposer": true,
+    "is_cloner": null
+   }
   },
   {
    "name": "av_opt_freep_ranges",
@@ -10361,6 +10367,49 @@
    ]
   },
   {
+   "name": "av_opt_serialize",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "buffer",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buffer"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Borrowed out-parameter slot which receives one freshly owned NUL-terminated av_malloc-family string from av_bprint_finalize, released with av_free. C stores NULL into it up front and overwrites that only on success. Explicitly NULL-checked and refused with EINVAL."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Borrowed AVClass-bearing object, read only: every option is rendered through av_opt_get and each returned string is freed again. Explicitly NULL-checked and refused with EINVAL. With AV_OPT_SERIALIZE_SEARCH_CHILDREN its children are walked with av_opt_child_next and rendered too."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_opt_set",
    "defined_in": "libavutil/opt.c",
    "ptr_args": [
@@ -10589,6 +10638,52 @@
    ]
   },
   {
+   "name": "av_opt_set_defaults",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "s",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:s"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed AVClass-bearing object, mutated in place and dereferenced through *(AVClass **)s without a NULL check. Every option-described field must already hold a valid value of its declared representation: a string, binary or array default releases what the field held before storing the new one, so uninitialized storage would be freed. It replaces field values rather than leaving them released, so it is not a disposer."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_set_defaults2",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "s",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:s"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "As av_opt_set_defaults, which is a call to this with mask and flags both zero, restricted to the options satisfying flags == opt->flags & mask. AV_OPT_FLAG_READONLY entries are skipped either way."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_opt_set_dict",
    "defined_in": "libavutil/opt.c",
    "ptr_args": [
@@ -10771,6 +10866,96 @@
       "nullable": false,
       "mutable": true,
       "note": "Borrowed type-erased AVClass-bearing option object; selected option storage may be mutated but the object is not retained. It must be a REAL object, never the AV_OPT_SEARCH_FAKE_OBJ shape: with that flag av_opt_find2 reports no target object, and opt_set_init then loads the class out of that NULL target (opt.c:195) before it can check state flags, so a found option turns into a NULL dereference. The flag can never do useful work in a setter either, since a fake object has no field to write, so the safe wrappers reject it before the call."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_set_from_string",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ctx"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed AVClass-bearing object, mutated in place by the av_opt_set call each parsed pair drives, exactly as for av_set_options_string. Only a NULL or empty option list leaves it undereferenced."
+     }
+    },
+    {
+     "name": "key_val_sep",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:key_val_sep"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of a NUL-terminated character set handed to strspn/strcspn; dereferenced without a NULL check."
+     }
+    },
+    {
+     "name": "opts",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:opts"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Transient read-only borrow of the option list; NULL is explicitly accepted and sets nothing, returning 0."
+     }
+    },
+    {
+     "name": "pairs_sep",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:pairs_sep"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of a NUL-terminated character set handed to strspn/strcspn; dereferenced without a NULL check."
+     }
+    },
+    {
+     "name": "shorthand",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": false,
+        "borrowed": {
+         "lifetime": "arg:shorthand"
+        }
+       }
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:shorthand"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Borrowed NULL-terminated vector of option names, consumed positionally for values that arrive without a key. NULL is accepted and substituted with a vector holding only the terminator, so it behaves identically. C advances past an entry only after finding it non-NULL, so it never walks past the terminator, and it neither retains nor frees the vector or its strings."
      }
     }
    ]
@@ -11016,6 +11201,50 @@
    ]
   },
   {
+   "name": "av_opt_show2",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "av_log_obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:av_log_obj"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Borrowed logging context whose class supplies the log level and item name; NULL logs unattributed. libavutil's own log path only reads it, but the log callback is caller-installable and receives this pointer, so a wrapper cannot promise more than a shared borrow."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Borrowed AVClass-bearing object, read only: the option table is walked and each current value is formatted for the log, and every AVOptionRanges queried along the way is released again. Explicitly NULL-checked, which is the function's only failure (-1)."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_parity_c",
+   "defined_in": "libavutil/common.h"
+  },
+  {
    "name": "av_pix_fmt_count_planes",
    "defined_in": "libavutil/pixdesc.c"
   },
@@ -11146,6 +11375,14 @@
    "defined_in": "libavutil/pixdesc.c"
   },
   {
+   "name": "av_popcount64_c",
+   "defined_in": "libavutil/common.h"
+  },
+  {
+   "name": "av_popcount_c",
+   "defined_in": "libavutil/common.h"
+  },
+  {
    "name": "av_q2d",
    "defined_in": "libavutil/rational.h"
   },
@@ -11273,6 +11510,138 @@
      "note": "On success owns the resized allocation (possibly at the same address); NULL reports failure and leaves a non-NULL input allocation live."
     }
    }
+  },
+  {
+   "name": "av_realloc_array",
+   "defined_in": "libavutil/mem.c",
+   "ptr_args": [
+    {
+     "name": "ptr",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": {
+       "lifetime": "arg:ptr"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Runtime-conditional ownership, exactly as for the av_realloc this forwards to: the av_malloc-family allocation is consumed on success and stays live and caller-owned on failure. The size_mult overflow guard returns NULL before C touches the allocation at all, so that failure path is non-consuming too."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": {
+      "by_val": true
+     },
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "On success owns the resized allocation, possibly at the same address. NULL reports either an overflowing nmemb*size or an av_realloc failure, and in both cases a non-NULL input remains live and owned by the caller."
+    }
+   }
+  },
+  {
+   "name": "av_realloc_f",
+   "defined_in": "libavutil/mem.c",
+   "ptr_args": [
+    {
+     "name": "ptr",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Unconditionally consumed, unlike av_realloc and av_realloc_array: BOTH failure paths call av_free(ptr) before returning NULL -- the size_mult overflow guard and the av_realloc failure -- so the caller never gets the input allocation back and must not free it itself. Ownership is not runtime-conditional here, which is the whole difference between this function and av_realloc_array."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": {
+      "by_val": true
+     },
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "NULL reports failure, after which the input allocation has already been freed; a non-NULL result is the newly owned resized allocation, released with av_free."
+    }
+   }
+  },
+  {
+   "name": "av_reallocp",
+   "defined_in": "libavutil/mem.c",
+   "ptr_args": [
+    {
+     "name": "ptr",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ptr"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "A borrowed pointer slot, like av_freep's: the inner av_malloc-family allocation is memcpy'd out, resized, and written back. Every path that does not return the resized allocation routes through av_freep -- a zero size and an av_realloc failure alike -- so the slot is left holding NULL and the old allocation is gone. Dereferenced without a NULL check."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_reallocp_array",
+   "defined_in": "libavutil/mem.c",
+   "ptr_args": [
+    {
+     "name": "ptr",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ptr"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "A borrowed pointer slot resized through av_realloc_f, which frees the old allocation on every failure path, so the slot is left holding NULL after an error. Unlike av_reallocp it does not special-case a zero extent: size_mult yields 0, av_realloc still hands back a one-byte allocation, and the call reports success with the slot non-NULL."
+     }
+    }
+   ]
   },
   {
    "name": "av_reduce",
@@ -11582,6 +11951,121 @@
    ]
   },
   {
+   "name": "av_sat_add32_c",
+   "defined_in": "libavutil/common.h"
+  },
+  {
+   "name": "av_sat_add64_c",
+   "defined_in": "libavutil/common.h"
+  },
+  {
+   "name": "av_sat_dadd32_c",
+   "defined_in": "libavutil/common.h"
+  },
+  {
+   "name": "av_sat_dsub32_c",
+   "defined_in": "libavutil/common.h"
+  },
+  {
+   "name": "av_sat_sub32_c",
+   "defined_in": "libavutil/common.h"
+  },
+  {
+   "name": "av_sat_sub64_c",
+   "defined_in": "libavutil/common.h"
+  },
+  {
+   "name": "av_set_options_string",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ctx"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed AVClass-bearing object, mutated in place by the av_opt_set call each parsed pair drives. Its option-described fields must already hold valid values, since a string or binary option releases the old one. Only a NULL or empty option list leaves it untouched and undereferenced."
+     }
+    },
+    {
+     "name": "key_val_sep",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:key_val_sep"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of a NUL-terminated character set handed to strspn/strcspn; dereferenced without a NULL check."
+     }
+    },
+    {
+     "name": "opts",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:opts"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Transient read-only borrow of the option list; NULL is explicitly accepted and sets nothing, returning 0. Interior pointers into it reach av_get_token but nothing outlives the call."
+     }
+    },
+    {
+     "name": "pairs_sep",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:pairs_sep"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of a NUL-terminated character set handed to strspn/strcspn; dereferenced without a NULL check."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_size_mult",
+   "defined_in": "libavutil/mem.c",
+   "ptr_args": [
+    {
+     "name": "r",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:r"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed out-parameter slot for one size_t, dereferenced without a NULL check and written only when the multiplication does not overflow, so a failing call leaves the caller's value untouched."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_stereo3d_alloc",
    "defined_in": "libavutil/stereo3d.c",
    "ptr_ret": {
@@ -11676,6 +12160,42 @@
    }
   },
   {
+   "name": "av_strcasecmp",
+   "defined_in": "libavutil/avstring.c",
+   "ptr_args": [
+    {
+     "name": "a",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:a"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of a NUL-terminated string. The do/while dereferences before any check, so NULL is not accepted, and it stops at the first terminator, so neither string is read past its own end."
+     }
+    },
+    {
+     "name": "b",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:b"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "As for a: a transient read-only borrow of a NUL-terminated string, dereferenced without a NULL check."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_strdup",
    "defined_in": "libavutil/mem.c",
    "lifetime": {
@@ -11741,6 +12261,327 @@
    ]
   },
   {
+   "name": "av_strireplace",
+   "defined_in": "libavutil/avstring.c",
+   "ptr_args": [
+    {
+     "name": "from",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:from"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of the NUL-terminated search pattern. An EMPTY pattern does not terminate: av_stristr reports a match at the current position without consuming input, so the replacement loop appends `to` to an unbounded AVBPrint forever. A safe wrapper has to reject it before the call."
+     }
+    },
+    {
+     "name": "str",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:str"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of a NUL-terminated string, scanned with av_stristr and copied into an AVBPrint. Not retained."
+     }
+    },
+    {
+     "name": "to",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:to"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of the NUL-terminated replacement text, copied once per match. Not retained."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": null,
+     "array": null,
+     "string": true,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "NULL when the AVBPrint overflowed or av_bprint_finalize failed; otherwise a freshly owned NUL-terminated av_malloc-family string released with av_free. Not a copy of any argument, so this is not a cloner."
+    }
+   }
+  },
+  {
+   "name": "av_stristart",
+   "defined_in": "libavutil/avstring.c",
+   "ptr_args": [
+    {
+     "name": "pfx",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:pfx"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of the NUL-terminated prefix, dereferenced without a NULL check."
+     }
+    },
+    {
+     "name": "ptr",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": false,
+        "borrowed": {
+         "lifetime": "arg:str"
+        }
+       }
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ptr"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional out-parameter slot, explicitly NULL-checked and written only when the prefix matched. Its inner value is an interior pointer into str, immediately past the prefix, which borrows str's lifetime and must not be freed. mutable is false only because the innermost pointee is const-qualified; C does write the outer slot, exactly as recorded for av_get_token's buf."
+     }
+    },
+    {
+     "name": "str",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:str"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of a NUL-terminated string, dereferenced without a NULL check."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_stristr",
+   "defined_in": "libavutil/avstring.c",
+   "ptr_args": [
+    {
+     "name": "s1",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:s1"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of the NUL-terminated haystack, dereferenced without a NULL check."
+     }
+    },
+    {
+     "name": "s2",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:s2"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of the NUL-terminated needle; an empty one matches at the start of s1."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": null,
+     "array": null,
+     "string": true,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:s1"
+     },
+     "nullable": true,
+     "mutable": true,
+     "note": "NULL when there is no match; otherwise an interior pointer into s1 -- the whole of s1 for an empty needle -- borrowing its lifetime. The char * return drops s1's const qualifier, but C never writes through it and it must not be freed."
+    }
+   }
+  },
+  {
+   "name": "av_strlcat",
+   "defined_in": "libavutil/avstring.c",
+   "ptr_args": [
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed buffer of `size` bytes which must ALREADY hold a NUL-terminated string: C locates the append position with strlen(dst) and then indexes dst + that length, so a buffer with no terminator inside `size` is read and then written out of bounds. It is the one precondition the size argument does not cover."
+     }
+    },
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of a NUL-terminated string, read through its terminator because the return counts strlen(dst)+strlen(src) whether or not the append fitted."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_strlcatf",
+   "defined_in": "libavutil/avstring.c",
+   "ptr_args": [
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed buffer of `size` bytes which must already hold a NUL-terminated string, as for av_strlcat. vsnprintf receives size - strlen(dst), or 0 when strlen(dst) >= size, so the formatted append itself is bounded; the strlen and the dst + len displacement that precede it are not."
+     }
+    },
+    {
+     "name": "fmt",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:fmt"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of a printf format string. Being variadic, each conversion it names consumes a trailing argument no signature records, so a safe wrapper must fix the format rather than forward a caller's."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_strlcpy",
+   "defined_in": "libavutil/avstring.c",
+   "ptr_args": [
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed destination buffer of exactly `size` writable bytes. C writes at most that many, terminator included, and writes nothing at all when size is 0. It reads nothing from dst, so the prior contents need not be initialized or terminated."
+     }
+    },
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of a NUL-terminated string. The return value is strlen(src), so C reads through src's terminator even when the copy was truncated; an unterminated source overruns, as the header warns."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_strncasecmp",
+   "defined_in": "libavutil/avstring.c",
+   "ptr_args": [
+    {
+     "name": "a",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:a"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of a NUL-terminated string. n bounds the comparison but the loop also stops at either terminator, so both arguments must still be terminated and an n past the end of either is harmless. n == 0 returns before any dereference."
+     }
+    },
+    {
+     "name": "b",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:b"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "As for a: a transient read-only borrow of a NUL-terminated string, dereferenced for any non-zero n without a NULL check."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_strndup",
    "defined_in": "libavutil/mem.c",
    "lifetime": {
@@ -11785,12 +12626,289 @@
    }
   },
   {
+   "name": "av_strnlen",
+   "defined_in": "libavutil/avstring.h",
+   "ptr_args": [
+    {
+     "name": "s",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:s"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow. The len bound is what makes the read safe: the loop stops at the first zero byte or at len, whichever comes first, so no terminator is required and an unterminated buffer of exactly len readable bytes is a valid argument. s is dereferenced whenever len is non-zero and is never checked for NULL."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_strnstr",
+   "defined_in": "libavutil/avstring.c",
+   "ptr_args": [
+    {
+     "name": "haystack",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:haystack"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Read-only borrow bounded by hay_length rather than by a terminator: the scan stops once fewer than strlen(needle) bytes remain, so it reads at most hay_length bytes and an unterminated buffer of exactly that length is a valid argument. Dereferenced through memcmp without a NULL check whenever hay_length >= strlen(needle)."
+     }
+    },
+    {
+     "name": "needle",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:needle"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of a NUL-terminated string; strlen runs on it before anything else, so it must be terminated and non-NULL."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": null,
+     "array": {
+      "by_val": true
+     },
+     "string": true,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:haystack"
+     },
+     "nullable": true,
+     "mutable": true,
+     "note": "NULL when there is no match; otherwise an interior pointer into haystack, borrowing its lifetime. It is only NUL-terminated when haystack was: the guaranteed readable extent is hay_length minus the match offset."
+    }
+   }
+  },
+  {
+   "name": "av_strstart",
+   "defined_in": "libavutil/avstring.c",
+   "ptr_args": [
+    {
+     "name": "pfx",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:pfx"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of the NUL-terminated prefix, dereferenced without a NULL check."
+     }
+    },
+    {
+     "name": "ptr",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": false,
+        "borrowed": {
+         "lifetime": "arg:str"
+        }
+       }
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ptr"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional out-parameter slot, explicitly NULL-checked and written only when the prefix matched. Its inner value is an interior pointer into str, immediately past the prefix, which borrows str's lifetime and must not be freed. mutable is false only because the innermost pointee is const-qualified; C does write the outer slot, exactly as recorded for av_get_token's buf."
+     }
+    },
+    {
+     "name": "str",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:str"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of a NUL-terminated string, dereferenced without a NULL check."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_strtok",
+   "defined_in": "libavutil/avstring.c",
+   "ptr_args": [
+    {
+     "name": "delim",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:delim"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Transient read-only borrow of the delimiter set used by strspn/strcspn -- a set of single bytes, not a separator string. Must be non-NULL, as the header states."
+     }
+    },
+    {
+     "name": "s",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:s"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "The buffer to tokenize, destructively: C overwrites each consumed delimiter with a terminator. NULL is the documented continuation form, in which the position comes from *saveptr instead. C stores interior pointers to this buffer in *saveptr and in the return, so it must stay live and exclusively available until the tokenization is finished."
+     }
+    },
+    {
+     "name": "saveptr",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": false,
+        "borrowed": {
+         "lifetime": "arg:s"
+        }
+       }
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:saveptr"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "The caller-owned cursor slot carrying tokenizer state between calls. Its inner value is an interior borrow of the buffer first passed as s, or NULL once the string is exhausted, and it is read on every continuation call, so it must be preserved unchanged between them. Written on every call."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": null,
+     "array": null,
+     "string": true,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:s"
+     },
+     "nullable": true,
+     "mutable": true,
+     "note": "NULL when no token remains; otherwise an interior pointer into the tokenized buffer, terminated in place by C's own write. It borrows that buffer -- named here by the s argument that introduced it, even though a continuation call passes s as NULL -- must not be freed, and the next call may write a terminator further along the same buffer."
+    }
+   }
+  },
+  {
    "name": "av_sub_q",
    "defined_in": "libavutil/rational.c"
   },
   {
+   "name": "av_tolower",
+   "defined_in": "libavutil/avstring.h"
+  },
+  {
+   "name": "av_toupper",
+   "defined_in": "libavutil/avstring.h"
+  },
+  {
    "name": "av_usleep",
    "defined_in": "libavutil/time.c"
+  },
+  {
+   "name": "av_utf8_decode",
+   "defined_in": "libavutil/avstring.c",
+   "ptr_args": [
+    {
+     "name": "buf_end",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf_end"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "One-past-the-end sentinel for the same buffer *bufp points into. Never dereferenced, only compared, and it is what bounds every read."
+     }
+    },
+    {
+     "name": "bufp",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": false,
+        "borrowed": {
+         "lifetime": "arg:bufp"
+        }
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:bufp"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "In/out cursor into the caller's byte buffer, whose end is buf_end. C reads through it and advances it past every byte consumed, including on the error paths -- an invalid sequence advances by one so the caller can resynchronize -- and never past buf_end. mutable is false only because the innermost pointee is const-qualified; the outer slot is written on every path but the empty-input one."
+     }
+    },
+    {
+     "name": "codep",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:codep"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed out-parameter for the decoded code point, dereferenced without a NULL check. Written only once a sequence has decoded -- the range checks then run and can still fail -- so the paths that reject the bytes themselves leave the caller's value untouched. Every value C writes lies in 0..=0x7FFFFFFF, which is what lets a caller use a negative sentinel to tell the two failure shapes apart."
+     }
+    }
+   ]
   },
   {
    "name": "av_vbprintf",
@@ -11931,6 +13049,10 @@
      }
     }
    ]
+  },
+  {
+   "name": "av_zero_extend_c",
+   "defined_in": "libavutil/common.h"
   },
   {
    "name": "avutil_configuration",

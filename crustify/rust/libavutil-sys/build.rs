@@ -113,6 +113,13 @@ fn main() {
         )
         .allowlist_function("^av_(append_path_component|asprintf|basename|calloc|color_(primaries|range|space|transfer)_from_name|dirname|dynarray2_add|dynarray_add_nofree|fast_malloc|fast_mallocz|fast_realloc|get_token|hash_names|image_check_size|image_copy_plane|image_copy_plane_uc_from|match_list|max_alloc|memcpy_backptr|opt_child_next|opt_copy|opt_flag_is_set|opt_free|opt_get|opt_get_array_size|opt_get_double|opt_get_image_size|opt_get_int|opt_get_key_value|opt_is_set_to_default_by_name)$")
         .allowlist_function("^crustify_av_(ceil_log2_c|clip64_c|clip_c|clip_int16_c|clip_int8_c|clip_intp2_c|clip_uint16_c|clip_uint8_c|clip_uintp2_c|clipd_c|clipf_c|clipl_int32_c|isdigit|isgraph|isspace|isxdigit)$")
+        .allowlist_function("^crustify_av_(parity_c|popcount_c|popcount64_c|sat_add32_c|sat_add64_c|sat_dadd32_c|sat_dsub32_c|sat_sub32_c|sat_sub64_c|strnlen|tolower|toupper|zero_extend_c)$")
+        .allowlist_function("^av_(strcasecmp|strireplace|stristart|stristr|strlcat|strlcatf|strlcpy|strncasecmp|strnstr|strstart|strtok|utf8_decode)$")
+        .allowlist_function("^av_(realloc_array|realloc_f|reallocp|reallocp_array|size_mult)$")
+        .allowlist_function("^av_(opt_serialize|opt_set_defaults|opt_set_defaults2|opt_set_from_string|opt_show2|set_options_string)$")
+        .allowlist_var("^AV_UTF8_FLAG_[A-Z_]+$")
+        .allowlist_var("^AV_OPT_SERIALIZE_[A-Z_]+$")
+        .allowlist_var("^AV_OPT_FLAG_IMPLICIT_KEY$")
         .generate()
         .expect("generate libavutil bindings");
     bindings
