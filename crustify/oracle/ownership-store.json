@@ -680,6 +680,26 @@
    ]
   },
   {
+   "name": "AVOptionRange",
+   "defined_in": "libavutil/opt.h",
+   "_comment_agent": "AVOptionRange has by-value numeric fields and one optional owned string. Default ranges leave str null; custom AVClass.query_ranges callbacks may populate it, and the published av_opt_freep_ranges lifecycle unconditionally releases it with av_freep.",
+   "fields": [
+    {
+     "name": "str",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional NUL-terminated av_malloc-family string owned by this range. av_opt_freep_ranges releases every non-null range->str with av_freep before freeing the range; the public callback contract returns ranges through that same disposer. The const pointee is read-only."
+     }
+    }
+   ]
+  },
+  {
    "name": "AVOptionType",
    "defined_in": "libavutil/opt.h",
    "_comment_agent": "AVOptionType is a plain integer enum with no pointer content and therefore no lifecycle: nothing allocates, clones or frees a value of it. Its enumerators are a dense 1..=20 run naming the C type of the object field an option controls, plus AV_OPT_TYPE_FLAG_ARRAY = 1<<16, which is a modifier ored into a regular value rather than a type of its own. Because libavutil combines the two and adds enumerators between versions, the set of valid ABI values is not the set of enumerators; opt.c decodes an option with the internal TYPE_BASE(type) = type & ~AV_OPT_TYPE_FLAG_ARRAY, and that base value also selects which AVOption.default_val union member is live (i64 for FLAGS/INT/UINT/INT64/UINT64/DURATION/PIXEL_FMT/SAMPLE_FMT/BOOL/CONST, dbl for DOUBLE/FLOAT/RATIONAL, str for STRING/BINARY/DICT/IMAGE_SIZE/VIDEO_RATE/COLOR/CHLAYOUT, arr whenever the array flag is set).",

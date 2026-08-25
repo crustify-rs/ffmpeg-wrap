@@ -100,6 +100,49 @@ impl From<AVStereo3DView> for ffi::AVStereo3DView {
     }
 }
 
+
+/// Wraps: AVStereo3DPrimaryEye
+///
+/// Identifies the primary eye for stereoscopic content. The transparent
+/// integer representation keeps values introduced by newer libavutil versions
+/// representable instead of manufacturing an invalid Rust enum discriminant.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AVStereo3DPrimaryEye(ffi::AVStereo3DPrimaryEye);
+
+impl AVStereo3DPrimaryEye {
+    /// No eye is designated as primary.
+    pub const NONE: Self = Self(ffi::AVStereo3DPrimaryEye_AV_PRIMARY_EYE_NONE);
+    /// The left eye is primary.
+    pub const LEFT: Self = Self(ffi::AVStereo3DPrimaryEye_AV_PRIMARY_EYE_LEFT);
+    /// The right eye is primary.
+    pub const RIGHT: Self = Self(ffi::AVStereo3DPrimaryEye_AV_PRIMARY_EYE_RIGHT);
+
+    /// Wraps a raw C enum value, including one unknown to this crate version.
+    #[must_use]
+    pub const fn from_raw(raw: ffi::AVStereo3DPrimaryEye) -> Self {
+        Self(raw)
+    }
+
+    /// Returns the ABI value accepted by libavutil.
+    #[must_use]
+    pub const fn as_raw(self) -> ffi::AVStereo3DPrimaryEye {
+        self.0
+    }
+}
+
+impl From<ffi::AVStereo3DPrimaryEye> for AVStereo3DPrimaryEye {
+    fn from(raw: ffi::AVStereo3DPrimaryEye) -> Self {
+        Self::from_raw(raw)
+    }
+}
+
+impl From<AVStereo3DPrimaryEye> for ffi::AVStereo3DPrimaryEye {
+    fn from(value: AVStereo3DPrimaryEye) -> Self {
+        value.as_raw()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use core::mem::{align_of, size_of};
@@ -199,5 +242,13 @@ mod tests {
         ] {
             assert_eq!(value.as_raw(), raw);
         }
+    }
+
+    #[test]
+    fn primary_eye_values_match_c_and_preserve_unknowns() {
+        assert_eq!(AVStereo3DPrimaryEye::NONE.as_raw(), 0);
+        assert_eq!(AVStereo3DPrimaryEye::LEFT.as_raw(), 1);
+        assert_eq!(AVStereo3DPrimaryEye::RIGHT.as_raw(), 2);
+        assert_eq!(AVStereo3DPrimaryEye::from_raw(99).as_raw(), 99);
     }
 }

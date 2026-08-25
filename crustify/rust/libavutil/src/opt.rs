@@ -4,11 +4,12 @@ use core::ffi::{CStr, c_char, c_uint, c_void};
 use core::marker::PhantomData;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::CBox;
+use ffibox::{CBox, CrustifyStr};
 
 use crate::channel_layout::AVChannelLayoutRef;
 use crate::dict::AVDictionary;
 use crate::ffi;
+use crate::mem::AvFree;
 use crate::pixfmt::AVPixelFormat;
 use crate::rational::AVRationalRef;
 use crate::samplefmt::AVSampleFormat;
@@ -2458,5 +2459,233 @@ mod scheduled_chlayout_tests {
             av_opt_set_chlayout(&mut handle, c"missing", stereo.as_ref(), 0),
             Err(OptSetError::Library(_))
         ));
+    }
+}
+
+ffibox::define_ctype!(
+    /// Wraps: AVOptionRange
+    ///
+    /// ABI-compatible view of one range returned by an AVClass range query.
+    /// The numeric fields live inline. `str` is either null or a uniquely
+    /// owned, NUL-terminated allocation from libavutil's allocator family;
+    /// `av_opt_freep_ranges` releases it with `av_freep` before freeing the
+    /// containing range.
+    ///
+    /// # Handle invariant
+    ///
+    /// In addition to being live and initialized, a value used through these
+    /// handles must have a null `str` or an `av_malloc`-family string that is
+    /// NUL-terminated and owned by this range. A caller of the unsafe
+    /// `from_ptr` constructors must establish that invariant. [`zeroed`](Self::zeroed)
+    /// and every safe setter below preserve it.
+    AVOptionRange,
+    AVOptionRangeRef,
+    AVOptionRangeMut,
+    ffi::AVOptionRange
+);
+
+impl<'a> AVOptionRangeRef<'a> {
+    /// Field: AVOptionRange.str
+    ///
+    /// Borrows the optional string for as long as the range is borrowed.
+    #[must_use]
+    pub fn string(&self) -> Option<&'a CStr> {
+        // SAFETY: the handle addresses a live initialized range. Raw-place
+        // projection copies the pointer without forming a Rust reference to
+        // the C object.
+        let pointer = unsafe { addr_of!((*self.as_ptr()).str_).read() };
+        if pointer.is_null() {
+            None
+        } else {
+            // SAFETY: the handle invariant makes a non-null pointer a live
+            // NUL-terminated string that the range keeps alive for `'a`.
+            Some(unsafe { CStr::from_ptr(pointer) })
+        }
+    }
+
+    /// Field: AVOptionRange.is_range
+    ///
+    /// Reports whether the entry describes an interval rather than one value.
+    #[must_use]
+    pub fn is_range(&self) -> bool {
+        // SAFETY: the handle invariant guarantees an initialized range; the
+        // raw projection copies the integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).is_range).read() != 0 }
+    }
+
+    /// Field: AVOptionRange.component_max
+    #[must_use]
+    pub fn component_max(&self) -> f64 {
+        // SAFETY: the handle guarantees an initialized range and this raw
+        // projection copies the field without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).component_max).read() }
+    }
+
+    /// Field: AVOptionRange.component_min
+    #[must_use]
+    pub fn component_min(&self) -> f64 {
+        // SAFETY: the handle guarantees an initialized range and this raw
+        // projection copies the field without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).component_min).read() }
+    }
+
+    /// Field: AVOptionRange.value_max
+    #[must_use]
+    pub fn value_max(&self) -> f64 {
+        // SAFETY: the handle guarantees an initialized range and this raw
+        // projection copies the field without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).value_max).read() }
+    }
+
+    /// Field: AVOptionRange.value_min
+    #[must_use]
+    pub fn value_min(&self) -> f64 {
+        // SAFETY: the handle guarantees an initialized range and this raw
+        // projection copies the field without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).value_min).read() }
+    }
+}
+
+impl AVOptionRangeMut<'_> {
+    /// Replaces the range's optional owned string, dropping the old value.
+    pub fn set_string(&mut self, value: Option<CrustifyStr<AvFree>>) {
+        let new_pointer = value.map_or(core::ptr::null_mut(), CrustifyStr::into_raw);
+        // SAFETY: the exclusive handle permits replacing this pointer field.
+        // `new_pointer` is null or transfers one allocator-matched owned,
+        // terminated string into the range, preserving the handle invariant.
+        let old_pointer =
+            unsafe { addr_of_mut!((*self.as_mut_ptr()).str_).replace(new_pointer.cast_const()) };
+        // SAFETY: by the incoming handle invariant, the old pointer is null or
+        // one uniquely owned av_malloc-family NUL-terminated string. Adoption
+        // transfers that ownership out of the range exactly once.
+        drop(unsafe { CrustifyStr::<AvFree>::from_raw(old_pointer.cast_mut()) });
+    }
+
+    /// Removes and returns the optional owned string, leaving the field null.
+    #[must_use]
+    pub fn take_string(&mut self) -> Option<CrustifyStr<AvFree>> {
+        // SAFETY: the exclusive handle permits replacing the live field. Null
+        // preserves the range invariant and makes the ownership transfer
+        // explicit to both Rust and any later C disposer.
+        let pointer = unsafe { addr_of_mut!((*self.as_mut_ptr()).str_).replace(core::ptr::null()) };
+        // SAFETY: the handle invariant makes a non-null value a uniquely owned
+        // av_malloc-family NUL-terminated string, now removed from the range.
+        unsafe { CrustifyStr::<AvFree>::from_raw(pointer.cast_mut()) }
+    }
+
+    /// Selects interval (`true`) or single-value (`false`) encoding.
+    pub fn set_is_range(&mut self, value: bool) {
+        // SAFETY: the exclusive handle provides field write access and the
+        // bool-to-int conversion writes one of the two documented values.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).is_range).write(i32::from(value)) }
+    }
+
+    /// Sets the maximum allowed component value.
+    pub fn set_component_max(&mut self, value: f64) {
+        // SAFETY: the exclusive handle provides field write access; every f64
+        // bit pattern is valid and raw projection forms no reference.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).component_max).write(value) }
+    }
+
+    /// Sets the minimum allowed component value.
+    pub fn set_component_min(&mut self, value: f64) {
+        // SAFETY: the exclusive handle provides field write access; every f64
+        // bit pattern is valid and raw projection forms no reference.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).component_min).write(value) }
+    }
+
+    /// Sets the maximum allowed value.
+    pub fn set_value_max(&mut self, value: f64) {
+        // SAFETY: the exclusive handle provides field write access; every f64
+        // bit pattern is valid and raw projection forms no reference.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).value_max).write(value) }
+    }
+
+    /// Sets the minimum allowed value.
+    pub fn set_value_min(&mut self, value: f64) {
+        // SAFETY: the exclusive handle provides field write access; every f64
+        // bit pattern is valid and raw projection forms no reference.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).value_min).write(value) }
+    }
+}
+
+#[cfg(test)]
+mod option_range_tests {
+    use core::mem::{align_of, offset_of, size_of};
+
+    use super::*;
+
+    #[test]
+    fn range_layout_and_scalar_access_match_c() {
+        assert_eq!(size_of::<AVOptionRange>(), size_of::<ffi::AVOptionRange>());
+        assert_eq!(
+            align_of::<AVOptionRange>(),
+            align_of::<ffi::AVOptionRange>()
+        );
+        assert_eq!(size_of::<ffi::AVOptionRange>(), 48);
+        assert_eq!(offset_of!(ffi::AVOptionRange, str_), 0);
+        assert_eq!(offset_of!(ffi::AVOptionRange, value_min), 8);
+        assert_eq!(offset_of!(ffi::AVOptionRange, value_max), 16);
+        assert_eq!(offset_of!(ffi::AVOptionRange, component_min), 24);
+        assert_eq!(offset_of!(ffi::AVOptionRange, component_max), 32);
+        assert_eq!(offset_of!(ffi::AVOptionRange, is_range), 40);
+
+        let mut raw = ffi::AVOptionRange {
+            str_: core::ptr::null(),
+            value_min: 0.0,
+            value_max: 0.0,
+            component_min: 0.0,
+            component_max: 0.0,
+            is_range: 0,
+        };
+        // SAFETY: `raw` remains live and exclusively borrowed through the
+        // handle, and its null string satisfies the documented invariant.
+        let mut range =
+            unsafe { AVOptionRangeMut::from_ptr(addr_of_mut!(raw)) }.expect("stack address");
+        range.set_is_range(true);
+        range.set_value_min(-2.0);
+        range.set_value_max(9.0);
+        range.set_component_min(1.0);
+        range.set_component_max(7.0);
+
+        let range = range.as_ref();
+        assert!(range.is_range());
+        assert_eq!(range.value_min(), -2.0);
+        assert_eq!(range.value_max(), 9.0);
+        assert_eq!(range.component_min(), 1.0);
+        assert_eq!(range.component_max(), 7.0);
+        assert!(range.string().is_none());
+    }
+
+    #[test]
+    fn range_string_ownership_can_be_replaced_and_taken() {
+        let mut raw = ffi::AVOptionRange {
+            str_: core::ptr::null(),
+            value_min: 0.0,
+            value_max: 0.0,
+            component_min: 0.0,
+            component_max: 0.0,
+            is_range: 0,
+        };
+        // SAFETY: `raw` remains live and exclusively borrowed, and every
+        // string stored below uses the allocator required by its invariant.
+        let mut range =
+            unsafe { AVOptionRangeMut::from_ptr(addr_of_mut!(raw)) }.expect("stack address");
+        // SAFETY: `av_strdup` returns null or one uniquely owned terminated
+        // av_malloc-family string, exactly what `AvFree` releases.
+        let first = unsafe { CrustifyStr::<AvFree>::from_raw(ffi::av_strdup(c"first".as_ptr())) }
+            .expect("av_strdup failed");
+        range.set_string(Some(first));
+        assert_eq!(range.as_ref().string(), Some(c"first"));
+
+        // SAFETY: the same allocation and termination contract as above.
+        let second = unsafe { CrustifyStr::<AvFree>::from_raw(ffi::av_strdup(c"second".as_ptr())) }
+            .expect("av_strdup failed");
+        range.set_string(Some(second));
+        assert_eq!(range.as_ref().string(), Some(c"second"));
+
+        let second = range.take_string().expect("string was stored");
+        assert_eq!(second.as_c_str(), c"second");
+        assert!(range.as_ref().string().is_none());
     }
 }
