@@ -290,6 +290,12 @@
    "fields": []
   },
   {
+   "name": "AVDOVIReshapingCurve",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "Reviewed the complete public layout: every field is an integer/open-enum value or fixed-size by-value array; there are no pointer, refcount, lock, or owned-resource fields. The curve is embedded by value and needs only no-op disposal.",
+   "fields": []
+  },
+  {
    "name": "AVDOVIRpuDataHeader",
    "defined_in": "libavutil/dovi_meta.h",
    "_comment_agent": "Reviewed: this public POD struct has no pointer or refcount fields and no lifecycle operation.",
@@ -388,6 +394,12 @@
    "name": "AVFilmGrainAOMParams",
    "defined_in": "libavutil/film_grain_params.h",
    "_comment_agent": "Inspected the complete public definition: the type contains only scalar integers and fixed-size integer arrays, owns no allocations, and has no lifecycle primitive separate from its enclosing AVFilmGrainParams storage.",
+   "fields": []
+  },
+  {
+   "name": "AVFilmGrainParams",
+   "defined_in": "libavutil/film_grain_params.h",
+   "_comment_agent": "Reviewed the complete public layout and film_grain_params.c: all fields are scalars, open-enum values, or a tagged by-value union; there are no pointer, refcount, lock, or separately owned-resource fields. Independent storage comes from av_mallocz and is released as one block with av_free; frame side-data storage is borrowed from the frame.",
    "fields": []
   },
   {

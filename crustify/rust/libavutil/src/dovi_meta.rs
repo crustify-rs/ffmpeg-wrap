@@ -1520,3 +1520,217 @@ mod level8_and_metadata_tests {
         );
     }
 }
+
+define_ctype!(
+    /// Wraps: AVDOVIReshapingCurve
+    ///
+    /// Layout-compatible coefficients for one piece-wise Dolby Vision
+    /// reshaping function. The structure owns no resources and is normally
+    /// embedded by value in an `AVDOVIDataMapping`.
+    AVDOVIReshapingCurve,
+    AVDOVIReshapingCurveRef,
+    AVDOVIReshapingCurveMut,
+    ffi::AVDOVIReshapingCurve
+);
+
+// SAFETY: the C structure contains only integer scalars and fixed-size arrays
+// and owns no resources, so disposing a live inline value is a no-op.
+unsafe impl CValued for AVDOVIReshapingCurve {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+impl AVDOVIReshapingCurve {
+    pub const MAX_PIECES: usize = 8;
+    pub const MAX_PIVOTS: usize = Self::MAX_PIECES + 1;
+}
+
+impl AVDOVIReshapingCurveRef<'_> {
+    /// Field: AVDOVIReshapingCurve.num_pivots
+    #[must_use]
+    pub fn num_pivots(&self) -> u8 {
+        // SAFETY: the handle addresses an initialized curve and this copies a
+        // scalar through a raw-place projection without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).num_pivots).read() }
+    }
+
+    /// Field: AVDOVIReshapingCurve.pivots
+    #[must_use]
+    pub fn pivots(&self) -> [u16; AVDOVIReshapingCurve::MAX_PIVOTS] {
+        // SAFETY: the handle addresses an initialized curve and the fixed
+        // integer array is copied without forming a reference to C storage.
+        unsafe { addr_of!((*self.as_ptr()).pivots).read() }
+    }
+
+    /// Field: AVDOVIReshapingCurve.mapping_idc
+    #[must_use]
+    pub fn mapping_idc(&self) -> [AVDOVIMappingMethod; AVDOVIReshapingCurve::MAX_PIECES] {
+        // SAFETY: bindgen represents the open C enum as its integer ABI type;
+        // copying the initialized array through a raw projection is valid.
+        unsafe { addr_of!((*self.as_ptr()).mapping_idc).read() }.map(AVDOVIMappingMethod::from_raw)
+    }
+
+    /// Field: AVDOVIReshapingCurve.poly_order
+    #[must_use]
+    pub fn poly_order(&self) -> [u8; AVDOVIReshapingCurve::MAX_PIECES] {
+        // SAFETY: the initialized fixed integer array is copied through a raw
+        // projection, so no reference covers storage C may mutate.
+        unsafe { addr_of!((*self.as_ptr()).poly_order).read() }
+    }
+
+    /// Field: AVDOVIReshapingCurve.poly_coef
+    #[must_use]
+    pub fn poly_coef(&self) -> [[i64; 3]; AVDOVIReshapingCurve::MAX_PIECES] {
+        // SAFETY: the initialized fixed integer array is copied through a raw
+        // projection, so no reference covers storage C may mutate.
+        unsafe { addr_of!((*self.as_ptr()).poly_coef).read() }
+    }
+
+    /// Field: AVDOVIReshapingCurve.mmr_order
+    #[must_use]
+    pub fn mmr_order(&self) -> [u8; AVDOVIReshapingCurve::MAX_PIECES] {
+        // SAFETY: the initialized fixed integer array is copied through a raw
+        // projection, so no reference covers storage C may mutate.
+        unsafe { addr_of!((*self.as_ptr()).mmr_order).read() }
+    }
+
+    /// Field: AVDOVIReshapingCurve.mmr_constant
+    #[must_use]
+    pub fn mmr_constant(&self) -> [i64; AVDOVIReshapingCurve::MAX_PIECES] {
+        // SAFETY: the initialized fixed integer array is copied through a raw
+        // projection, so no reference covers storage C may mutate.
+        unsafe { addr_of!((*self.as_ptr()).mmr_constant).read() }
+    }
+
+    /// Field: AVDOVIReshapingCurve.mmr_coef
+    #[must_use]
+    pub fn mmr_coef(&self) -> [[[i64; 7]; 3]; AVDOVIReshapingCurve::MAX_PIECES] {
+        // SAFETY: the initialized fixed integer array is copied through a raw
+        // projection, so no reference covers storage C may mutate.
+        unsafe { addr_of!((*self.as_ptr()).mmr_coef).read() }
+    }
+}
+
+impl AVDOVIReshapingCurveMut<'_> {
+    /// Sets the active pivot count.
+    ///
+    /// # Panics
+    ///
+    /// Panics unless `num_pivots` is in the documented range `2..=9`.
+    pub fn set_num_pivots(&mut self, num_pivots: u8) {
+        assert!((2..=AVDOVIReshapingCurve::MAX_PIVOTS as u8).contains(&num_pivots));
+        // SAFETY: the exclusive handle permits a raw write to this scalar.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).num_pivots).write(num_pivots) }
+    }
+
+    /// Replaces the sorted pivot table.
+    ///
+    /// # Panics
+    ///
+    /// Panics unless the pivots are sorted in ascending order.
+    pub fn set_pivots(&mut self, pivots: [u16; AVDOVIReshapingCurve::MAX_PIVOTS]) {
+        assert!(pivots.windows(2).all(|pair| pair[0] <= pair[1]));
+        // SAFETY: the exclusive handle permits a raw write of the fixed array.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).pivots).write(pivots) }
+    }
+
+    /// Replaces the mapping method for every piece.
+    pub fn set_mapping_idc(
+        &mut self,
+        mapping_idc: [AVDOVIMappingMethod; AVDOVIReshapingCurve::MAX_PIECES],
+    ) {
+        let raw = mapping_idc.map(AVDOVIMappingMethod::as_raw);
+        // SAFETY: the exclusive handle permits a raw write of the ABI integer
+        // array; open enum values remain representable.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).mapping_idc).write(raw) }
+    }
+
+    /// Replaces the polynomial order table.
+    ///
+    /// # Panics
+    ///
+    /// Panics unless every order is in the documented range `1..=2`.
+    pub fn set_poly_order(&mut self, poly_order: [u8; AVDOVIReshapingCurve::MAX_PIECES]) {
+        assert!(poly_order.iter().all(|order| (1..=2).contains(order)));
+        // SAFETY: the exclusive handle permits a raw write of the fixed array.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).poly_order).write(poly_order) }
+    }
+
+    /// Replaces all polynomial coefficients.
+    pub fn set_poly_coef(&mut self, poly_coef: [[i64; 3]; AVDOVIReshapingCurve::MAX_PIECES]) {
+        // SAFETY: the exclusive handle permits a raw write of the fixed array.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).poly_coef).write(poly_coef) }
+    }
+
+    /// Replaces the MMR order table.
+    ///
+    /// # Panics
+    ///
+    /// Panics unless every order is in the documented range `1..=3`.
+    pub fn set_mmr_order(&mut self, mmr_order: [u8; AVDOVIReshapingCurve::MAX_PIECES]) {
+        assert!(mmr_order.iter().all(|order| (1..=3).contains(order)));
+        // SAFETY: the exclusive handle permits a raw write of the fixed array.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).mmr_order).write(mmr_order) }
+    }
+
+    /// Replaces all MMR constants.
+    pub fn set_mmr_constant(&mut self, mmr_constant: [i64; AVDOVIReshapingCurve::MAX_PIECES]) {
+        // SAFETY: the exclusive handle permits a raw write of the fixed array.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).mmr_constant).write(mmr_constant) }
+    }
+
+    /// Replaces all MMR coefficients.
+    pub fn set_mmr_coef(&mut self, mmr_coef: [[[i64; 7]; 3]; AVDOVIReshapingCurve::MAX_PIECES]) {
+        // SAFETY: the exclusive handle permits a raw write of the fixed array.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).mmr_coef).write(mmr_coef) }
+    }
+}
+
+#[cfg(test)]
+mod reshaping_curve_tests {
+    use core::mem::{align_of, size_of};
+
+    use ffibox::CVal;
+
+    use super::*;
+
+    #[test]
+    fn layout_and_fixed_tables_round_trip() {
+        assert_eq!(
+            size_of::<AVDOVIReshapingCurve>(),
+            size_of::<ffi::AVDOVIReshapingCurve>()
+        );
+        assert_eq!(
+            align_of::<AVDOVIReshapingCurve>(),
+            align_of::<ffi::AVDOVIReshapingCurve>()
+        );
+
+        let mut curve = CVal::new(AVDOVIReshapingCurve::zeroed());
+        curve.as_mut().set_num_pivots(9);
+        curve.as_mut().set_pivots([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+        curve.as_mut().set_mapping_idc([
+            AVDOVIMappingMethod::POLYNOMIAL,
+            AVDOVIMappingMethod::MMR,
+            AVDOVIMappingMethod::from_raw(77),
+            AVDOVIMappingMethod::POLYNOMIAL,
+            AVDOVIMappingMethod::MMR,
+            AVDOVIMappingMethod::POLYNOMIAL,
+            AVDOVIMappingMethod::MMR,
+            AVDOVIMappingMethod::POLYNOMIAL,
+        ]);
+        curve.as_mut().set_poly_order([1, 2, 1, 2, 1, 2, 1, 2]);
+        curve.as_mut().set_poly_coef([[3; 3]; 8]);
+        curve.as_mut().set_mmr_order([1, 2, 3, 1, 2, 3, 1, 2]);
+        curve.as_mut().set_mmr_constant([4; 8]);
+        curve.as_mut().set_mmr_coef([[[5; 7]; 3]; 8]);
+
+        let view = curve.as_ref();
+        assert_eq!(view.num_pivots(), 9);
+        assert_eq!(view.pivots()[8], 8);
+        assert_eq!(view.mapping_idc()[2].as_raw(), 77);
+        assert_eq!(view.poly_order()[7], 2);
+        assert_eq!(view.poly_coef()[7][2], 3);
+        assert_eq!(view.mmr_order()[2], 3);
+        assert_eq!(view.mmr_constant()[7], 4);
+        assert_eq!(view.mmr_coef()[7][2][6], 5);
+    }
+}

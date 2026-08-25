@@ -1,10 +1,12 @@
 //! Wrappers for `libavutil/film_grain_params.c`.
 
+use core::ffi::c_void;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::{CValued, define_ctype};
+use ffibox::{CDropped, CValued, define_ctype};
 
 use crate::ffi;
+use crate::pixfmt::{AVColorPrimaries, AVColorRange, AVColorSpace, AVColorTransferCharacteristic};
 
 /// Wraps: AVFilmGrainParamsType
 ///
@@ -653,5 +655,363 @@ mod aom_tests {
         assert_eq!(view.uv_offset(), [-256, 255]);
         assert_eq!(view.ar_coeffs_y(), [7; 24]);
         assert_eq!(view.ar_coeffs_uv(), [[3; 25], [4; 25]]);
+    }
+}
+
+define_ctype!(
+    /// Wraps: AVFilmGrainParams
+    ///
+    /// Layout-compatible top-level film-grain parameters. Independently
+    /// allocated values are owned by `ffibox::CBox<AVFilmGrainParams>` and
+    /// released with `av_free`; frame side-data values remain borrowed from
+    /// their frame owner.
+    AVFilmGrainParams,
+    AVFilmGrainParamsRef,
+    AVFilmGrainParamsMut,
+    ffi::AVFilmGrainParams
+);
+
+// SAFETY: independently owned instances are allocated by
+// `av_film_grain_params_alloc` with `av_mallocz`. The structure contains no
+// separately allocated fields, and `av_free` is its documented releaser.
+unsafe impl CDropped for AVFilmGrainParams {
+    unsafe fn c_drop(object: NonNull<Self>) {
+        // SAFETY: the trait contract supplies sole ownership of an independent
+        // allocation from the av_malloc family. Borrowed frame side-data is
+        // never adopted into `CBox`, so it cannot reach this implementation.
+        unsafe { ffi::av_free(object.as_ptr().cast::<c_void>()) }
+    }
+}
+
+/// A discriminator-checked shared view of `AVFilmGrainParams.codec`.
+pub enum AVFilmGrainCodecRef<'a> {
+    None,
+    Aom(AVFilmGrainAOMParamsRef<'a>),
+    H274(AVFilmGrainH274ParamsRef<'a>),
+    Unknown(AVFilmGrainParamsType),
+}
+
+/// A discriminator-checked exclusive view of `AVFilmGrainParams.codec`.
+pub enum AVFilmGrainCodecMut<'a> {
+    None,
+    Aom(AVFilmGrainAOMParamsMut<'a>),
+    H274(AVFilmGrainH274ParamsMut<'a>),
+    Unknown(AVFilmGrainParamsType),
+}
+
+macro_rules! params_scalar_field {
+    ($(#[$attr:meta])* $get:ident, $set:ident, $field:ident, $ty:ty) => {
+        impl AVFilmGrainParamsRef<'_> {
+            $(#[$attr])*
+            #[must_use]
+            pub fn $get(&self) -> $ty {
+                // SAFETY: the shared handle addresses an initialized value;
+                // raw-place projection copies one scalar without a reference.
+                unsafe { addr_of!((*self.as_ptr()).$field).read() }
+            }
+        }
+
+        impl AVFilmGrainParamsMut<'_> {
+            #[doc = concat!("Sets `", stringify!($field), "`.")]
+            pub fn $set(&mut self, value: $ty) {
+                // SAFETY: the exclusive handle permits a raw write to the
+                // scalar field without forming a reference to C storage.
+                unsafe { addr_of_mut!((*self.as_mut_ptr()).$field).write(value) }
+            }
+        }
+    };
+}
+
+params_scalar_field!(
+    /// Field: AVFilmGrainParams.seed
+    seed,
+    set_seed,
+    seed,
+    u64
+);
+params_scalar_field!(
+    /// Field: AVFilmGrainParams.width
+    width,
+    set_width,
+    width,
+    i32
+);
+params_scalar_field!(
+    /// Field: AVFilmGrainParams.height
+    height,
+    set_height,
+    height,
+    i32
+);
+params_scalar_field!(
+    /// Field: AVFilmGrainParams.subsampling_x
+    subsampling_x,
+    set_subsampling_x,
+    subsampling_x,
+    i32
+);
+params_scalar_field!(
+    /// Field: AVFilmGrainParams.subsampling_y
+    subsampling_y,
+    set_subsampling_y,
+    subsampling_y,
+    i32
+);
+params_scalar_field!(
+    /// Field: AVFilmGrainParams.bit_depth_luma
+    bit_depth_luma,
+    set_bit_depth_luma,
+    bit_depth_luma,
+    i32
+);
+params_scalar_field!(
+    /// Field: AVFilmGrainParams.bit_depth_chroma
+    bit_depth_chroma,
+    set_bit_depth_chroma,
+    bit_depth_chroma,
+    i32
+);
+
+macro_rules! params_color_field {
+    ($(#[$attr:meta])* $get:ident, $set:ident, $field:ident, $ty:ty, $raw:ty) => {
+        impl AVFilmGrainParamsRef<'_> {
+            $(#[$attr])*
+            #[must_use]
+            pub fn $get(&self) -> $ty {
+                // SAFETY: bindgen exposes the open C enum as its integer ABI
+                // type, which is copied through a raw-place projection.
+                <$ty>::from_raw(unsafe { addr_of!((*self.as_ptr()).$field).read() })
+            }
+        }
+
+        impl AVFilmGrainParamsMut<'_> {
+            #[doc = concat!("Sets `", stringify!($field), "`.")]
+            pub fn $set(&mut self, value: $ty) {
+                let raw: $raw = value.as_raw();
+                // SAFETY: the exclusive handle permits a raw ABI-integer write
+                // and the open wrapper preserves every possible value.
+                unsafe { addr_of_mut!((*self.as_mut_ptr()).$field).write(raw) }
+            }
+        }
+    };
+}
+
+params_color_field!(
+    /// Field: AVFilmGrainParams.color_range
+    color_range,
+    set_color_range,
+    color_range,
+    AVColorRange,
+    ffi::AVColorRange
+);
+params_color_field!(
+    /// Field: AVFilmGrainParams.color_primaries
+    color_primaries,
+    set_color_primaries,
+    color_primaries,
+    AVColorPrimaries,
+    ffi::AVColorPrimaries
+);
+params_color_field!(
+    /// Field: AVFilmGrainParams.color_trc
+    color_trc,
+    set_color_trc,
+    color_trc,
+    AVColorTransferCharacteristic,
+    ffi::AVColorTransferCharacteristic
+);
+params_color_field!(
+    /// Field: AVFilmGrainParams.color_space
+    color_space,
+    set_color_space,
+    color_space,
+    AVColorSpace,
+    ffi::AVColorSpace
+);
+
+impl<'a> AVFilmGrainParamsRef<'a> {
+    /// Field: AVFilmGrainParams.type
+    #[must_use]
+    pub fn params_type(&self) -> AVFilmGrainParamsType {
+        // SAFETY: bindgen represents the open C enum as an integer and the
+        // initialized discriminator is copied through a raw projection.
+        AVFilmGrainParamsType::from_raw(unsafe { addr_of!((*self.as_ptr()).type_).read() })
+    }
+
+    /// Field: AVFilmGrainParams.codec
+    ///
+    /// Returns the active union member selected by [`Self::params_type`].
+    #[must_use]
+    pub fn codec(&self) -> AVFilmGrainCodecRef<'a> {
+        let params_type = self.params_type();
+        // SAFETY: the shared handle addresses a live initialized parent;
+        // projecting the union's address forms no reference to its storage.
+        let codec = unsafe { addr_of!((*self.as_ptr()).codec) };
+        if params_type == AVFilmGrainParamsType::NONE {
+            AVFilmGrainCodecRef::None
+        } else if params_type == AVFilmGrainParamsType::AV1 {
+            // SAFETY: the public C contract says AV1 selects `codec.aom`; the
+            // member begins at the union address and remains live for `'a`.
+            let member = unsafe {
+                AVFilmGrainAOMParamsRef::from_ptr(
+                    codec.cast::<ffi::AVFilmGrainAOMParams>().cast_mut(),
+                )
+                .expect("an inline union member is non-null")
+            };
+            AVFilmGrainCodecRef::Aom(member)
+        } else if params_type == AVFilmGrainParamsType::H274 {
+            // SAFETY: the public C contract says H274 selects `codec.h274`; the
+            // member begins at the union address and remains live for `'a`.
+            let member = unsafe {
+                AVFilmGrainH274ParamsRef::from_ptr(
+                    codec.cast::<ffi::AVFilmGrainH274Params>().cast_mut(),
+                )
+                .expect("an inline union member is non-null")
+            };
+            AVFilmGrainCodecRef::H274(member)
+        } else {
+            AVFilmGrainCodecRef::Unknown(params_type)
+        }
+    }
+}
+
+impl AVFilmGrainParamsMut<'_> {
+    /// Returns an exclusive view of the currently active codec member.
+    #[must_use]
+    pub fn codec_mut(&mut self) -> AVFilmGrainCodecMut<'_> {
+        let params_type = self.as_ref().params_type();
+        // SAFETY: the exclusive handle addresses a live initialized parent;
+        // projecting the union's address forms no reference to its storage.
+        let codec = unsafe { addr_of_mut!((*self.as_mut_ptr()).codec) };
+        if params_type == AVFilmGrainParamsType::NONE {
+            AVFilmGrainCodecMut::None
+        } else if params_type == AVFilmGrainParamsType::AV1 {
+            // SAFETY: AV1 selects `codec.aom`; the exclusive reborrow keeps the
+            // returned member handle from outliving or aliasing this handle.
+            let member = unsafe {
+                AVFilmGrainAOMParamsMut::from_ptr(codec.cast::<ffi::AVFilmGrainAOMParams>())
+                    .expect("an inline union member is non-null")
+            };
+            AVFilmGrainCodecMut::Aom(member)
+        } else if params_type == AVFilmGrainParamsType::H274 {
+            // SAFETY: H274 selects `codec.h274`; the exclusive reborrow keeps
+            // the returned member handle from outliving or aliasing this one.
+            let member = unsafe {
+                AVFilmGrainH274ParamsMut::from_ptr(codec.cast::<ffi::AVFilmGrainH274Params>())
+                    .expect("an inline union member is non-null")
+            };
+            AVFilmGrainCodecMut::H274(member)
+        } else {
+            AVFilmGrainCodecMut::Unknown(params_type)
+        }
+    }
+
+    /// Field: AVFilmGrainParams.codec.aom
+    ///
+    /// Zero-initializes and selects the AOM/AV1 member, returning it for
+    /// further initialization.
+    pub fn activate_aom(&mut self) -> AVFilmGrainAOMParamsMut<'_> {
+        let ptr = self.as_mut_ptr();
+        // SAFETY: every field of the C member is an integer or integer array,
+        // so all-zero is valid. The exclusive handle permits overwriting the
+        // union member and discriminator before the new view is returned.
+        unsafe {
+            let codec = addr_of_mut!((*ptr).codec).cast::<ffi::AVFilmGrainAOMParams>();
+            codec.write(core::mem::zeroed());
+            addr_of_mut!((*ptr).type_).write(AVFilmGrainParamsType::AV1.as_raw());
+            AVFilmGrainAOMParamsMut::from_ptr(codec).expect("an inline union member is non-null")
+        }
+    }
+
+    /// Field: AVFilmGrainParams.codec.h274
+    ///
+    /// Zero-initializes and selects the H.274 member, returning it for further
+    /// initialization.
+    pub fn activate_h274(&mut self) -> AVFilmGrainH274ParamsMut<'_> {
+        let ptr = self.as_mut_ptr();
+        // SAFETY: every field of the C member is an integer or integer array,
+        // so all-zero is valid. The exclusive handle permits overwriting the
+        // union member and discriminator before the new view is returned.
+        unsafe {
+            let codec = addr_of_mut!((*ptr).codec).cast::<ffi::AVFilmGrainH274Params>();
+            codec.write(core::mem::zeroed());
+            addr_of_mut!((*ptr).type_).write(AVFilmGrainParamsType::H274.as_raw());
+            AVFilmGrainH274ParamsMut::from_ptr(codec).expect("an inline union member is non-null")
+        }
+    }
+
+    /// Marks the union as inactive without reading its stored bytes.
+    pub fn clear_codec(&mut self) {
+        // SAFETY: the exclusive handle permits updating the discriminator;
+        // the union bytes may remain initialized but are inactive under NONE.
+        unsafe {
+            addr_of_mut!((*self.as_mut_ptr()).type_).write(AVFilmGrainParamsType::NONE.as_raw());
+        }
+    }
+}
+
+#[cfg(test)]
+mod params_tests {
+    use core::mem::{align_of, size_of};
+
+    use super::*;
+
+    #[test]
+    fn layout_scalar_and_tagged_union_access_round_trip() {
+        assert_eq!(
+            size_of::<AVFilmGrainParams>(),
+            size_of::<ffi::AVFilmGrainParams>()
+        );
+        assert_eq!(
+            align_of::<AVFilmGrainParams>(),
+            align_of::<ffi::AVFilmGrainParams>()
+        );
+
+        let mut params = AVFilmGrainParams::zeroed();
+        // SAFETY: `params` is live and initialized, and the returned exclusive
+        // handle is its only access path for this borrow.
+        let mut params = unsafe {
+            AVFilmGrainParamsMut::from_ptr(addr_of_mut!(params).cast::<ffi::AVFilmGrainParams>())
+                .expect("a stack value is non-null")
+        };
+        params.set_seed(42);
+        params.set_width(1920);
+        params.set_height(1080);
+        params.set_subsampling_x(1);
+        params.set_subsampling_y(1);
+        params.set_color_range(AVColorRange::MPEG);
+        params.set_color_primaries(AVColorPrimaries::BT2020);
+        params.set_color_trc(AVColorTransferCharacteristic::SMPTE2084);
+        params.set_color_space(AVColorSpace::BT2020_NCL);
+        params.set_bit_depth_luma(10);
+        params.set_bit_depth_chroma(10);
+        params.activate_aom().set_num_y_points(2);
+
+        let view = params.as_ref();
+        assert_eq!(view.seed(), 42);
+        assert_eq!(view.width(), 1920);
+        assert_eq!(view.height(), 1080);
+        assert_eq!(view.color_range(), AVColorRange::MPEG);
+        assert_eq!(view.params_type(), AVFilmGrainParamsType::AV1);
+        match view.codec() {
+            AVFilmGrainCodecRef::Aom(aom) => assert_eq!(aom.num_y_points(), 2),
+            _ => panic!("AOM discriminator did not expose the AOM member"),
+        }
+
+        params.activate_h274().set_model_id(1);
+        match params.codec_mut() {
+            AVFilmGrainCodecMut::H274(mut h274) => h274.set_log2_scale_factor(7),
+            _ => panic!("H.274 discriminator did not expose the H.274 member"),
+        }
+        match params.as_ref().codec() {
+            AVFilmGrainCodecRef::H274(h274) => {
+                assert_eq!(h274.model_id(), 1);
+                assert_eq!(h274.log2_scale_factor(), 7);
+            }
+            _ => panic!("H.274 member was not retained"),
+        }
+
+        params.clear_codec();
+        assert!(matches!(params.as_ref().codec(), AVFilmGrainCodecRef::None));
     }
 }

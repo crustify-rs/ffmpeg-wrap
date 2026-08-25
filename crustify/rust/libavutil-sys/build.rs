@@ -40,6 +40,7 @@ fn main() {
         .allowlist_type("^AVColor(Space|TransferCharacteristic)$")
         .allowlist_type("^AVSampleFormat$")
         .allowlist_type("^(AVFilmGrainH274Params|AVFilmGrainParamsType)$")
+        .allowlist_type("^(AVFilmGrainParams|AVDOVIReshapingCurve)$")
         .allowlist_type("^AVHDRPlusOverlapProcessOption$")
         .allowlist_type("^AVHashContext$")
         .allowlist_function("^av_hash_freep$")
