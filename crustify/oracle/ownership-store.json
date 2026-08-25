@@ -234,6 +234,130 @@
    "fields": []
   },
   {
+   "name": "AVClass",
+   "defined_in": "libavutil/log.h",
+   "_comment_agent": "AVClass records immutable class metadata. Definitions are overwhelmingly static const tables; string and option-table storage is static, and callback code pointers have process lifetime. All pointer fields are borrowed, never freed or mutated through AVClass, and all except class_name may be null in partial designated initializers.",
+   "fields": [
+    {
+     "name": "child_class_iterate",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional function pointer in immutable class metadata."
+     }
+    },
+    {
+     "name": "child_next",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional function pointer in immutable class metadata."
+     }
+    },
+    {
+     "name": "class_name",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Required class name, initialized from static NUL-terminated string literals and only read."
+     }
+    },
+    {
+     "name": "get_category",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional function pointer in immutable class metadata."
+     }
+    },
+    {
+     "name": "item_name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional function pointer stored in static class metadata; invoked but never replaced."
+     }
+    },
+    {
+     "name": "option",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional borrowed static const AVOption array terminated by an entry with a null name."
+     }
+    },
+    {
+     "name": "query_ranges",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional function pointer in immutable class metadata."
+     }
+    }
+   ]
+  },
+  {
    "name": "AVClassCategory",
    "defined_in": "libavutil/log.h",
    "_comment_agent": "No pointer or refcount fields; all declared fields are scalar integer values.",
@@ -255,6 +379,12 @@
    "name": "AVDOVICompression",
    "defined_in": "libavutil/dovi_meta.h",
    "_comment_agent": "No pointer or refcount fields; all declared fields are scalar integer values.",
+   "fields": []
+  },
+  {
+   "name": "AVDOVIDataMapping",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "Pure by-value metadata record: all members are scalars or fixed inline arrays; no pointer ownership or lifecycle operation exists.",
    "fields": []
   },
   {

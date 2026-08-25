@@ -1978,3 +1978,172 @@ mod header_tests {
         );
     }
 }
+
+define_ctype!(
+    /// Wraps: AVDOVIDataMapping
+    ///
+    /// ABI-compatible by-value Dolby Vision RPU mapping metadata. Every member
+    /// is an integer or fixed inline array and the record owns no resources.
+    AVDOVIDataMapping,
+    AVDOVIDataMappingRef,
+    AVDOVIDataMappingMut,
+    ffi::AVDOVIDataMapping
+);
+
+// SAFETY: the record contains only integer-backed values and fixed inline
+// arrays of resource-free wrapped values, so by-value disposal is a no-op.
+unsafe impl CValued for AVDOVIDataMapping {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+scalar_accessors! {
+    AVDOVIDataMappingRef, AVDOVIDataMappingMut, u8;
+    /// Field: AVDOVIDataMapping.mapping_chroma_format_idc
+    mapping_chroma_format_idc, set_mapping_chroma_format_idc, mapping_chroma_format_idc;
+    /// Field: AVDOVIDataMapping.mapping_color_space
+    mapping_color_space, set_mapping_color_space, mapping_color_space;
+    /// Field: AVDOVIDataMapping.vdr_rpu_id
+    vdr_rpu_id, set_vdr_rpu_id, vdr_rpu_id;
+}
+
+scalar_accessors! {
+    AVDOVIDataMappingRef, AVDOVIDataMappingMut, u32;
+    /// Field: AVDOVIDataMapping.num_y_partitions
+    num_y_partitions, set_num_y_partitions, num_y_partitions;
+    /// Field: AVDOVIDataMapping.num_x_partitions
+    num_x_partitions, set_num_x_partitions, num_x_partitions;
+}
+
+impl<'a> AVDOVIDataMappingRef<'a> {
+    /// Field: AVDOVIDataMapping.curves
+    #[must_use]
+    pub fn curves(&self) -> CSlice<'a, AVDOVIReshapingCurve> {
+        // SAFETY: raw-place projection locates the three initialized inline
+        // curves without forming a reference. Their layout wrapper is
+        // transparent and their lifetime is bounded by the mapping handle.
+        unsafe {
+            let pointer = addr_of!((*self.as_ptr()).curves)
+                .cast::<AVDOVIReshapingCurve>()
+                .cast_mut();
+            CSlice::from_raw_parts(NonNull::new_unchecked(pointer), 3)
+        }
+    }
+
+    /// Field: AVDOVIDataMapping.nlq_method_idc
+    #[must_use]
+    pub fn nlq_method_idc(&self) -> AVDOVINLQMethod {
+        // SAFETY: raw-place projection copies the initialized integer-backed
+        // open enum without forming a reference to C storage.
+        AVDOVINLQMethod::from_raw(unsafe { addr_of!((*self.as_ptr()).nlq_method_idc).read() })
+    }
+
+    /// Field: AVDOVIDataMapping.nlq
+    #[must_use]
+    pub fn nlq(&self) -> CSlice<'a, AVDOVINLQParams> {
+        // SAFETY: raw-place projection locates the three initialized inline
+        // parameter records. The result is bound to the containing mapping.
+        unsafe {
+            let pointer = addr_of!((*self.as_ptr()).nlq)
+                .cast::<AVDOVINLQParams>()
+                .cast_mut();
+            CSlice::from_raw_parts(NonNull::new_unchecked(pointer), 3)
+        }
+    }
+
+    /// Field: AVDOVIDataMapping.nlq_pivots
+    #[must_use]
+    pub fn nlq_pivots(&self) -> CSlice<'a, u16> {
+        // SAFETY: raw-place projection locates exactly two initialized u16
+        // elements; the borrowed view is tied to the mapping handle.
+        unsafe {
+            let pointer = addr_of!((*self.as_ptr()).nlq_pivots)
+                .cast::<u16>()
+                .cast_mut();
+            CSlice::from_raw_parts(NonNull::new_unchecked(pointer), 2)
+        }
+    }
+}
+
+impl AVDOVIDataMappingMut<'_> {
+    /// Exclusively borrows [`curves`](AVDOVIDataMappingRef::curves).
+    #[must_use]
+    pub fn curves_mut(&mut self) -> CSliceMut<'_, AVDOVIReshapingCurve> {
+        // SAFETY: the exclusive mapping handle supplies write provenance to
+        // the three inline curves and the result is tied to this reborrow.
+        unsafe {
+            let pointer = addr_of_mut!((*self.as_mut_ptr()).curves).cast::<AVDOVIReshapingCurve>();
+            CSliceMut::from_raw_parts(NonNull::new_unchecked(pointer), 3)
+        }
+    }
+
+    /// Replaces the non-linear inverse-quantization method.
+    pub fn set_nlq_method_idc(&mut self, value: AVDOVINLQMethod) {
+        // SAFETY: the exclusive handle supplies write provenance and the open
+        // wrapper carries exactly the C integer representation.
+        unsafe {
+            addr_of_mut!((*self.as_mut_ptr()).nlq_method_idc).write(value.as_raw());
+        }
+    }
+
+    /// Exclusively borrows [`nlq`](AVDOVIDataMappingRef::nlq).
+    #[must_use]
+    pub fn nlq_mut(&mut self) -> CSliceMut<'_, AVDOVINLQParams> {
+        // SAFETY: the exclusive mapping handle supplies write provenance to
+        // all three inline records and the result is tied to this reborrow.
+        unsafe {
+            let pointer = addr_of_mut!((*self.as_mut_ptr()).nlq).cast::<AVDOVINLQParams>();
+            CSliceMut::from_raw_parts(NonNull::new_unchecked(pointer), 3)
+        }
+    }
+
+    /// Exclusively borrows [`nlq_pivots`](AVDOVIDataMappingRef::nlq_pivots).
+    #[must_use]
+    pub fn nlq_pivots_mut(&mut self) -> CSliceMut<'_, u16> {
+        // SAFETY: the exclusive mapping handle supplies write provenance to
+        // both inline u16 elements and the result is tied to this reborrow.
+        unsafe {
+            let pointer = addr_of_mut!((*self.as_mut_ptr()).nlq_pivots).cast::<u16>();
+            CSliceMut::from_raw_parts(NonNull::new_unchecked(pointer), 2)
+        }
+    }
+}
+
+#[cfg(test)]
+mod data_mapping_tests {
+    use super::*;
+
+    #[test]
+    fn layout_and_scalar_array_accessors_round_trip() {
+        assert_eq!(
+            core::mem::size_of::<AVDOVIDataMapping>(),
+            core::mem::size_of::<ffi::AVDOVIDataMapping>()
+        );
+        assert_eq!(
+            core::mem::align_of::<AVDOVIDataMapping>(),
+            core::mem::align_of::<ffi::AVDOVIDataMapping>()
+        );
+
+        let mut mapping = CVal::new(AVDOVIDataMapping::zeroed());
+        let mut view = mapping.as_mut();
+        view.set_vdr_rpu_id(1);
+        view.set_mapping_color_space(2);
+        view.set_mapping_chroma_format_idc(3);
+        view.set_num_x_partitions(4);
+        view.set_num_y_partitions(5);
+        view.set_nlq_method_idc(AVDOVINLQMethod::LINEAR_DZ);
+        assert!(view.nlq_pivots_mut().set_elem(1, 17));
+        view.nlq_mut().get_mut(2).unwrap().set_nlq_offset(18);
+        view.curves_mut().get_mut(1).unwrap().set_num_pivots(2);
+
+        let shared = view.as_ref();
+        assert_eq!(shared.vdr_rpu_id(), 1);
+        assert_eq!(shared.mapping_color_space(), 2);
+        assert_eq!(shared.mapping_chroma_format_idc(), 3);
+        assert_eq!(shared.num_x_partitions(), 4);
+        assert_eq!(shared.num_y_partitions(), 5);
+        assert_eq!(shared.nlq_method_idc(), AVDOVINLQMethod::LINEAR_DZ);
+        assert_eq!(shared.nlq_pivots().elem(1), Some(17));
+        assert_eq!(shared.nlq().get(2).unwrap().nlq_offset(), 18);
+        assert_eq!(shared.curves().get(1).unwrap().num_pivots(), 2);
+    }
+}
