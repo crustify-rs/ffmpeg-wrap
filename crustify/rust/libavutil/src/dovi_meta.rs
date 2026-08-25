@@ -1,8 +1,9 @@
 //! Wrappers for `libavutil/dovi_meta.c`.
 
+use core::ffi::c_void;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::{CValued, define_ctype};
+use ffibox::{CDropped, CValued, define_ctype};
 
 use crate::ffi;
 
@@ -605,5 +606,415 @@ mod tests {
         assert_eq!(level6.as_ref().min_luminance(), 42);
         assert_eq!(level6.as_ref().max_cll(), 43);
         assert_eq!(level6.as_ref().max_fall(), 44);
+    }
+}
+
+define_ctype!(
+    /// Wraps: AVDOVIDmLevel8
+    ///
+    /// ABI-compatible level 8 display-management metadata. The type is
+    /// normally embedded in an `AVDOVIDmData` extension block; borrowed
+    /// access is carried by [`AVDOVIDmLevel8Ref`] and
+    /// [`AVDOVIDmLevel8Mut`] without forming a Rust reference over C storage.
+    AVDOVIDmLevel8,
+    AVDOVIDmLevel8Ref,
+    AVDOVIDmLevel8Mut,
+    ffi::AVDOVIDmLevel8
+);
+
+// SAFETY: level 8 metadata contains only integer scalars and fixed byte
+// arrays. It owns no resources, so disposing an inline value is a no-op.
+unsafe impl CValued for AVDOVIDmLevel8 {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+macro_rules! level8_scalar {
+    ($(#[$attr:meta])* $get:ident, $set:ident, $field:ident, $ty:ty) => {
+        impl AVDOVIDmLevel8Ref<'_> {
+            $(#[$attr])*
+            #[must_use]
+            pub fn $get(&self) -> $ty {
+                // SAFETY: this handle addresses a live initialized level 8
+                // block. Raw-place projection copies the scalar field without
+                // forming a reference to the wrapped object or field.
+                unsafe { addr_of!((*self.as_ptr()).$field).read() }
+            }
+        }
+
+        impl AVDOVIDmLevel8Mut<'_> {
+            #[doc = concat!("Sets `", stringify!($field), "`.")]
+            pub fn $set(&mut self, value: $ty) {
+                // SAFETY: the exclusive handle supplies write provenance to a
+                // live level 8 block. Raw-place projection writes only the
+                // named scalar field and forms no Rust reference.
+                unsafe { addr_of_mut!((*self.as_mut_ptr()).$field).write(value) }
+            }
+        }
+    };
+}
+
+level8_scalar!(
+    /// Field: AVDOVIDmLevel8.target_display_index
+    target_display_index,
+    set_target_display_index,
+    target_display_index,
+    u8
+);
+level8_scalar!(
+    /// Field: AVDOVIDmLevel8.trim_slope
+    trim_slope,
+    set_trim_slope,
+    trim_slope,
+    u16
+);
+level8_scalar!(
+    /// Field: AVDOVIDmLevel8.trim_offset
+    trim_offset,
+    set_trim_offset,
+    trim_offset,
+    u16
+);
+level8_scalar!(
+    /// Field: AVDOVIDmLevel8.trim_power
+    trim_power,
+    set_trim_power,
+    trim_power,
+    u16
+);
+level8_scalar!(
+    /// Field: AVDOVIDmLevel8.trim_chroma_weight
+    trim_chroma_weight,
+    set_trim_chroma_weight,
+    trim_chroma_weight,
+    u16
+);
+level8_scalar!(
+    /// Field: AVDOVIDmLevel8.trim_saturation_gain
+    trim_saturation_gain,
+    set_trim_saturation_gain,
+    trim_saturation_gain,
+    u16
+);
+level8_scalar!(
+    /// Field: AVDOVIDmLevel8.ms_weight
+    ms_weight,
+    set_ms_weight,
+    ms_weight,
+    u16
+);
+level8_scalar!(
+    /// Field: AVDOVIDmLevel8.target_mid_contrast
+    target_mid_contrast,
+    set_target_mid_contrast,
+    target_mid_contrast,
+    u16
+);
+level8_scalar!(
+    /// Field: AVDOVIDmLevel8.clip_trim
+    clip_trim,
+    set_clip_trim,
+    clip_trim,
+    u16
+);
+
+impl AVDOVIDmLevel8Ref<'_> {
+    /// Field: AVDOVIDmLevel8.saturation_vector_field
+    ///
+    /// Returns a copy of the six saturation adjustments. A copy, rather than
+    /// a slice, avoids placing a Rust reference over storage C may retain.
+    #[must_use]
+    pub fn saturation_vector_field(&self) -> [u8; 6] {
+        // SAFETY: the handle addresses a live initialized level 8 block. The
+        // fixed-size byte array is `Copy`, and raw-place projection creates no
+        // reference to the wrapped object or field.
+        unsafe { addr_of!((*self.as_ptr()).saturation_vector_field).read() }
+    }
+
+    /// Field: AVDOVIDmLevel8.hue_vector_field
+    ///
+    /// Returns a copy of the six hue adjustments.
+    #[must_use]
+    pub fn hue_vector_field(&self) -> [u8; 6] {
+        // SAFETY: the handle addresses a live initialized level 8 block. The
+        // fixed-size byte array is `Copy`, and raw-place projection creates no
+        // reference to the wrapped object or field.
+        unsafe { addr_of!((*self.as_ptr()).hue_vector_field).read() }
+    }
+}
+
+impl AVDOVIDmLevel8Mut<'_> {
+    /// Replaces all six saturation adjustments.
+    pub fn set_saturation_vector_field(&mut self, value: [u8; 6]) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // block, and the raw-place projection writes exactly the array field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).saturation_vector_field).write(value) }
+    }
+
+    /// Replaces all six hue adjustments.
+    pub fn set_hue_vector_field(&mut self, value: [u8; 6]) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // block, and the raw-place projection writes exactly the array field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).hue_vector_field).write(value) }
+    }
+}
+
+/// Wraps: AVDOVIMappingMethod
+///
+/// Identifies the piece-wise reshaping function. The transparent integer
+/// representation keeps unknown values representable when metadata comes from
+/// a newer libavutil instead of creating an invalid Rust enum discriminant.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AVDOVIMappingMethod(ffi::AVDOVIMappingMethod);
+
+impl AVDOVIMappingMethod {
+    /// Polynomial reshaping coefficients.
+    pub const POLYNOMIAL: Self = Self(ffi::AVDOVIMappingMethod_AV_DOVI_MAPPING_POLYNOMIAL);
+
+    /// Multi-variate multiple regression coefficients.
+    pub const MMR: Self = Self(ffi::AVDOVIMappingMethod_AV_DOVI_MAPPING_MMR);
+
+    /// Wraps a raw C enum value, including one unknown to this crate version.
+    #[must_use]
+    pub const fn from_raw(raw: ffi::AVDOVIMappingMethod) -> Self {
+        Self(raw)
+    }
+
+    /// Returns the ABI value accepted by libavutil.
+    #[must_use]
+    pub const fn as_raw(self) -> ffi::AVDOVIMappingMethod {
+        self.0
+    }
+}
+
+impl From<ffi::AVDOVIMappingMethod> for AVDOVIMappingMethod {
+    fn from(raw: ffi::AVDOVIMappingMethod) -> Self {
+        Self::from_raw(raw)
+    }
+}
+
+impl From<AVDOVIMappingMethod> for ffi::AVDOVIMappingMethod {
+    fn from(value: AVDOVIMappingMethod) -> Self {
+        value.as_raw()
+    }
+}
+
+define_ctype!(
+    /// Wraps: AVDOVIMetadata
+    ///
+    /// ABI-compatible header for libavutil's contiguous Dolby Vision metadata
+    /// allocation. An owning [`ffibox::CBox<AVDOVIMetadata>`] must come from
+    /// `av_dovi_metadata_alloc`; dropping it releases the complete allocation
+    /// with `av_free`. Borrowed field access never assumes ownership.
+    AVDOVIMetadata,
+    AVDOVIMetadataRef,
+    AVDOVIMetadataMut,
+    ffi::AVDOVIMetadata
+);
+
+// SAFETY: `av_dovi_metadata_alloc` obtains one contiguous allocation from
+// `av_mallocz` and returns its address because `metadata` is the first member
+// of `AVDOVIMetadataInternal`. `av_free` is the matching one-shot releaser and
+// the allocation contains no separately allocated fields.
+unsafe impl CDropped for AVDOVIMetadata {
+    unsafe fn c_drop(object: NonNull<Self>) {
+        // SAFETY: the trait contract supplies unique ownership of a fully
+        // constructed allocation returned by `av_dovi_metadata_alloc`; its
+        // pointer is the allocation base and belongs to the `av_malloc` family.
+        unsafe { ffi::av_free(object.as_ptr().cast::<c_void>()) }
+    }
+}
+
+macro_rules! metadata_scalar {
+    ($(#[$attr:meta])* $get:ident, $field:ident, $ty:ty) => {
+        impl AVDOVIMetadataRef<'_> {
+            $(#[$attr])*
+            #[must_use]
+            pub fn $get(&self) -> $ty {
+                // SAFETY: this handle addresses a live initialized metadata
+                // header. Raw-place projection copies the scalar field and
+                // forms no reference to the wrapped object or field.
+                unsafe { addr_of!((*self.as_ptr()).$field).read() }
+            }
+        }
+    };
+}
+
+metadata_scalar!(
+    /// Field: AVDOVIMetadata.header_offset
+    ///
+    /// Byte offset from the header to the `AVDOVIRpuDataHeader` payload.
+    header_offset,
+    header_offset,
+    usize
+);
+metadata_scalar!(
+    /// Field: AVDOVIMetadata.mapping_offset
+    ///
+    /// Byte offset from the header to the `AVDOVIDataMapping` payload.
+    mapping_offset,
+    mapping_offset,
+    usize
+);
+metadata_scalar!(
+    /// Field: AVDOVIMetadata.color_offset
+    ///
+    /// Byte offset from the header to the `AVDOVIColorMetadata` payload.
+    color_offset,
+    color_offset,
+    usize
+);
+metadata_scalar!(
+    /// Field: AVDOVIMetadata.ext_block_offset
+    ///
+    /// Byte offset from the header to the extension-block array.
+    ext_block_offset,
+    ext_block_offset,
+    usize
+);
+metadata_scalar!(
+    /// Field: AVDOVIMetadata.ext_block_size
+    ///
+    /// Stride in bytes between extension blocks.
+    ext_block_size,
+    ext_block_size,
+    usize
+);
+metadata_scalar!(
+    /// Field: AVDOVIMetadata.num_ext_blocks
+    ///
+    /// Number of initialized extension blocks in the allocation.
+    num_ext_blocks,
+    num_ext_blocks,
+    i32
+);
+
+/// Wraps: AVDOVINLQMethod
+///
+/// Identifies the non-linear inverse-quantization method. This is an open
+/// transparent wrapper because C may supply reserved or future values.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AVDOVINLQMethod(ffi::AVDOVINLQMethod);
+
+impl AVDOVINLQMethod {
+    /// Non-linear inverse quantization is disabled.
+    pub const NONE: Self = Self(ffi::AVDOVINLQMethod_AV_DOVI_NLQ_NONE);
+
+    /// Linear dead-zone inverse quantization.
+    pub const LINEAR_DZ: Self = Self(ffi::AVDOVINLQMethod_AV_DOVI_NLQ_LINEAR_DZ);
+
+    /// Wraps a raw C enum value, including one unknown to this crate version.
+    #[must_use]
+    pub const fn from_raw(raw: ffi::AVDOVINLQMethod) -> Self {
+        Self(raw)
+    }
+
+    /// Returns the ABI value accepted by libavutil.
+    #[must_use]
+    pub const fn as_raw(self) -> ffi::AVDOVINLQMethod {
+        self.0
+    }
+}
+
+impl From<ffi::AVDOVINLQMethod> for AVDOVINLQMethod {
+    fn from(raw: ffi::AVDOVINLQMethod) -> Self {
+        Self::from_raw(raw)
+    }
+}
+
+impl From<AVDOVINLQMethod> for ffi::AVDOVINLQMethod {
+    fn from(value: AVDOVINLQMethod) -> Self {
+        value.as_raw()
+    }
+}
+
+#[cfg(test)]
+mod level8_and_metadata_tests {
+    use super::*;
+
+    #[test]
+    fn level8_owned_and_borrowed_access_covers_every_field_shape() {
+        let mut owned = ffibox::CVal::new(AVDOVIDmLevel8::zeroed());
+        let mut level = owned.as_mut();
+        level.set_target_display_index(21);
+        level.set_trim_slope(22);
+        level.set_trim_offset(23);
+        level.set_trim_power(24);
+        level.set_trim_chroma_weight(25);
+        level.set_trim_saturation_gain(26);
+        level.set_ms_weight(27);
+        level.set_target_mid_contrast(28);
+        level.set_clip_trim(29);
+        level.set_saturation_vector_field([1, 2, 3, 4, 5, 6]);
+        level.set_hue_vector_field([6, 5, 4, 3, 2, 1]);
+
+        assert_eq!(level.as_ref().target_display_index(), 21);
+        assert_eq!(level.as_ref().trim_slope(), 22);
+        assert_eq!(level.as_ref().trim_offset(), 23);
+        assert_eq!(level.as_ref().trim_power(), 24);
+        assert_eq!(level.as_ref().trim_chroma_weight(), 25);
+        assert_eq!(level.as_ref().trim_saturation_gain(), 26);
+        assert_eq!(level.as_ref().ms_weight(), 27);
+        assert_eq!(level.as_ref().target_mid_contrast(), 28);
+        assert_eq!(level.as_ref().clip_trim(), 29);
+        assert_eq!(level.as_ref().saturation_vector_field(), [1, 2, 3, 4, 5, 6]);
+        assert_eq!(level.as_ref().hue_vector_field(), [6, 5, 4, 3, 2, 1]);
+    }
+
+    #[test]
+    fn metadata_shared_handle_copies_offsets_and_count() {
+        let mut raw = ffi::AVDOVIMetadata {
+            header_offset: 8,
+            mapping_offset: 16,
+            color_offset: 24,
+            ext_block_offset: 32,
+            ext_block_size: 40,
+            num_ext_blocks: 3,
+        };
+
+        // SAFETY: `raw` is initialized and remains live without mutation for
+        // the duration of the shared handle.
+        let metadata = unsafe { AVDOVIMetadataRef::from_ptr(&mut raw) }.unwrap();
+        assert_eq!(metadata.header_offset(), 8);
+        assert_eq!(metadata.mapping_offset(), 16);
+        assert_eq!(metadata.color_offset(), 24);
+        assert_eq!(metadata.ext_block_offset(), 32);
+        assert_eq!(metadata.ext_block_size(), 40);
+        assert_eq!(metadata.num_ext_blocks(), 3);
+    }
+
+    #[test]
+    fn dovi_enum_wrappers_round_trip_known_and_future_values() {
+        assert_eq!(AVDOVIMappingMethod::POLYNOMIAL.as_raw(), 0);
+        assert_eq!(AVDOVIMappingMethod::MMR.as_raw(), 1);
+        assert_eq!(AVDOVIMappingMethod::from_raw(17).as_raw(), 17);
+
+        assert_eq!(AVDOVINLQMethod::NONE.as_raw(), -1);
+        assert_eq!(AVDOVINLQMethod::LINEAR_DZ.as_raw(), 0);
+        assert_eq!(AVDOVINLQMethod::from_raw(17).as_raw(), 17);
+    }
+
+    #[test]
+    fn wrapped_layouts_match_bindgen_layouts() {
+        fn assert_has_drop_strategy<T: CDropped>() {}
+        assert_has_drop_strategy::<AVDOVIMetadata>();
+
+        assert_eq!(
+            core::mem::size_of::<AVDOVIDmLevel8>(),
+            core::mem::size_of::<ffi::AVDOVIDmLevel8>()
+        );
+        assert_eq!(
+            core::mem::align_of::<AVDOVIDmLevel8>(),
+            core::mem::align_of::<ffi::AVDOVIDmLevel8>()
+        );
+        assert_eq!(
+            core::mem::size_of::<AVDOVIMetadata>(),
+            core::mem::size_of::<ffi::AVDOVIMetadata>()
+        );
+        assert_eq!(
+            core::mem::align_of::<AVDOVIMetadata>(),
+            core::mem::align_of::<ffi::AVDOVIMetadata>()
+        );
     }
 }

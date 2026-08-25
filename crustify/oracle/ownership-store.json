@@ -2603,6 +2603,43 @@
    "defined_in": "libavutil/rational.c"
   },
   {
+   "name": "av_dovi_metadata_alloc",
+   "defined_in": "libavutil/dovi_meta.c",
+   "ptr_args": [
+    {
+     "name": "size",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:size"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Optional one-element out-parameter. On success or allocation failure the function writes the allocation size or zero respectively; it neither retains nor owns the slot."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns NULL on allocation failure or unique ownership of a zeroed contiguous AVDOVIMetadataInternal allocation whose first member is the exposed AVDOVIMetadata header. The allocation comes from av_mallocz and is released exactly once with av_free; callers may mutate the header and its offset-addressed payloads."
+    }
+   }
+  },
+  {
    "name": "av_dynarray_add",
    "defined_in": "libavutil/mem.c",
    "ptr_args": [

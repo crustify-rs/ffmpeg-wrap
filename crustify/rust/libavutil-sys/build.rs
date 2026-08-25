@@ -39,6 +39,9 @@ fn main() {
         .allowlist_function("^av_hash_freep$")
         .allowlist_type("^(AVMD5|AVMediaType)$")
         .allowlist_type("^(AVDictionaryEntry|AVFrameSideDataType)$")
+        .allowlist_type(
+            "^(AVDOVIDmLevel8|AVDOVIMappingMethod|AVDOVIMetadata|AVDOVINLQMethod)$",
+        )
         .allowlist_type("^AV(AlphaMode|AudioFifo)$")
         .allowlist_type("^AVStereo3D(Type|View)$")
         .allowlist_type("^AVOption(ArrayDef|Type)?$")
