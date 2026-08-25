@@ -199,6 +199,26 @@ mod tests {
         assert_eq!(view.reserved_internal_buffer().len(), 1);
         assert_eq!(view.reserved_padding().len(), 1000);
     }
+
+    /// The two inline-storage accessors spell their extents as literals taken
+    /// from `FF_PAD_STRUCTURE(AVBPrint, 1024, ...)`, whose padding width is a
+    /// function of the target's pointer size. What has to hold for those
+    /// `CSlice`s to be sound is that each literal stays within the object, so
+    /// assert that rather than restating the numbers.
+    #[test]
+    fn inline_storage_extents_stay_inside_the_generated_layout() {
+        const INTERNAL: usize = core::mem::offset_of!(ffi::AVBPrint, reserved_internal_buffer);
+        const PADDING: usize = core::mem::offset_of!(ffi::AVBPrint, reserved_padding);
+
+        // `reserved_internal_buffer` is the declared one-byte member that
+        // `reserved_padding` immediately follows.
+        assert_eq!(PADDING - INTERNAL, 1);
+        assert!(size_of::<ffi::AVBPrint>() - PADDING >= 1000);
+        // `av_bprint_init` derives `size_auto` from the span starting at
+        // `reserved_internal_buffer`, so both accessors describe storage that
+        // an automatically sized buffer also stays inside.
+        assert!(size_of::<ffi::AVBPrint>() >= INTERNAL + 1 + 1000);
+    }
 }
 
 // SAFETY: this strategy is used only for heap headers created by
@@ -442,5 +462,100 @@ mod operation_tests {
         let mut buffer = av_bprint_init_for_buffer(&mut storage).expect("header allocation");
         av_bprint_append_data(&mut buffer.as_mut(), b"hello").unwrap();
         assert_eq!(buffer.as_ref().str().unwrap().elem(4), Some(b'o'));
+    }
+
+    /// `str` clamps to `min(len, size - 1)` because `av_bprint_grow` keeps
+    /// counting after `av_bprint_append_data` has stopped copying. The clamp is
+    /// the accessor's initialized-prefix claim, so drive a fixed buffer into
+    /// truncation and check the reported view against the bytes C wrote.
+    #[test]
+    fn a_truncated_buffer_exposes_the_written_prefix_not_the_requested_length() {
+        let mut storage = [MaybeUninit::uninit(); 8];
+        let mut buffer = av_bprint_init_for_buffer(&mut storage).expect("header allocation");
+        av_bprint_append_data(&mut buffer.as_mut(), b"0123456789").unwrap();
+
+        let view = buffer.as_ref();
+        assert_eq!(view.len(), 10);
+        assert_eq!(view.size(), 8);
+
+        let content = view.str().expect("fixed storage keeps str non-null");
+        assert_eq!(content.len(), 7);
+        let mut copied = [0u8; 7];
+        assert!(content.copy_to_slice(&mut copied));
+        assert_eq!(&copied, b"0123456");
+    }
+
+    /// Empty storage selects C's count-only mode, where `size` stays 0 and no
+    /// caller byte is borrowed at all. `BorrowedAVBPrint::drop` releases only
+    /// the header, which is correct exactly because both `init_for_buffer`
+    /// paths leave `size == size_max` and can therefore never reach
+    /// `av_bprint_alloc`; under LSan this test is what says so.
+    #[test]
+    fn empty_storage_counts_without_allocating() {
+        let mut storage: [MaybeUninit<u8>; 0] = [];
+        let mut buffer = av_bprint_init_for_buffer(&mut storage).expect("header allocation");
+        av_bprint_append_data(&mut buffer.as_mut(), b"hello").unwrap();
+        av_bprint_chars(&mut buffer.as_mut(), b'!', 3);
+
+        let view = buffer.as_ref();
+        assert_eq!(view.len(), 8);
+        assert_eq!(view.size(), 0);
+        assert_eq!(view.size_max(), 0);
+        assert!(
+            view.str()
+                .expect("count-only str still addresses the header")
+                .is_empty()
+        );
+    }
+
+    /// `av_bprint_get_buffer` answers with the room between `len` and `size`,
+    /// and the wrapper turns that count into a `CSliceMut` length. Writing the
+    /// full run is what makes the extent claim checkable under ASan.
+    #[test]
+    fn get_buffer_hands_out_exactly_the_room_c_reports() {
+        let mut buffer = av_bprint_init(8, 16).expect("header allocation");
+        av_bprint_append_data(&mut buffer.as_mut(), b"abc").unwrap();
+
+        {
+            let mut handle = buffer.as_mut();
+            let mut room = av_bprint_get_buffer(&mut handle, 4).expect("room after three bytes");
+            assert_eq!(room.len(), 13);
+            assert!(room.copy_from_slice(&[MaybeUninit::new(b'z'); 13]));
+        }
+
+        // Overflowing the fixed capacity leaves no room at all, which C reports
+        // as a null memory pointer rather than a zero-length one.
+        av_bprint_append_data(&mut buffer.as_mut(), &[b'x'; 30]).unwrap();
+        let mut handle = buffer.as_mut();
+        assert!(av_bprint_get_buffer(&mut handle, 1).is_none());
+
+        let view = buffer.as_ref();
+        assert_eq!(view.len(), 33);
+        assert_eq!(view.str().expect("inline storage").len(), 15);
+    }
+
+    /// The remaining append-side operations all drive the same exclusive
+    /// handle, so exercise them in one sequence: escaping appends through the
+    /// buffer, `clear` resets `len` while keeping the buffer, and the
+    /// `va_list` specialization reaches the same C path as `av_bprintf`.
+    #[test]
+    fn escape_clear_and_vbprintf_drive_the_same_exclusive_handle() {
+        let mut buffer = av_bprint_init(16, u32::MAX).expect("header allocation");
+        av_bprint_escape(&mut buffer.as_mut(), c"a'b", None, AVEscapeMode::QUOTE, 0);
+        let escaped = buffer.as_ref();
+        let escaped = escaped.str().expect("inline storage");
+        let mut copied = [0u8; 8];
+        assert!(escaped.copy_to_slice(&mut copied));
+        assert_eq!(&copied, b"'a'\\''b'");
+
+        av_bprint_clear(&mut buffer.as_mut());
+        assert_eq!(buffer.as_ref().len(), 0);
+        assert!(buffer.as_ref().is_empty());
+
+        av_vbprintf(&mut buffer.as_mut(), c"tail");
+        let string = av_bprint_finalize(buffer)
+            .unwrap()
+            .expect("string allocation");
+        assert_eq!(string.as_c_str(), c"tail");
     }
 }

@@ -3277,6 +3277,53 @@ mod option_ranges_tests {
         // pointer table, and the aggregate. ASan catches an ownership mismatch.
         drop(owned);
     }
+
+    /// The square table above cannot tell `nb_ranges * component + range` from
+    /// a bounds slip along the shorter axis. Build the asymmetric multi-
+    /// component shape the header documents (3 ranges x 2 components) and
+    /// check the component-major stride, both bounds, and the null slot that
+    /// `av_opt_freep_ranges` skips.
+    #[test]
+    fn an_asymmetric_table_is_indexed_component_major() {
+        // SAFETY: every allocation uses libavutil's allocator and the graph is
+        // completed before `CBox` adopts it. Slot 4 is deliberately left null,
+        // which `av_opt_freep_ranges` tolerates and the accessor reports.
+        let owned = unsafe {
+            let aggregate = malloc_zeroed::<ffi::AVOptionRanges>();
+            let table = ffi::av_mallocz(6 * size_of::<*mut ffi::AVOptionRange>())
+                .cast::<*mut ffi::AVOptionRange>();
+            assert!(!aggregate.is_null());
+            assert!(!table.is_null());
+            for index in 0..6 {
+                if index == 4 {
+                    continue;
+                }
+                let item = malloc_zeroed::<ffi::AVOptionRange>();
+                assert!(!item.is_null());
+                addr_of_mut!((*item).value_min).write(index as f64);
+                table.add(index).write(item);
+            }
+            addr_of_mut!((*aggregate).range).write(table);
+            addr_of_mut!((*aggregate).nb_ranges).write(3);
+            addr_of_mut!((*aggregate).nb_components).write(2);
+            CBox::<AVOptionRanges>::from_raw(aggregate).expect("non-null allocation")
+        };
+
+        let view = owned.as_ref();
+        let value_min = |component, range| view.range(component, range).map(|r| r.value_min());
+        assert_eq!(value_min(0, 0), Some(0.0));
+        assert_eq!(value_min(0, 2), Some(2.0));
+        assert_eq!(value_min(1, 0), Some(3.0));
+        assert_eq!(value_min(1, 2), Some(5.0));
+
+        // A null table slot is reported as an absent range, not as a panic.
+        assert_eq!(value_min(1, 1), None);
+        // Both counts bound their own axis.
+        assert_eq!(value_min(2, 0), None);
+        assert_eq!(value_min(0, 3), None);
+
+        drop(owned);
+    }
 }
 
 /// Wraps: av_opt_get_array

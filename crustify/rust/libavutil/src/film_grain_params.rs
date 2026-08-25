@@ -1058,4 +1058,29 @@ mod params_tests {
         params.clear_codec();
         assert!(matches!(params.as_ref().codec(), AVFilmGrainCodecRef::None));
     }
+
+    /// `CDropped` claims that an independently allocated params record comes
+    /// from `av_mallocz` and is released with `av_free` -- the contract
+    /// `av_film_grain_params_alloc` documents and its C body implements. No
+    /// safe constructor produces that owner yet, so exercise the pairing
+    /// directly: ASan reports an allocator mismatch and LSan a missed release.
+    #[test]
+    fn an_independently_allocated_record_is_released_by_av_free() {
+        // SAFETY: the request is exactly one zeroed record from libavutil's
+        // allocator, which is a valid initialized `AVFilmGrainParams` and the
+        // sole owner handed to `CBox`.
+        let mut owned = unsafe {
+            let raw = ffi::av_mallocz(size_of::<ffi::AVFilmGrainParams>())
+                .cast::<ffi::AVFilmGrainParams>();
+            assert!(!raw.is_null());
+            ffibox::CBox::<AVFilmGrainParams>::from_raw(raw).expect("non-null allocation")
+        };
+
+        owned.as_mut().set_seed(7);
+        owned.as_mut().activate_h274().set_model_id(1);
+        assert_eq!(owned.as_ref().seed(), 7);
+        assert_eq!(owned.as_ref().params_type(), AVFilmGrainParamsType::H274);
+
+        drop(owned);
+    }
 }

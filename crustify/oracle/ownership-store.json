@@ -2564,11 +2564,11 @@
       "string": false,
       "owned": false,
       "borrowed": {
-       "lifetime": "arg:buffer"
+       "lifetime": "arg:buf"
       },
       "nullable": false,
       "mutable": true,
-      "note": "Contiguous caller storage; the accompanying size or fixed API extent bounds access."
+      "note": "Caller storage RETAINED by buf, not read transiently: for a non-zero size the callee stores this pointer in buf->str (and immediately writes the terminator through it), so the buffer must stay live and unaliased for as long as buf is usable, not merely for the call. size bounds every later access, and av_bprint_alloc can never replace the pointer because the callee also sets buf->size == buf->size_max. For size == 0 the callee ignores this argument entirely and delegates to av_bprint_init, which points buf->str at the header's own reserved_internal_buffer instead."
      }
     }
    ]
