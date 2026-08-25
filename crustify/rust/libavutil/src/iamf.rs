@@ -398,6 +398,16 @@ ffibox::define_ctype!(
     /// `param_definition_class` in the header and the matching subblock class
     /// in every trailing subblock; a foreign instance must likewise keep
     /// equivalent class metadata live with the allocation.
+    ///
+    /// Every construction contract for this wrapper additionally requires the
+    /// trailing array to agree with the header it follows: the allocation
+    /// covers `subblocks_offset + nb_subblocks * subblock_size` bytes, and
+    /// each of those elements is an initialized, suitably aligned subblock of
+    /// the struct type selected by `type`
+    /// ([`AVIAMFMixGain`], [`AVIAMFDemixingInfo`] or [`AVIAMFReconGain`]).
+    /// `av_iamf_param_definition_alloc` establishes exactly that, and it is
+    /// what lets [`av_iamf_param_definition_get_subblock`] hand out a typed
+    /// borrow of an element the C helper returns type-erased.
     AVIAMFParamDefinition,
     AVIAMFParamDefinitionRef,
     AVIAMFParamDefinitionMut,
@@ -1631,6 +1641,7 @@ mod submix_element_tests {
     }
 }
 /// A shared view of one runtime-typed parameter-definition subblock.
+#[derive(Clone, Copy)]
 pub enum AVIAMFParamSubblockRef<'a> {
     /// Mix-gain parameter data.
     MixGain(AVIAMFMixGainRef<'a>),
@@ -1682,23 +1693,29 @@ pub fn av_iamf_param_definition_get_subblock<'a>(
         unsafe { ffi::crustify_av_iamf_param_definition_get_subblock(par.as_ptr(), idx) };
 
     if parameter_type == AVIAMFParamDefinitionType::MIX_GAIN {
-        // SAFETY: the definition's type discriminator establishes that this
-        // erased pointer addresses an `AVIAMFMixGain` for the lifetime of par.
+        // SAFETY: the wrapper's construction contract binds `type` to the
+        // struct type of every trailing subblock, so this erased pointer
+        // addresses an initialized `AVIAMFMixGain` that lives for `'a`.
         unsafe { AVIAMFMixGainRef::from_void_ptr(subblock) }.map(AVIAMFParamSubblockRef::MixGain)
     } else if parameter_type == AVIAMFParamDefinitionType::DEMIXING {
-        // SAFETY: the definition's type discriminator establishes that this
-        // erased pointer addresses an `AVIAMFDemixingInfo` for the lifetime of par.
+        // SAFETY: the wrapper's construction contract binds `type` to the
+        // struct type of every trailing subblock, so this erased pointer
+        // addresses an initialized `AVIAMFDemixingInfo` that lives for `'a`.
         unsafe { AVIAMFDemixingInfoRef::from_void_ptr(subblock) }
             .map(AVIAMFParamSubblockRef::Demixing)
     } else {
-        // SAFETY: the only remaining accepted discriminator establishes that
-        // this erased pointer addresses an `AVIAMFReconGain` for `'a`.
+        // SAFETY: the only remaining accepted discriminator, plus the same
+        // construction contract, makes this erased pointer an initialized
+        // `AVIAMFReconGain` that lives for `'a`.
         unsafe { AVIAMFReconGainRef::from_void_ptr(subblock) }
             .map(AVIAMFParamSubblockRef::ReconGain)
     }
 }
 
-/// Mutable variant of [`av_iamf_param_definition_get_subblock`].
+/// Wraps: av_iamf_param_definition_get_subblock
+///
+/// Exclusive variant of [`av_iamf_param_definition_get_subblock`], representing
+/// the writable pointer that the C helper returns even from a `const` header.
 ///
 /// Consuming the exclusive parent handle ensures that no safe shared parent
 /// view can coexist with the returned mutable subblock view.
@@ -1726,17 +1743,20 @@ pub fn av_iamf_param_definition_get_subblock_mut<'a>(
         unsafe { ffi::crustify_av_iamf_param_definition_get_subblock(par.as_mut_ptr(), idx) };
 
     if parameter_type == AVIAMFParamDefinitionType::MIX_GAIN {
-        // SAFETY: the discriminator and consumed exclusive parent handle make
+        // SAFETY: the construction contract binds `type` to the trailing
+        // subblock struct type, and the consumed exclusive parent handle makes
         // this a live, exclusive `AVIAMFMixGain` borrow for `'a`.
         unsafe { AVIAMFMixGainMut::from_ptr(subblock.cast()) }.map(AVIAMFParamSubblockMut::MixGain)
     } else if parameter_type == AVIAMFParamDefinitionType::DEMIXING {
-        // SAFETY: the discriminator and consumed exclusive parent handle make
+        // SAFETY: the construction contract binds `type` to the trailing
+        // subblock struct type, and the consumed exclusive parent handle makes
         // this a live, exclusive `AVIAMFDemixingInfo` borrow for `'a`.
         unsafe { AVIAMFDemixingInfoMut::from_ptr(subblock.cast()) }
             .map(AVIAMFParamSubblockMut::Demixing)
     } else {
-        // SAFETY: the remaining accepted discriminator and exclusive parent
-        // handle make this a live `AVIAMFReconGain` borrow for `'a`.
+        // SAFETY: the remaining accepted discriminator, the construction
+        // contract for the trailing array, and the consumed exclusive parent
+        // handle make this a live, exclusive `AVIAMFReconGain` borrow for `'a`.
         unsafe { AVIAMFReconGainMut::from_ptr(subblock.cast()) }
             .map(AVIAMFParamSubblockMut::ReconGain)
     }
@@ -1832,14 +1852,19 @@ mod subblock_tests {
                 _ => panic!("mix-gain discriminator returned the wrong variant"),
             }
         }
-        match av_iamf_param_definition_get_subblock(mix_gain.as_ref(), 0).unwrap() {
-            AVIAMFParamSubblockRef::MixGain(subblock) => {
-                assert_eq!(
-                    subblock.subblock_duration(),
-                    Some(NonZeroU32::new(37).unwrap())
-                );
+        let shared = av_iamf_param_definition_get_subblock(mix_gain.as_ref(), 0).unwrap();
+        // A shared subblock view is a copyable handle, so observing it once
+        // must not consume it.
+        for view in [shared, shared] {
+            match view {
+                AVIAMFParamSubblockRef::MixGain(subblock) => {
+                    assert_eq!(
+                        subblock.subblock_duration(),
+                        Some(NonZeroU32::new(37).unwrap())
+                    );
+                }
+                _ => panic!("mix-gain discriminator returned the wrong variant"),
             }
-            _ => panic!("mix-gain discriminator returned the wrong variant"),
         }
 
         let demixing = definition_with_subblock(
