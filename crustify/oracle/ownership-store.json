@@ -364,6 +364,12 @@
    "fields": []
   },
   {
+   "name": "AVColorPrimariesDesc",
+   "defined_in": "libavutil/csp.h",
+   "_comment_agent": "AVColorPrimariesDesc is a pure by-value aggregate of AVWhitepointCoefficients (an AVCIExy) and AVPrimaryCoefficients, both of which contain only AVRational values. It holds no pointer slot, so it has no ownership, nullability or lifetime obligation of its own. libavutil/csp.c stores instances only in file-scope static const tables and returns borrowed const pointers into them from av_csp_primaries_desc_from_id; av_csp_primaries_id_from_desc reads a caller-provided value without retaining it. There is no allocator, releaser or cloner for this type.",
+   "fields": []
+  },
+  {
    "name": "AVComponentDescriptor",
    "defined_in": "libavutil/pixdesc.h",
    "_comment_agent": "AVComponentDescriptor is a pointer-free by-value POD of five ints. It has no lifecycle of its own: it is never heap-allocated on its own, and its only published storage is the inline four-element AVPixFmtDescriptor.comp array in libavutil.s immutable process-lifetime descriptor table, whose entries are freed by nothing. Reviewed 2026-08-23; no ownership slots exist to record.",
@@ -549,6 +555,12 @@
      }
     }
    ]
+  },
+  {
+   "name": "AVDynamicHDRPlus",
+   "defined_in": "libavutil/hdr_dynamic_metadata.h",
+   "_comment_agent": "AVDynamicHDRPlus holds no pointer slot: every field is an integer scalar, an inline AVRational, or a fixed array of resource-free by-value structures (AVHDRPlusColorTransformParams[3] and two AVRational[25][25] grids). It therefore has no field disposer and no cloner. Its storage lifecycle is external: av_dynamic_hdr_plus_alloc returns a single av_mallocz allocation the caller releases with av_free/av_freep, while av_dynamic_hdr_plus_create_side_data returns a borrowed pointer into AVFrameSideData that the frame owns and the caller must not free. av_dynamic_hdr_plus_from_t35 validates num_windows into 1..=3 and each actual-peak-luminance row/column count into 2..=25 before writing them, so those counts can never index past their fixed arrays.",
+   "fields": []
   },
   {
    "name": "AVDynamicHDRSmpte2094App5",
@@ -856,6 +868,12 @@
    "name": "AVHDRVividColorToneMappingParams",
    "defined_in": "libavutil/hdr_dynamic_vivid_metadata.h",
    "_comment_agent": "Pure by-value tone-mapping record: every member is an int, an inline AVRational, or the fixed inline three_spline[2] array. No pointer members, no allocator and no lifecycle operation; it lives only embedded in AVHDRVividColorTransformParams.tm_params, itself embedded in the av_malloc'd AVDynamicHDRVivid side-data block. three_Spline_num bounds three_spline: the decoder writes get_bits(gb,1)+1 and rejects anything above FF_ARRAY_ELEMS(three_spline) (libavcodec/dynamic_hdr_vivid.c), while ffprobe and vf_showinfo index three_spline[j] for j < three_Spline_num, so any value above 2 is an out-of-bounds read in C.",
+   "fields": []
+  },
+  {
+   "name": "AVHDRVividColorTransformParams",
+   "defined_in": "libavutil/hdr_dynamic_vivid_metadata.h",
+   "_comment_agent": "AVHDRVividColorTransformParams holds no pointer slot: it is inline storage for four AVRational brightness statistics, four int flags/counts, a fixed AVHDRVividColorToneMappingParams[2] array, and a fixed AVRational[8] saturation-gain array. It has no allocator, releaser, field disposer or cloner of its own; instances live only inside AVDynamicHDRVivid.params[3], whose allocation av_dynamic_hdr_vivid_alloc obtains and the caller releases with av_free. Per libavutil/hdr_dynamic_vivid_metadata.h, tone_mapping_param_num is bounded by the two tm_params slots and color_saturation_num by the eight color_saturation_gain slots.",
    "fields": []
   },
   {

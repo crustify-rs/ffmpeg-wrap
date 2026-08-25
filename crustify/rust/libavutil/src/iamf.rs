@@ -2,6 +2,7 @@
 
 use core::ffi::c_void;
 use core::marker::PhantomData;
+use core::num::NonZeroU32;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
 use ffibox::{CBox, CDropped, CSlice, CSliceMut};
@@ -347,6 +348,9 @@ ffibox::define_ctype!(
     /// Layout-compatible view of one demixing parameter subblock. Instances
     /// returned by libavutil are embedded in the allocation owned by their
     /// [`AVIAMFParamDefinition`], so this type has no independent destructor.
+    /// `av_iamf_param_definition_alloc` installs the immutable static
+    /// `demixing_info_class` in every subblock it creates; a foreign instance
+    /// must likewise keep equivalent class metadata live with the subblock.
     AVIAMFDemixingInfo,
     AVIAMFDemixingInfoRef,
     AVIAMFDemixingInfoMut,
@@ -359,6 +363,9 @@ ffibox::define_ctype!(
     /// Layout-compatible IAMF audio-element layer. A layer is owned by its
     /// parent audio element, which also releases the optional demixing matrix.
     /// Borrowed matrix views are therefore tied to the layer handle.
+    /// `av_iamf_audio_element_add_layer` installs the immutable static
+    /// `layer_class`; a foreign instance must likewise keep equivalent class
+    /// metadata live with the layer.
     AVIAMFLayer,
     AVIAMFLayerRef,
     AVIAMFLayerMut,
@@ -371,6 +378,9 @@ ffibox::define_ctype!(
     /// Layout-compatible view of one mix-gain parameter subblock. The value is
     /// embedded after its parent [`AVIAMFParamDefinition`] header and does not
     /// own storage independently of that allocation.
+    /// `av_iamf_param_definition_alloc` installs the immutable static
+    /// `mix_gain_class` in every subblock it creates; a foreign instance must
+    /// likewise keep equivalent class metadata live with the subblock.
     AVIAMFMixGain,
     AVIAMFMixGainRef,
     AVIAMFMixGainMut,
@@ -384,6 +394,10 @@ ffibox::define_ctype!(
     /// array. A pointer returned by libavutil can be owned as
     /// [`ffibox::CBox<AVIAMFParamDefinition>`]; dropping it releases the single
     /// allocation with [`ffi::av_free`].
+    /// `av_iamf_param_definition_alloc` installs the immutable static
+    /// `param_definition_class` in the header and the matching subblock class
+    /// in every trailing subblock; a foreign instance must likewise keep
+    /// equivalent class metadata live with the allocation.
     AVIAMFParamDefinition,
     AVIAMFParamDefinitionRef,
     AVIAMFParamDefinitionMut,
@@ -404,21 +418,31 @@ unsafe impl CDropped for AVIAMFParamDefinition {
 }
 
 macro_rules! class_field {
-    ($(#[$meta:meta])* $shared:ident) => {
+    ($(#[$meta:meta])* $shared:ident, $owner:literal) => {
         impl<'a> $shared<'a> {
             $(#[$meta])*
             ///
-            /// Libavutil-created values always contain their immutable static
-            /// class. `None` also represents inert zero-initialized storage.
+            /// Returns the immutable process-lifetime option metadata that the
+            /// type's libavutil constructor installs. The slot is never null
+            /// and never replaced, so the class outlives every borrow of the
+            /// object it describes.
+            ///
+            /// # Panics
+            ///
+            /// Panics when the slot is null, which every construction contract
+            /// for this wrapper already excludes.
             #[must_use]
-            pub fn av_class(&self) -> Option<AVClassRef<'a>> {
+            pub fn av_class(&self) -> AVClassRef<'a> {
                 // SAFETY: copying the const pointer through a raw projection
-                // forms no reference. A non-null value is immutable class
-                // metadata that remains live at least as long as this handle.
+                // forms no reference. The value is immutable class metadata
+                // that remains live at least as long as this handle.
                 let class = unsafe { addr_of!((*self.as_ptr()).av_class).read() };
-                // SAFETY: the class pointer is borrowed and immutable for the
-                // returned handle's lifetime; null is represented as `None`.
+                // SAFETY: the wrapper's construction contract establishes that
+                // the slot holds the address of a file-scope `static const
+                // AVClass` in `libavutil/iamf.c`, borrowed and immutable for
+                // longer than `'a`.
                 unsafe { AVClassRef::from_ptr(class.cast_mut()) }
+                    .expect(concat!($owner, " has a non-null AVClass"))
             }
         }
     };
@@ -426,19 +450,23 @@ macro_rules! class_field {
 
 class_field!(
     /// Field: AVIAMFDemixingInfo.av_class
-    AVIAMFDemixingInfoRef
+    AVIAMFDemixingInfoRef,
+    "AVIAMFDemixingInfo"
 );
 class_field!(
     /// Field: AVIAMFLayer.av_class
-    AVIAMFLayerRef
+    AVIAMFLayerRef,
+    "AVIAMFLayer"
 );
 class_field!(
     /// Field: AVIAMFMixGain.av_class
-    AVIAMFMixGainRef
+    AVIAMFMixGainRef,
+    "AVIAMFMixGain"
 );
 class_field!(
     /// Field: AVIAMFParamDefinition.av_class
-    AVIAMFParamDefinitionRef
+    AVIAMFParamDefinitionRef,
+    "AVIAMFParamDefinition"
 );
 
 macro_rules! scalar_field {
@@ -461,6 +489,41 @@ macro_rules! scalar_field {
                 // the live field; raw projection writes only that scalar and
                 // forms no reference to C-visible storage.
                 unsafe { addr_of_mut!((*self.as_mut_ptr()).$field).write(value) }
+            }
+        }
+    };
+}
+
+macro_rules! subblock_duration_field {
+    ($(#[$meta:meta])* $shared:ident, $exclusive:ident) => {
+        impl $shared<'_> {
+            $(#[$meta])*
+            ///
+            /// The duration is expressed in units of
+            /// `1 / AVIAMFParamDefinition::parameter_rate`. Libavutil's
+            /// allocator zeroes the subblock and never applies the option
+            /// default, so `None` is the not-yet-configured state that the
+            /// documented `must not be 0` invariant excludes from a finished
+            /// subblock.
+            #[must_use]
+            pub fn subblock_duration(&self) -> Option<NonZeroU32> {
+                // SAFETY: the shared handle keeps a live initialized value;
+                // raw projection copies one scalar and forms no reference to
+                // C-visible storage.
+                let duration = unsafe { addr_of!((*self.as_ptr()).subblock_duration).read() };
+                NonZeroU32::new(duration)
+            }
+        }
+
+        impl $exclusive<'_> {
+            #[doc = concat!("Sets [`subblock_duration`](`", stringify!($shared), "::subblock_duration`), preserving its nonzero invariant.")]
+            pub fn set_subblock_duration(&mut self, duration: NonZeroU32) {
+                // SAFETY: the exclusive handle supplies write provenance to
+                // the live field; raw projection writes only that scalar and
+                // the argument type upholds the subblock's nonzero invariant.
+                unsafe {
+                    addr_of_mut!((*self.as_mut_ptr()).subblock_duration).write(duration.get())
+                }
             }
         }
     };
@@ -535,13 +598,10 @@ macro_rules! rational_field {
     };
 }
 
-scalar_field!(
+subblock_duration_field!(
     /// Field: AVIAMFDemixingInfo.subblock_duration
     AVIAMFDemixingInfoRef,
-    AVIAMFDemixingInfoMut,
-    subblock_duration,
-    set_subblock_duration,
-    u32
+    AVIAMFDemixingInfoMut
 );
 scalar_field!(
     /// Field: AVIAMFDemixingInfo.dmixp_mode
@@ -657,13 +717,10 @@ scalar_field!(
     u32
 );
 
-scalar_field!(
+subblock_duration_field!(
     /// Field: AVIAMFMixGain.subblock_duration
     AVIAMFMixGainRef,
-    AVIAMFMixGainMut,
-    subblock_duration,
-    set_subblock_duration,
-    u32
+    AVIAMFMixGainMut
 );
 rational_field!(
     /// Field: AVIAMFMixGain.control_point_relative_time
@@ -780,23 +837,13 @@ ffibox::define_ctype!(
     ffi::AVIAMFReconGain
 );
 
-impl<'a> AVIAMFReconGainRef<'a> {
+class_field!(
     /// Field: AVIAMFReconGain.av_class
-    ///
-    /// Returns the immutable process-lifetime option metadata for this
-    /// reconstruction-gain subblock.
-    #[must_use]
-    pub fn av_class(&self) -> crate::log::AVClassRef<'a> {
-        // SAFETY: the type invariant establishes that this field is a non-null
-        // pointer to immutable class metadata live for at least `'a`.
-        let class = unsafe { core::ptr::addr_of!((*self.as_ptr()).av_class).read() };
-        // SAFETY: that same invariant establishes initialization, immutability,
-        // non-nullness, and the returned handle's lifetime. Libavutil's own
-        // instances point at the translation unit's static `recon_gain_class`.
-        unsafe { crate::log::AVClassRef::from_ptr(class.cast_mut()) }
-            .expect("AVIAMFReconGain has a non-null AVClass")
-    }
+    AVIAMFReconGainRef,
+    "AVIAMFReconGain"
+);
 
+impl<'a> AVIAMFReconGainRef<'a> {
     /// Field: AVIAMFReconGain.recon_gain
     ///
     /// Copies the six layers of twelve channel gains. Entries belonging to a
@@ -809,20 +856,13 @@ impl<'a> AVIAMFReconGainRef<'a> {
         // reference to C-visible storage.
         unsafe { core::ptr::addr_of!((*self.as_ptr()).recon_gain).read() }
     }
-
-    /// Field: AVIAMFReconGain.subblock_duration
-    ///
-    /// Returns the duration in units of the parent definition's parameter
-    /// rate. A freshly allocated subblock is zero until its required duration
-    /// is configured.
-    #[must_use]
-    pub fn subblock_duration(&self) -> Option<core::num::NonZeroU32> {
-        // SAFETY: the scalar is copied through a raw projection from the live
-        // subblock. Zero is retained as the not-yet-configured state.
-        let duration = unsafe { core::ptr::addr_of!((*self.as_ptr()).subblock_duration).read() };
-        core::num::NonZeroU32::new(duration)
-    }
 }
+
+subblock_duration_field!(
+    /// Field: AVIAMFReconGain.subblock_duration
+    AVIAMFReconGainRef,
+    AVIAMFReconGainMut
+);
 
 impl AVIAMFReconGainMut<'_> {
     /// Replaces all reconstruction-gain entries.
@@ -831,15 +871,6 @@ impl AVIAMFReconGainMut<'_> {
         // fixed array; raw-place projection forms no reference to C storage.
         unsafe {
             core::ptr::addr_of_mut!((*self.as_mut_ptr()).recon_gain).write(gain);
-        }
-    }
-
-    /// Sets the duration while preserving its documented nonzero invariant.
-    pub fn set_subblock_duration(&mut self, duration: core::num::NonZeroU32) {
-        // SAFETY: the exclusive handle permits writing this scalar and the
-        // argument's type preserves the subblock invariant.
-        unsafe {
-            core::ptr::addr_of_mut!((*self.as_mut_ptr()).subblock_duration).write(duration.get());
         }
     }
 }
@@ -859,22 +890,13 @@ ffibox::define_ctype!(
     ffi::AVIAMFSubmixLayout
 );
 
-impl<'a> AVIAMFSubmixLayoutRef<'a> {
+class_field!(
     /// Field: AVIAMFSubmixLayout.av_class
-    ///
-    /// Returns the immutable process-lifetime option metadata for this layout.
-    #[must_use]
-    pub fn av_class(&self) -> crate::log::AVClassRef<'a> {
-        // SAFETY: the type invariant establishes that this field is a non-null
-        // pointer to immutable class metadata live for at least `'a`.
-        let class = unsafe { core::ptr::addr_of!((*self.as_ptr()).av_class).read() };
-        // SAFETY: that same invariant establishes initialization, immutability,
-        // non-nullness, and the returned handle's lifetime. Libavutil's own
-        // instances point at the translation unit's static `layout_class`.
-        unsafe { crate::log::AVClassRef::from_ptr(class.cast_mut()) }
-            .expect("AVIAMFSubmixLayout has a non-null AVClass")
-    }
+    AVIAMFSubmixLayoutRef,
+    "AVIAMFSubmixLayout"
+);
 
+impl<'a> AVIAMFSubmixLayoutRef<'a> {
     /// Field: AVIAMFSubmixLayout.layout_type
     #[must_use]
     pub fn layout_type(&self) -> AVIAMFSubmixLayoutType {
@@ -994,6 +1016,15 @@ mod struct_tests {
 
     use super::*;
 
+    /// An inert stand-in for the file-scope `static const AVClass` values that
+    /// libavutil installs, satisfying the wrappers' non-null class invariant.
+    fn test_class() -> ffi::AVClass {
+        // SAFETY: every AVClass field is an integer, a raw pointer, or an
+        // optional function pointer, so the all-zero pattern is a valid, inert
+        // class. The caller keeps it live longer than the object borrowing it.
+        unsafe { core::mem::zeroed() }
+    }
+
     #[test]
     fn wrapped_struct_layouts_match_bindgen() {
         assert_eq!(
@@ -1023,28 +1054,53 @@ mod struct_tests {
 
     #[test]
     fn demixing_scalar_handles_read_and_write() {
+        let class = test_class();
         let mut raw = ffi::AVIAMFDemixingInfo {
-            av_class: core::ptr::null(),
+            av_class: core::ptr::addr_of!(class),
             subblock_duration: 1,
             dmixp_mode: 2,
         };
-        // SAFETY: `raw` remains live and this mutable handle is the only access
-        // path used until it is dropped.
+        // SAFETY: `raw` remains live, its class outlives it, and this mutable
+        // handle is the only access path used until it is dropped.
         let mut info = unsafe { AVIAMFDemixingInfoMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
-        assert!(info.as_ref().av_class().is_none());
-        assert_eq!(info.as_ref().subblock_duration(), 1);
+        assert_eq!(
+            info.as_ref().av_class().as_ptr(),
+            core::ptr::addr_of!(class)
+        );
+        assert_eq!(
+            info.as_ref().subblock_duration(),
+            Some(NonZeroU32::new(1).unwrap())
+        );
         assert_eq!(info.as_ref().dmixp_mode(), 2);
-        info.set_subblock_duration(7);
+        info.set_subblock_duration(NonZeroU32::new(7).unwrap());
         info.set_dmixp_mode(6);
-        assert_eq!(info.as_ref().subblock_duration(), 7);
+        assert_eq!(
+            info.as_ref().subblock_duration(),
+            Some(NonZeroU32::new(7).unwrap())
+        );
         assert_eq!(info.as_ref().dmixp_mode(), 6);
     }
 
     #[test]
+    fn an_unconfigured_subblock_duration_reads_as_none() {
+        let class = test_class();
+        let mut raw = ffi::AVIAMFDemixingInfo {
+            av_class: core::ptr::addr_of!(class),
+            subblock_duration: 0,
+            dmixp_mode: 0,
+        };
+        // SAFETY: `raw` and its class remain live for the handle's scope and
+        // the handle is the only access path to them.
+        let info = unsafe { AVIAMFDemixingInfoRef::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        assert_eq!(info.subblock_duration(), None);
+    }
+
+    #[test]
     fn mix_gain_projects_open_enum_and_embedded_rationals() {
+        let class = test_class();
         let zero = ffi::AVRational { num: 0, den: 1 };
         let mut raw = ffi::AVIAMFMixGain {
-            av_class: core::ptr::null(),
+            av_class: core::ptr::addr_of!(class),
             subblock_duration: 1,
             animation_type: ffi::AVIAMFAnimationType_AV_IAMF_ANIMATION_TYPE_STEP,
             start_point_value: zero,
@@ -1068,8 +1124,9 @@ mod struct_tests {
             ffi::AVRational { num: 1, den: 2 },
             ffi::AVRational { num: 3, den: 4 },
         ];
+        let class = test_class();
         let mut raw = ffi::AVIAMFLayer {
-            av_class: core::ptr::null(),
+            av_class: core::ptr::addr_of!(class),
             ch_layout: ffi::AVChannelLayout {
                 order: ffi::AVChannelOrder_AV_CHANNEL_ORDER_NATIVE,
                 nb_channels: 2,
@@ -1110,6 +1167,7 @@ mod struct_tests {
 
     #[test]
     fn parameter_definition_has_typed_ownership_and_readonly_extent() {
+        let class = test_class();
         // SAFETY: the requested extent is finite; `av_malloc` either returns
         // null or a fresh allocation with libavutil's maximum alignment.
         let pointer = unsafe { ffi::av_malloc(size_of::<ffi::AVIAMFParamDefinition>()) }
@@ -1120,7 +1178,7 @@ mod struct_tests {
         // allocation is adopted by `CBox`.
         unsafe {
             pointer.write(ffi::AVIAMFParamDefinition {
-                av_class: core::ptr::null(),
+                av_class: core::ptr::addr_of!(class),
                 subblocks_offset: size_of::<ffi::AVIAMFParamDefinition>(),
                 subblock_size: size_of::<ffi::AVIAMFMixGain>(),
                 nb_subblocks: 0,
@@ -1133,7 +1191,12 @@ mod struct_tests {
         }
         // SAFETY: the initialized pointer is the unique base of an
         // av_malloc-family allocation, transferred exactly once to this owner.
+        // `class` is declared first and therefore outlives the owner.
         let mut definition = unsafe { CBox::<AVIAMFParamDefinition>::from_raw(pointer) }.unwrap();
+        assert_eq!(
+            definition.as_ref().av_class().as_ptr(),
+            core::ptr::addr_of!(class)
+        );
         assert_eq!(
             definition.as_ref().parameter_type(),
             AVIAMFParamDefinitionType::MIX_GAIN
@@ -1466,6 +1529,7 @@ mod submix_element_tests {
 
     fn parameter_definition(
         parameter_type: AVIAMFParamDefinitionType,
+        class: *const ffi::AVClass,
     ) -> CBox<AVIAMFParamDefinition> {
         // SAFETY: the requested finite size fits one header; av_malloc returns
         // null or a fresh allocation with sufficient alignment.
@@ -1476,7 +1540,7 @@ mod submix_element_tests {
         // which initializes every header field before ownership is adopted.
         unsafe {
             pointer.write(ffi::AVIAMFParamDefinition {
-                av_class: core::ptr::null(),
+                av_class: class,
                 subblocks_offset: size_of::<ffi::AVIAMFParamDefinition>(),
                 subblock_size: size_of::<ffi::AVIAMFMixGain>(),
                 nb_subblocks: 0,
@@ -1538,11 +1602,11 @@ mod submix_element_tests {
         // until all installed owners are taken back out.
         let mut view = unsafe { AVIAMFSubmixElementMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
 
-        let rejected = parameter_definition(AVIAMFParamDefinitionType::DEMIXING);
+        let rejected = parameter_definition(AVIAMFParamDefinitionType::DEMIXING, addr_of!(class));
         assert!(view.replace_element_mix_config(Some(rejected)).is_err());
         assert!(view.as_ref().element_mix_config().is_none());
 
-        let definition = parameter_definition(AVIAMFParamDefinitionType::MIX_GAIN);
+        let definition = parameter_definition(AVIAMFParamDefinitionType::MIX_GAIN, addr_of!(class));
         assert!(
             view.replace_element_mix_config(Some(definition))
                 .unwrap()
@@ -1686,10 +1750,21 @@ mod subblock_tests {
 
     use super::*;
 
+    /// An inert stand-in for the file-scope `static const AVClass` values that
+    /// `av_iamf_param_definition_alloc` installs in the header and in every
+    /// trailing subblock.
+    fn test_class() -> ffi::AVClass {
+        // SAFETY: every AVClass field is an integer, a raw pointer, or an
+        // optional function pointer, so the all-zero pattern is a valid, inert
+        // class. The caller keeps it live longer than the objects using it.
+        unsafe { core::mem::zeroed() }
+    }
+
     fn definition_with_subblock(
         parameter_type: AVIAMFParamDefinitionType,
         subblock_size: usize,
         subblock_align: usize,
+        class: *const ffi::AVClass,
     ) -> CBox<AVIAMFParamDefinition> {
         let header_size = size_of::<ffi::AVIAMFParamDefinition>();
         let subblocks_offset = (header_size + subblock_align - 1) & !(subblock_align - 1);
@@ -1706,10 +1781,23 @@ mod subblock_tests {
         // subblock. Zero is valid for every remaining bindgen C field; these
         // raw writes establish the trailing-array metadata read by the helper.
         unsafe {
+            addr_of_mut!((*definition).av_class).write(class);
             addr_of_mut!((*definition).subblocks_offset).write(subblocks_offset);
             addr_of_mut!((*definition).subblock_size).write(subblock_size);
             addr_of_mut!((*definition).nb_subblocks).write(1);
             addr_of_mut!((*definition).type_).write(parameter_type.as_raw());
+        }
+
+        // SAFETY: `subblocks_offset` is rounded up to the subblock alignment
+        // and the allocation extends `subblock_size` bytes beyond it. All three
+        // subblock structures start with a `const AVClass *`, so this writes
+        // that leading slot exactly as `av_iamf_param_definition_alloc` does.
+        unsafe {
+            definition
+                .cast::<u8>()
+                .add(subblocks_offset)
+                .cast::<*const ffi::AVClass>()
+                .write(class);
         }
 
         // SAFETY: the pointer is the base of one fully initialized,
@@ -1720,10 +1808,13 @@ mod subblock_tests {
 
     #[test]
     fn checked_subblock_views_preserve_type_bounds_and_exclusivity() {
+        let class = test_class();
+        let class = addr_of!(class);
         let mut mix_gain = definition_with_subblock(
             AVIAMFParamDefinitionType::MIX_GAIN,
             size_of::<ffi::AVIAMFMixGain>(),
             align_of::<ffi::AVIAMFMixGain>(),
+            class,
         );
 
         assert!(
@@ -1734,14 +1825,19 @@ mod subblock_tests {
             let subblock = av_iamf_param_definition_get_subblock_mut(mix_gain.as_mut(), 0).unwrap();
             match subblock {
                 AVIAMFParamSubblockMut::MixGain(mut subblock) => {
-                    subblock.set_subblock_duration(37);
+                    assert_eq!(subblock.as_ref().av_class().as_ptr(), class);
+                    assert_eq!(subblock.as_ref().subblock_duration(), None);
+                    subblock.set_subblock_duration(NonZeroU32::new(37).unwrap());
                 }
                 _ => panic!("mix-gain discriminator returned the wrong variant"),
             }
         }
         match av_iamf_param_definition_get_subblock(mix_gain.as_ref(), 0).unwrap() {
             AVIAMFParamSubblockRef::MixGain(subblock) => {
-                assert_eq!(subblock.subblock_duration(), 37);
+                assert_eq!(
+                    subblock.subblock_duration(),
+                    Some(NonZeroU32::new(37).unwrap())
+                );
             }
             _ => panic!("mix-gain discriminator returned the wrong variant"),
         }
@@ -1750,6 +1846,7 @@ mod subblock_tests {
             AVIAMFParamDefinitionType::DEMIXING,
             size_of::<ffi::AVIAMFDemixingInfo>(),
             align_of::<ffi::AVIAMFDemixingInfo>(),
+            class,
         );
         assert!(matches!(
             av_iamf_param_definition_get_subblock(demixing.as_ref(), 0),
@@ -1760,6 +1857,7 @@ mod subblock_tests {
             AVIAMFParamDefinitionType::RECON_GAIN,
             size_of::<ffi::AVIAMFReconGain>(),
             align_of::<ffi::AVIAMFReconGain>(),
+            class,
         );
         assert!(matches!(
             av_iamf_param_definition_get_subblock(recon_gain.as_ref(), 0),
@@ -1770,6 +1868,7 @@ mod subblock_tests {
             AVIAMFParamDefinitionType::from_raw(99),
             size_of::<ffi::AVIAMFMixGain>(),
             align_of::<ffi::AVIAMFMixGain>(),
+            class,
         );
         assert!(av_iamf_param_definition_get_subblock(unknown.as_ref(), 0).is_none());
     }
