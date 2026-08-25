@@ -1914,9 +1914,9 @@ mod scheduled_set_tests {
         assert!((object.number - 0.5).abs() < f64::EPSILON);
         assert_eq!((object.width, object.height), (640, 480));
         assert_eq!(object.binary_len, 3);
-        // SAFETY: `av_opt_set_bin` wrote three initialized bytes at this
-        // pointer, and nothing has freed or replaced them.
         assert_eq!(
+            // SAFETY: `av_opt_set_bin` wrote three initialized bytes at this
+            // pointer, and nothing has freed or replaced them.
             unsafe { core::slice::from_raw_parts(object.binary, 3) },
             [1, 2, 3]
         );
