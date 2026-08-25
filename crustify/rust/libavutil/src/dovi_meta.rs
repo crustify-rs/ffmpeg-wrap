@@ -53,11 +53,37 @@ define_ctype!(
     /// Wraps: AVDOVIDecoderConfigurationRecord
     ///
     /// ABI-compatible view of a Dolby Vision decoder configuration record.
+    /// C uses the record in both shapes this wrapper supports: an owning
+    /// [`ffibox::CBox<AVDOVIDecoderConfigurationRecord>`] holds one
+    /// `av_dovi_alloc` allocation and releases it with `av_free`, while an
+    /// [`ffibox::CVal<AVDOVIDecoderConfigurationRecord>`] holds the same
+    /// resource-free record by value, as an embedded member or a packet
+    /// side-data payload does.
     AVDOVIDecoderConfigurationRecord,
     AVDOVIDecoderConfigurationRecordRef,
     AVDOVIDecoderConfigurationRecordMut,
     ffi::AVDOVIDecoderConfigurationRecord
 );
+
+// SAFETY: the record holds only `uint8_t` scalars and owns no resource, so
+// disposing an initialized inline value is a no-op. C relies on that by-value
+// shape too: `DOVIContext.cfg` embeds one and `s->cfg = *cfg` copies it whole.
+unsafe impl CValued for AVDOVIDecoderConfigurationRecord {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+// SAFETY: owned pointers to this type come from `av_dovi_alloc`, which returns
+// one `av_mallocz` block of exactly `sizeof(AVDOVIDecoderConfigurationRecord)`
+// bytes, so the record address is the allocation base. `av_free` is the
+// matching one-shot storage releaser every C caller uses, and the record owns
+// no separately allocated field that would have to be disposed first.
+unsafe impl CDropped for AVDOVIDecoderConfigurationRecord {
+    unsafe fn c_drop(object: NonNull<Self>) {
+        // SAFETY: the trait contract supplies unique ownership of a live
+        // `av_malloc`-family allocation and transfers it exactly once here.
+        unsafe { ffi::av_free(object.as_ptr().cast::<c_void>()) }
+    }
+}
 
 macro_rules! scalar_accessors {
     (
@@ -120,6 +146,35 @@ scalar_accessors! {
     dv_version_major, set_dv_version_major, dv_version_major;
 }
 
+impl AVDOVIDecoderConfigurationRecordRef<'_> {
+    /// Field: AVDOVIDecoderConfigurationRecord.dv_md_compression
+    ///
+    /// Returns the metadata compression method as its typed open enum. The C
+    /// field is declared `uint8_t`, but `dovi_configure_ext` stores an
+    /// `enum AVDOVICompression` in it and consumers switch on it as one, so
+    /// the raw [`dv_md_compression`](Self::dv_md_compression) reading is kept
+    /// beside this typed one rather than replaced by it.
+    #[must_use]
+    pub fn dv_md_compression_method(&self) -> AVDOVICompression {
+        AVDOVICompression::from_raw(self.dv_md_compression().into())
+    }
+}
+
+impl AVDOVIDecoderConfigurationRecordMut<'_> {
+    /// Stores a compression method in the `uint8_t` field.
+    ///
+    /// Returns `false` and writes nothing when `method` carries a value that
+    /// the narrower C field cannot represent, which only an enum value from a
+    /// future libavutil could produce.
+    pub fn set_dv_md_compression_method(&mut self, method: AVDOVICompression) -> bool {
+        let Ok(value) = u8::try_from(method.as_raw()) else {
+            return false;
+        };
+        self.set_dv_md_compression(value);
+        true
+    }
+}
+
 define_ctype!(
     /// Wraps: AVDOVIDmLevel1
     ///
@@ -129,6 +184,12 @@ define_ctype!(
     AVDOVIDmLevel1Mut,
     ffi::AVDOVIDmLevel1
 );
+
+// SAFETY: level 1 metadata contains only `u16` values and owns no resources,
+// so disposing a live inline value is always a no-op.
+unsafe impl CValued for AVDOVIDmLevel1 {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
 
 scalar_accessors! {
     AVDOVIDmLevel1Ref, AVDOVIDmLevel1Mut, u16;
@@ -371,7 +432,12 @@ unsafe impl CValued for AVDOVIDmLevel11 {
 
 impl AVDOVIDmLevel11Ref<'_> {
     /// Field: AVDOVIDmLevel11.color
+    ///
+    /// Reads a property libavutil deprecated as never validly populated.
     #[must_use]
+    #[deprecated(
+        note = "libavutil marks this level 11 property attribute_deprecated; it disappears when FF_API_DOVI_L11_INVALID_PROPS expires at major version 62"
+    )]
     pub fn color(&self) -> u8 {
         // SAFETY: the handle keeps an initialized level 11 value live; the
         // raw-place projection copies this integer without forming a reference.
@@ -379,7 +445,12 @@ impl AVDOVIDmLevel11Ref<'_> {
     }
 
     /// Field: AVDOVIDmLevel11.brightness
+    ///
+    /// Reads a property libavutil deprecated as never validly populated.
     #[must_use]
+    #[deprecated(
+        note = "libavutil marks this level 11 property attribute_deprecated; it disappears when FF_API_DOVI_L11_INVALID_PROPS expires at major version 62"
+    )]
     pub fn brightness(&self) -> u8 {
         // SAFETY: the handle keeps an initialized level 11 value live; the
         // raw-place projection copies this integer without forming a reference.
@@ -387,7 +458,12 @@ impl AVDOVIDmLevel11Ref<'_> {
     }
 
     /// Field: AVDOVIDmLevel11.frame_rate_conversion
+    ///
+    /// Reads a property libavutil deprecated as never validly populated.
     #[must_use]
+    #[deprecated(
+        note = "libavutil marks this level 11 property attribute_deprecated; it disappears when FF_API_DOVI_L11_INVALID_PROPS expires at major version 62"
+    )]
     pub fn frame_rate_conversion(&self) -> u8 {
         // SAFETY: the handle keeps an initialized level 11 value live; the
         // raw-place projection copies this integer without forming a reference.
@@ -395,7 +471,12 @@ impl AVDOVIDmLevel11Ref<'_> {
     }
 
     /// Field: AVDOVIDmLevel11.mpeg_noise_reduction
+    ///
+    /// Reads a property libavutil deprecated as never validly populated.
     #[must_use]
+    #[deprecated(
+        note = "libavutil marks this level 11 property attribute_deprecated; it disappears when FF_API_DOVI_L11_INVALID_PROPS expires at major version 62"
+    )]
     pub fn mpeg_noise_reduction(&self) -> u8 {
         // SAFETY: the handle keeps an initialized level 11 value live; the
         // raw-place projection copies this integer without forming a reference.
@@ -403,7 +484,12 @@ impl AVDOVIDmLevel11Ref<'_> {
     }
 
     /// Field: AVDOVIDmLevel11.noise_reduction
+    ///
+    /// Reads a property libavutil deprecated as never validly populated.
     #[must_use]
+    #[deprecated(
+        note = "libavutil marks this level 11 property attribute_deprecated; it disappears when FF_API_DOVI_L11_INVALID_PROPS expires at major version 62"
+    )]
     pub fn noise_reduction(&self) -> u8 {
         // SAFETY: the handle keeps an initialized level 11 value live; the
         // raw-place projection copies this integer without forming a reference.
@@ -411,7 +497,12 @@ impl AVDOVIDmLevel11Ref<'_> {
     }
 
     /// Field: AVDOVIDmLevel11.sharpness
+    ///
+    /// Reads a property libavutil deprecated as never validly populated.
     #[must_use]
+    #[deprecated(
+        note = "libavutil marks this level 11 property attribute_deprecated; it disappears when FF_API_DOVI_L11_INVALID_PROPS expires at major version 62"
+    )]
     pub fn sharpness(&self) -> u8 {
         // SAFETY: the handle keeps an initialized level 11 value live; the
         // raw-place projection copies this integer without forming a reference.
@@ -445,6 +536,9 @@ impl AVDOVIDmLevel11Ref<'_> {
 
 impl AVDOVIDmLevel11Mut<'_> {
     /// Sets the deprecated color processing parameter.
+    #[deprecated(
+        note = "libavutil marks this level 11 property attribute_deprecated; it disappears when FF_API_DOVI_L11_INVALID_PROPS expires at major version 62"
+    )]
     pub fn set_color(&mut self, value: u8) {
         // SAFETY: the exclusive handle supplies write provenance to the live
         // object; raw-place projection writes only the selected integer field.
@@ -452,6 +546,9 @@ impl AVDOVIDmLevel11Mut<'_> {
     }
 
     /// Sets the deprecated brightness processing parameter.
+    #[deprecated(
+        note = "libavutil marks this level 11 property attribute_deprecated; it disappears when FF_API_DOVI_L11_INVALID_PROPS expires at major version 62"
+    )]
     pub fn set_brightness(&mut self, value: u8) {
         // SAFETY: the exclusive handle supplies write provenance to the live
         // object; raw-place projection writes only the selected integer field.
@@ -459,6 +556,9 @@ impl AVDOVIDmLevel11Mut<'_> {
     }
 
     /// Sets the deprecated frame-rate-conversion parameter.
+    #[deprecated(
+        note = "libavutil marks this level 11 property attribute_deprecated; it disappears when FF_API_DOVI_L11_INVALID_PROPS expires at major version 62"
+    )]
     pub fn set_frame_rate_conversion(&mut self, value: u8) {
         // SAFETY: the exclusive handle supplies write provenance to the live
         // object; raw-place projection writes only the selected integer field.
@@ -466,6 +566,9 @@ impl AVDOVIDmLevel11Mut<'_> {
     }
 
     /// Sets the deprecated MPEG noise-reduction parameter.
+    #[deprecated(
+        note = "libavutil marks this level 11 property attribute_deprecated; it disappears when FF_API_DOVI_L11_INVALID_PROPS expires at major version 62"
+    )]
     pub fn set_mpeg_noise_reduction(&mut self, value: u8) {
         // SAFETY: the exclusive handle supplies write provenance to the live
         // object; raw-place projection writes only the selected integer field.
@@ -473,6 +576,9 @@ impl AVDOVIDmLevel11Mut<'_> {
     }
 
     /// Sets the deprecated noise-reduction parameter.
+    #[deprecated(
+        note = "libavutil marks this level 11 property attribute_deprecated; it disappears when FF_API_DOVI_L11_INVALID_PROPS expires at major version 62"
+    )]
     pub fn set_noise_reduction(&mut self, value: u8) {
         // SAFETY: the exclusive handle supplies write provenance to the live
         // object; raw-place projection writes only the selected integer field.
@@ -480,6 +586,9 @@ impl AVDOVIDmLevel11Mut<'_> {
     }
 
     /// Sets the deprecated sharpness parameter.
+    #[deprecated(
+        note = "libavutil marks this level 11 property attribute_deprecated; it disappears when FF_API_DOVI_L11_INVALID_PROPS expires at major version 62"
+    )]
     pub fn set_sharpness(&mut self, value: u8) {
         // SAFETY: the exclusive handle supplies write provenance to the live
         // object; raw-place projection writes only the selected integer field.
@@ -755,7 +864,7 @@ impl AVDOVIDmLevel255Mut<'_> {
 mod tests {
     use core::mem::{align_of, size_of};
 
-    use ffibox::CVal;
+    use ffibox::{CBox, CVal};
 
     use super::*;
 
@@ -1046,6 +1155,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        deprecated,
+        reason = "this test deliberately covers the accessors for the fields libavutil deprecated"
+    )]
     fn level_11_owned_storage_supports_shared_and_exclusive_access() {
         let mut value = CVal::new(AVDOVIDmLevel11::zeroed());
         {
@@ -1093,6 +1206,66 @@ mod tests {
         assert_eq!(view.trim_chroma_weight(), 14);
         assert_eq!(view.trim_saturation_gain(), 15);
         assert_eq!(view.ms_weight(), -16);
+    }
+
+    #[test]
+    fn decoder_configuration_record_owns_an_av_malloc_family_allocation() {
+        // `av_dovi_alloc` is exactly `av_mallocz(sizeof(record))`, and this
+        // crate binds `av_mallocz` already, so the owned form can be exercised
+        // end to end: the sanitized C allocator sees one allocation and the
+        // `av_free` in `c_drop` must be its matching release.
+        // SAFETY: the request is one record-sized zeroed block from the
+        // `av_malloc` family, which is what `CBox::from_raw` adopts below.
+        let raw = unsafe {
+            ffi::av_mallocz(size_of::<ffi::AVDOVIDecoderConfigurationRecord>())
+                .cast::<ffi::AVDOVIDecoderConfigurationRecord>()
+        };
+        // SAFETY: `raw` is a live, zeroed, uniquely owned allocation of the
+        // record's exact size, so this transfers that sole ownership once.
+        let mut record: CBox<AVDOVIDecoderConfigurationRecord> =
+            unsafe { CBox::from_raw(raw) }.expect("av_mallocz returned an allocation");
+
+        record.as_mut().set_dv_profile(8);
+        record.as_mut().set_dv_level(9);
+        assert_eq!(record.as_ref().dv_profile(), 8);
+        assert_eq!(record.as_ref().dv_level(), 9);
+        assert_eq!(record.as_ref().dv_version_major(), 0);
+        // `av_free` runs here; a mismatched allocator would fail under ASan.
+    }
+
+    #[test]
+    fn compression_accessors_bridge_the_uint8_field_and_the_open_enum() {
+        let mut record = CVal::new(AVDOVIDecoderConfigurationRecord::zeroed());
+        assert!(
+            record
+                .as_mut()
+                .set_dv_md_compression_method(AVDOVICompression::EXTENDED)
+        );
+        assert_eq!(record.as_ref().dv_md_compression(), 3);
+        assert_eq!(
+            record.as_ref().dv_md_compression_method(),
+            AVDOVICompression::EXTENDED
+        );
+
+        // A value from a hypothetical newer libavutil that the narrower C
+        // field cannot hold is rejected instead of silently truncated.
+        assert!(
+            !record
+                .as_mut()
+                .set_dv_md_compression_method(AVDOVICompression::from_raw(256))
+        );
+        assert_eq!(record.as_ref().dv_md_compression(), 3);
+    }
+
+    #[test]
+    fn level_one_owned_value_round_trips_all_fields() {
+        let mut level = CVal::new(AVDOVIDmLevel1::zeroed());
+        level.as_mut().set_min_pq(1);
+        level.as_mut().set_max_pq(2);
+        level.as_mut().set_avg_pq(3);
+        assert_eq!(level.as_ref().min_pq(), 1);
+        assert_eq!(level.as_ref().max_pq(), 2);
+        assert_eq!(level.as_ref().avg_pq(), 3);
     }
 
     #[test]
@@ -1310,11 +1483,29 @@ define_ctype!(
     /// allocation. An owning [`ffibox::CBox<AVDOVIMetadata>`] must come from
     /// `av_dovi_metadata_alloc`; dropping it releases the complete allocation
     /// with `av_free`. Borrowed field access never assumes ownership.
+    ///
+    /// The header is a description of the bytes that follow it, so every
+    /// handle carries one further obligation beyond liveness: `header_offset`,
+    /// `mapping_offset`, `color_offset`, and `ext_block_offset` together with
+    /// `ext_block_size` and `num_ext_blocks` must address initialized payloads
+    /// inside the same allocation. `av_dovi_metadata_alloc` establishes that,
+    /// and the unsafe `from_ptr` constructors inherit it: the payload
+    /// accessors below derive their handles from these numbers alone, so no
+    /// safe surface can re-check them. This is also why the header's fields
+    /// are read-only here -- a safe setter for any of them would let safe code
+    /// aim [`av_dovi_get_ext`] outside the allocation.
     AVDOVIMetadata,
     AVDOVIMetadataRef,
     AVDOVIMetadataMut,
     ffi::AVDOVIMetadata
 );
+
+impl AVDOVIMetadata {
+    /// `AV_DOVI_MAX_EXT_BLOCKS`: the bitstream-derived static limit on
+    /// [`num_ext_blocks`](AVDOVIMetadataRef::num_ext_blocks), and the number
+    /// of extension blocks `av_dovi_metadata_alloc` reserves.
+    pub const MAX_EXT_BLOCKS: usize = ffi::AV_DOVI_MAX_EXT_BLOCKS as usize;
+}
 
 // SAFETY: `av_dovi_metadata_alloc` obtains one contiguous allocation from
 // `av_mallocz` and returns its address because `metadata` is the first member
@@ -1486,6 +1677,16 @@ mod level8_and_metadata_tests {
         assert_eq!(metadata.ext_block_offset(), 32);
         assert_eq!(metadata.ext_block_size(), 40);
         assert_eq!(metadata.num_ext_blocks(), 3);
+    }
+
+    #[test]
+    fn metadata_extension_block_limit_comes_from_the_c_macro() {
+        assert_eq!(AVDOVIMetadata::MAX_EXT_BLOCKS, 32);
+        assert_eq!(
+            AVDOVIMetadata::MAX_EXT_BLOCKS,
+            ffi::AV_DOVI_MAX_EXT_BLOCKS as usize
+        );
+        assert!(i32::try_from(AVDOVIMetadata::MAX_EXT_BLOCKS).is_ok());
     }
 
     #[test]
@@ -2740,9 +2941,10 @@ pub fn av_dovi_get_ext<'a>(
     }
     let index = i32::try_from(index).ok()?;
 
-    // SAFETY: `index` was checked against the allocation's initialized block
-    // count. The metadata handle keeps the complete offset-based allocation
-    // live, and the returned shared handle is tied to that borrow.
+    // SAFETY: `index` was checked against `num_ext_blocks`, which is the C
+    // contract for this call. The metadata handle's own invariant makes that
+    // count describe initialized blocks inside the live allocation it keeps
+    // alive, and the returned shared handle is tied to that borrow.
     unsafe { AVDOVIDmDataRef::from_ptr(ffi::crustify_av_dovi_get_ext(metadata.as_ptr(), index)) }
 }
 
@@ -2763,8 +2965,9 @@ pub fn av_dovi_get_ext_mut<'a>(
     let index = i32::try_from(index).ok()?;
 
     // SAFETY: consuming the exclusive metadata handle preserves its exclusive
-    // borrow for `'a`; the checked index selects one initialized block inside
-    // the live allocation, so the result cannot outlive or alias its parent.
+    // borrow for `'a`; by that handle's invariant the checked index selects
+    // one initialized block inside the live allocation, so the result cannot
+    // outlive or alias its parent.
     unsafe {
         AVDOVIDmDataMut::from_ptr(ffi::crustify_av_dovi_get_ext(metadata.as_mut_ptr(), index))
     }

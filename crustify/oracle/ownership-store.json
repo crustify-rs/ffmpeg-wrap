@@ -390,7 +390,7 @@
   {
    "name": "AVDOVIDecoderConfigurationRecord",
    "defined_in": "libavutil/dovi_meta.h",
-   "_comment_agent": "No pointer or refcount fields; all declared fields are scalar integer values.",
+   "_comment_agent": "No pointer or refcount fields; all nine declared fields are uint8_t scalars. dv_md_compression is declared uint8_t but carries an enum AVDOVICompression value: libavcodec/dovi_rpuenc.c assigns its `enum AVDOVICompression compression` parameter straight into the field, and fftools/ffprobe.c switches on it with the AV_DOVI_COMPRESSION_* labels. The type is used in two shapes and both are lifecycle-relevant. Heap: av_dovi_alloc returns one av_mallocz block of exactly sizeof(record), released with a single av_free (see that symbol's ptr_ret). By value: libavcodec's DOVIContext embeds one (`AVDOVIDecoderConfigurationRecord cfg`), `s->cfg = *cfg` copies it wholesale, and several decoders read it in place out of AV_PKT_DATA_DOVI_CONF side-data bytes. Since it owns no resource, the by-value shape needs no disposal.",
    "fields": []
   },
   {
@@ -451,6 +451,24 @@
    "name": "AVDOVIDmLevel6",
    "defined_in": "libavutil/dovi_meta.h",
    "_comment_agent": "All fields are by-value uint16_t scalars; the type owns no resources and has no lifecycle operation.",
+   "fields": []
+  },
+  {
+   "name": "AVDOVIDmLevel8",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "Reviewed every declared field: level 8 holds one uint8_t target_display_index, eight uint16_t trim/weight/contrast scalars, and two fixed uint8_t[6] inline arrays (saturation_vector_field, hue_vector_field). No pointer, no refcount, no owned resource, so the type has no lifecycle operation and is only ever used by value inside an AVDOVIDmData extension block. Note ms_weight is uint16_t here, unlike the int16_t ms_weight of AVDOVIDmLevel2.",
+   "fields": []
+  },
+  {
+   "name": "AVDOVIMappingMethod",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "Open C enum with two named values, AV_DOVI_MAPPING_POLYNOMIAL = 0 and AV_DOVI_MAPPING_MMR = 1. No fields, no pointers, no lifecycle. It is stored as an enum AVDOVIMappingMethod[AV_DOVI_MAX_PIECES] inside AVDOVIReshapingCurve, where each element selects which of the poly_* or mmr_* coefficient tables applies to that piece, so a value outside the two named ones must stay representable rather than trap.",
+   "fields": []
+  },
+  {
+   "name": "AVDOVIMetadata",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "All six fields are integers, not pointers: header_offset, mapping_offset, color_offset and ext_block_offset are byte offsets from the address of this header, ext_block_size is the stride between extension blocks, and num_ext_blocks is the count of initialized blocks. They are derived-pointer descriptors, which is why the type carries a stronger contract than its declared field types show: av_dovi_metadata_alloc allocates one contiguous av_mallocz AVDOVIMetadataInternal whose first member is this header, initializes the four offsets and the stride from offsetof/sizeof, and returns &dovi->metadata, so the header address is the allocation base and av_free releases the whole block exactly once. The inline accessors av_dovi_get_header/_mapping/_color/_ext and av_dovi_find_level do nothing but add these offsets to the header address, so any handle over an AVDOVIMetadata must guarantee that the offsets, the stride and num_ext_blocks describe initialized payloads inside the same live allocation; num_ext_blocks is statically bounded by AV_DOVI_MAX_EXT_BLOCKS (32), the number of blocks the allocation reserves.",
    "fields": []
   },
   {
@@ -4240,6 +4258,43 @@
   {
    "name": "av_div_q",
    "defined_in": "libavutil/rational.c"
+  },
+  {
+   "name": "av_dovi_alloc",
+   "defined_in": "libavutil/dovi_meta.c",
+   "ptr_args": [
+    {
+     "name": "size",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:size"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Optional one-element out-parameter, guarded by `if (size)`. On success the function writes sizeof(AVDOVIDecoderConfigurationRecord) and on allocation failure it writes 0; it neither retains nor owns the slot beyond the call. Same shape as av_dovi_metadata_alloc's size argument."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns NULL on allocation failure, or unique ownership of one zeroed av_mallocz allocation of exactly sizeof(AVDOVIDecoderConfigurationRecord) bytes, so the returned address is the allocation base. The record has no separately allocated field, and the release is exactly one av_free: libavcodec/dovi_rpuenc.c calls av_free(cfg) on the side-data-insertion failure path and otherwise hands the same pointer to av_packet_side_data_add, whose teardown frees it the same way; libavformat/dovi_isom.c and libavformat/mpegts.c follow that pattern. Callers mutate every field after allocation."
+    }
+   }
   },
   {
    "name": "av_dovi_get_color",
