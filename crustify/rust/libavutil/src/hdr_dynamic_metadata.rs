@@ -476,3 +476,347 @@ mod percentile_tests {
         assert_eq!(view.percentile().den(), 100_000);
     }
 }
+
+ffibox::define_ctype!(
+    /// Wraps: AVHDRPlusColorTransformParams
+    ///
+    /// ABI-compatible HDR10+ color-transform parameters for one processing
+    /// window. All storage is inline and contains no owned resources.
+    AVHDRPlusColorTransformParams,
+    AVHDRPlusColorTransformParamsRef,
+    AVHDRPlusColorTransformParamsMut,
+    ffi::AVHDRPlusColorTransformParams
+);
+
+// SAFETY: the structure consists solely of integer scalars, an integer enum,
+// and fixed arrays of by-value structures with no teardown operations.
+unsafe impl CValued for AVHDRPlusColorTransformParams {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+impl AVHDRPlusColorTransformParams {
+    /// Number of entries in the fixed maxRGB-percentile table.
+    pub const MAX_DISTRIBUTION_MAXRGB_PERCENTILES: usize = 15;
+    /// Number of entries in the fixed Bezier-anchor table.
+    pub const MAX_BEZIER_CURVE_ANCHORS: usize = 15;
+
+    /// Creates zero-initialized parameters in owned inline storage.
+    #[must_use]
+    pub fn new() -> CVal<Self> {
+        CVal::new(Self::zeroed())
+    }
+}
+
+macro_rules! hdr_plus_scalar_field {
+    ($(#[$meta:meta])* $field:ident, $setter:ident: $ty:ty) => {
+        impl AVHDRPlusColorTransformParamsRef<'_> {
+            $(#[$meta])*
+            #[must_use]
+            pub fn $field(&self) -> $ty {
+                // SAFETY: the shared handle keeps initialized parameters live;
+                // raw-place projection copies the scalar without forming a
+                // reference to the C-visible object or field.
+                unsafe { addr_of!((*self.as_ptr()).$field).read() }
+            }
+        }
+
+        impl AVHDRPlusColorTransformParamsMut<'_> {
+            #[doc = concat!("Sets [`", stringify!($field), "`](AVHDRPlusColorTransformParamsRef::", stringify!($field), ").")]
+            pub fn $setter(&mut self, value: $ty) {
+                // SAFETY: the exclusive handle supplies write provenance to
+                // initialized parameters; raw-place projection writes only
+                // the selected scalar and forms no reference to it.
+                unsafe { addr_of_mut!((*self.as_mut_ptr()).$field).write(value) }
+            }
+        }
+    };
+}
+
+macro_rules! hdr_plus_rational_field {
+    ($(#[$meta:meta])* $field:ident, $field_mut:ident) => {
+        impl<'a> AVHDRPlusColorTransformParamsRef<'a> {
+            $(#[$meta])*
+            #[must_use]
+            pub fn $field(&self) -> AVRationalRef<'a> {
+                // SAFETY: the projected inline rational is initialized and
+                // remains live for the enclosing parameters handle's lifetime.
+                unsafe { AVRationalRef::from_ptr(addr_of!((*self.as_ptr()).$field).cast_mut()) }
+                    .expect("an inline field is non-null")
+            }
+        }
+
+        impl AVHDRPlusColorTransformParamsMut<'_> {
+            #[doc = concat!("Exclusively borrows [`", stringify!($field), "`](AVHDRPlusColorTransformParamsRef::", stringify!($field), ").")]
+            #[must_use]
+            pub fn $field_mut(&mut self) -> AVRationalMut<'_> {
+                // SAFETY: the exclusive parent handle supplies write
+                // provenance to this initialized inline rational for the
+                // duration of the returned reborrow.
+                unsafe { AVRationalMut::from_ptr(addr_of_mut!((*self.as_mut_ptr()).$field)) }
+                    .expect("an inline field is non-null")
+            }
+        }
+    };
+}
+
+macro_rules! hdr_plus_array_field {
+    ($(#[$meta:meta])* $field:ident, $field_mut:ident: $element:ty, $len:expr) => {
+        impl<'a> AVHDRPlusColorTransformParamsRef<'a> {
+            $(#[$meta])*
+            #[must_use]
+            pub fn $field(&self) -> CSlice<'a, $element> {
+                // SAFETY: raw-place projection locates the fixed initialized
+                // array without forming a reference. Its `$len` elements live
+                // for the enclosing parameters handle's lifetime.
+                unsafe {
+                    let pointer = addr_of!((*self.as_ptr()).$field)
+                        .cast::<$element>()
+                        .cast_mut();
+                    CSlice::from_raw_parts(NonNull::new_unchecked(pointer), $len)
+                }
+            }
+        }
+
+        impl AVHDRPlusColorTransformParamsMut<'_> {
+            #[doc = concat!("Exclusively borrows [`", stringify!($field), "`](AVHDRPlusColorTransformParamsRef::", stringify!($field), ").")]
+            #[must_use]
+            pub fn $field_mut(&mut self) -> CSliceMut<'_, $element> {
+                // SAFETY: the exclusive handle supplies write provenance to
+                // every element of the fixed initialized array, and the view
+                // remains bound to this mutable reborrow.
+                unsafe {
+                    let pointer = addr_of_mut!((*self.as_mut_ptr()).$field).cast::<$element>();
+                    CSliceMut::from_raw_parts(NonNull::new_unchecked(pointer), $len)
+                }
+            }
+        }
+    };
+}
+
+hdr_plus_scalar_field!(
+    /// Field: AVHDRPlusColorTransformParams.color_saturation_mapping_flag
+    color_saturation_mapping_flag,
+    set_color_saturation_mapping_flag: u8
+);
+hdr_plus_rational_field!(
+    /// Field: AVHDRPlusColorTransformParams.average_maxrgb
+    average_maxrgb,
+    average_maxrgb_mut
+);
+hdr_plus_rational_field!(
+    /// Field: AVHDRPlusColorTransformParams.color_saturation_weight
+    color_saturation_weight,
+    color_saturation_weight_mut
+);
+hdr_plus_array_field!(
+    /// Field: AVHDRPlusColorTransformParams.bezier_curve_anchors
+    bezier_curve_anchors,
+    bezier_curve_anchors_mut: crate::rational::AVRational,
+    AVHDRPlusColorTransformParams::MAX_BEZIER_CURVE_ANCHORS
+);
+hdr_plus_scalar_field!(
+    /// Field: AVHDRPlusColorTransformParams.num_bezier_curve_anchors
+    num_bezier_curve_anchors,
+    set_num_bezier_curve_anchors: u8
+);
+hdr_plus_rational_field!(
+    /// Field: AVHDRPlusColorTransformParams.knee_point_y
+    knee_point_y,
+    knee_point_y_mut
+);
+hdr_plus_rational_field!(
+    /// Field: AVHDRPlusColorTransformParams.knee_point_x
+    knee_point_x,
+    knee_point_x_mut
+);
+hdr_plus_scalar_field!(
+    /// Field: AVHDRPlusColorTransformParams.tone_mapping_flag
+    tone_mapping_flag,
+    set_tone_mapping_flag: u8
+);
+hdr_plus_rational_field!(
+    /// Field: AVHDRPlusColorTransformParams.fraction_bright_pixels
+    fraction_bright_pixels,
+    fraction_bright_pixels_mut
+);
+hdr_plus_array_field!(
+    /// Field: AVHDRPlusColorTransformParams.distribution_maxrgb
+    distribution_maxrgb,
+    distribution_maxrgb_mut: AVHDRPlusPercentile,
+    AVHDRPlusColorTransformParams::MAX_DISTRIBUTION_MAXRGB_PERCENTILES
+);
+hdr_plus_scalar_field!(
+    /// Field: AVHDRPlusColorTransformParams.num_distribution_maxrgb_percentiles
+    num_distribution_maxrgb_percentiles,
+    set_num_distribution_maxrgb_percentiles: u8
+);
+hdr_plus_array_field!(
+    /// Field: AVHDRPlusColorTransformParams.maxscl
+    maxscl,
+    maxscl_mut: crate::rational::AVRational,
+    3
+);
+
+impl AVHDRPlusColorTransformParamsRef<'_> {
+    /// Field: AVHDRPlusColorTransformParams.overlap_process_option
+    #[must_use]
+    pub fn overlap_process_option(&self) -> AVHDRPlusOverlapProcessOption {
+        // SAFETY: the shared handle keeps initialized parameters live;
+        // raw-place projection copies the integer enum representation without
+        // forming a reference to C-visible storage.
+        let raw = unsafe { addr_of!((*self.as_ptr()).overlap_process_option).read() };
+        AVHDRPlusOverlapProcessOption::from_raw(raw)
+    }
+}
+
+impl AVHDRPlusColorTransformParamsMut<'_> {
+    /// Sets the overlap-processing option, preserving unknown C values.
+    pub fn set_overlap_process_option(&mut self, value: AVHDRPlusOverlapProcessOption) {
+        // SAFETY: the exclusive handle permits writing this integer enum field
+        // and the raw-place projection forms no reference to it.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).overlap_process_option).write(value.as_raw()) }
+    }
+}
+
+hdr_plus_scalar_field!(
+    /// Field: AVHDRPlusColorTransformParams.semiminor_axis_external_ellipse
+    semiminor_axis_external_ellipse,
+    set_semiminor_axis_external_ellipse: u16
+);
+hdr_plus_scalar_field!(
+    /// Field: AVHDRPlusColorTransformParams.semimajor_axis_external_ellipse
+    semimajor_axis_external_ellipse,
+    set_semimajor_axis_external_ellipse: u16
+);
+hdr_plus_scalar_field!(
+    /// Field: AVHDRPlusColorTransformParams.semimajor_axis_internal_ellipse
+    semimajor_axis_internal_ellipse,
+    set_semimajor_axis_internal_ellipse: u16
+);
+hdr_plus_scalar_field!(
+    /// Field: AVHDRPlusColorTransformParams.rotation_angle
+    rotation_angle,
+    set_rotation_angle: u8
+);
+hdr_plus_scalar_field!(
+    /// Field: AVHDRPlusColorTransformParams.center_of_ellipse_y
+    center_of_ellipse_y,
+    set_center_of_ellipse_y: u16
+);
+hdr_plus_scalar_field!(
+    /// Field: AVHDRPlusColorTransformParams.center_of_ellipse_x
+    center_of_ellipse_x,
+    set_center_of_ellipse_x: u16
+);
+hdr_plus_rational_field!(
+    /// Field: AVHDRPlusColorTransformParams.window_lower_right_corner_y
+    window_lower_right_corner_y,
+    window_lower_right_corner_y_mut
+);
+hdr_plus_rational_field!(
+    /// Field: AVHDRPlusColorTransformParams.window_lower_right_corner_x
+    window_lower_right_corner_x,
+    window_lower_right_corner_x_mut
+);
+hdr_plus_rational_field!(
+    /// Field: AVHDRPlusColorTransformParams.window_upper_left_corner_y
+    window_upper_left_corner_y,
+    window_upper_left_corner_y_mut
+);
+hdr_plus_rational_field!(
+    /// Field: AVHDRPlusColorTransformParams.window_upper_left_corner_x
+    window_upper_left_corner_x,
+    window_upper_left_corner_x_mut
+);
+
+#[cfg(test)]
+mod color_transform_params_tests {
+    use core::mem::{align_of, size_of};
+
+    use super::*;
+
+    #[test]
+    fn layout_and_scalar_fields_match_c() {
+        assert_eq!(
+            size_of::<AVHDRPlusColorTransformParams>(),
+            size_of::<ffi::AVHDRPlusColorTransformParams>()
+        );
+        assert_eq!(
+            align_of::<AVHDRPlusColorTransformParams>(),
+            align_of::<ffi::AVHDRPlusColorTransformParams>()
+        );
+
+        let mut params = AVHDRPlusColorTransformParams::new();
+        let mut view = params.as_mut();
+        view.set_center_of_ellipse_x(101);
+        view.set_center_of_ellipse_y(102);
+        view.set_rotation_angle(103);
+        view.set_semimajor_axis_internal_ellipse(104);
+        view.set_semimajor_axis_external_ellipse(105);
+        view.set_semiminor_axis_external_ellipse(106);
+        view.set_overlap_process_option(AVHDRPlusOverlapProcessOption::LAYERING);
+        view.set_num_distribution_maxrgb_percentiles(15);
+        view.set_tone_mapping_flag(1);
+        view.set_num_bezier_curve_anchors(14);
+        view.set_color_saturation_mapping_flag(1);
+
+        let view = params.as_ref();
+        assert_eq!(view.center_of_ellipse_x(), 101);
+        assert_eq!(view.center_of_ellipse_y(), 102);
+        assert_eq!(view.rotation_angle(), 103);
+        assert_eq!(view.semimajor_axis_internal_ellipse(), 104);
+        assert_eq!(view.semimajor_axis_external_ellipse(), 105);
+        assert_eq!(view.semiminor_axis_external_ellipse(), 106);
+        assert_eq!(
+            view.overlap_process_option(),
+            AVHDRPlusOverlapProcessOption::LAYERING
+        );
+        assert_eq!(view.num_distribution_maxrgb_percentiles(), 15);
+        assert_eq!(view.tone_mapping_flag(), 1);
+        assert_eq!(view.num_bezier_curve_anchors(), 14);
+        assert_eq!(view.color_saturation_mapping_flag(), 1);
+    }
+
+    #[test]
+    fn inline_rationals_and_fixed_arrays_use_lifetime_bound_handles() {
+        let mut params = AVHDRPlusColorTransformParams::new();
+        let mut view = params.as_mut();
+
+        view.window_upper_left_corner_x_mut().set_num(1);
+        view.window_upper_left_corner_y_mut().set_num(2);
+        view.window_lower_right_corner_x_mut().set_num(3);
+        view.window_lower_right_corner_y_mut().set_num(4);
+        view.average_maxrgb_mut().set_num(5);
+        view.fraction_bright_pixels_mut().set_num(6);
+        view.knee_point_x_mut().set_num(7);
+        view.knee_point_y_mut().set_num(8);
+        view.color_saturation_weight_mut().set_num(9);
+
+        view.maxscl_mut().get_mut(2).unwrap().set_num(10);
+        view.distribution_maxrgb_mut()
+            .get_mut(14)
+            .unwrap()
+            .set_percentage(11);
+        view.bezier_curve_anchors_mut()
+            .get_mut(14)
+            .unwrap()
+            .set_num(12);
+
+        let view = params.as_ref();
+        assert_eq!(view.window_upper_left_corner_x().num(), 1);
+        assert_eq!(view.window_upper_left_corner_y().num(), 2);
+        assert_eq!(view.window_lower_right_corner_x().num(), 3);
+        assert_eq!(view.window_lower_right_corner_y().num(), 4);
+        assert_eq!(view.average_maxrgb().num(), 5);
+        assert_eq!(view.fraction_bright_pixels().num(), 6);
+        assert_eq!(view.knee_point_x().num(), 7);
+        assert_eq!(view.knee_point_y().num(), 8);
+        assert_eq!(view.color_saturation_weight().num(), 9);
+        assert_eq!(view.maxscl().get(2).unwrap().num(), 10);
+        assert_eq!(view.distribution_maxrgb().get(14).unwrap().percentage(), 11);
+        assert_eq!(view.bezier_curve_anchors().get(14).unwrap().num(), 12);
+        assert!(view.maxscl().get(3).is_none());
+        assert!(view.distribution_maxrgb().get(15).is_none());
+        assert!(view.bezier_curve_anchors().get(15).is_none());
+    }
+}

@@ -669,6 +669,12 @@
    "fields": []
   },
   {
+   "name": "AVHDRPlusColorTransformParams",
+   "defined_in": "libavutil/hdr_dynamic_metadata.h",
+   "_comment_agent": "All fields are scalars or fixed-size by-value aggregates; the type has no pointer fields or lifecycle resources.",
+   "fields": []
+  },
+  {
    "name": "AVHashContext",
    "defined_in": "libavutil/hash.c",
    "_comment_agent": "AVHashContext is public only as an opaque pointer. It exclusively owns the optional type-erased algorithm context selected by its discriminator and borrows the CRC table statically. av_hash_freep releases both the owned inner state and the header.",
