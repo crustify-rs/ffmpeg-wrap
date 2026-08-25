@@ -532,6 +532,36 @@ macro_rules! hdr_plus_scalar_field {
     };
 }
 
+macro_rules! hdr_plus_count_field {
+    ($(#[$meta:meta])* $field:ident, $setter:ident, $limit:expr, $message:literal) => {
+        impl AVHDRPlusColorTransformParamsRef<'_> {
+            $(#[$meta])*
+            #[must_use]
+            pub fn $field(&self) -> u8 {
+                // SAFETY: the shared handle keeps initialized parameters live;
+                // raw-place projection copies the count without forming a
+                // reference to the C-visible object or field.
+                unsafe { addr_of!((*self.as_ptr()).$field).read() }
+            }
+        }
+
+        impl AVHDRPlusColorTransformParamsMut<'_> {
+            #[doc = concat!("Sets [`", stringify!($field), "`](AVHDRPlusColorTransformParamsRef::", stringify!($field), ").")]
+            ///
+            /// # Panics
+            ///
+            #[doc = $message]
+            pub fn $setter(&mut self, value: u8) {
+                assert!(usize::from(value) <= $limit, $message);
+                // SAFETY: the exclusive handle supplies write provenance to
+                // initialized parameters, and the validated count cannot make
+                // a C consumer overrun the fixed array it bounds.
+                unsafe { addr_of_mut!((*self.as_mut_ptr()).$field).write(value) }
+            }
+        }
+    };
+}
+
 macro_rules! hdr_plus_rational_field {
     ($(#[$meta:meta])* $field:ident, $field_mut:ident) => {
         impl<'a> AVHDRPlusColorTransformParamsRef<'a> {
@@ -614,10 +644,12 @@ hdr_plus_array_field!(
     bezier_curve_anchors_mut: crate::rational::AVRational,
     AVHDRPlusColorTransformParams::MAX_BEZIER_CURVE_ANCHORS
 );
-hdr_plus_scalar_field!(
+hdr_plus_count_field!(
     /// Field: AVHDRPlusColorTransformParams.num_bezier_curve_anchors
     num_bezier_curve_anchors,
-    set_num_bezier_curve_anchors: u8
+    set_num_bezier_curve_anchors,
+    AVHDRPlusColorTransformParams::MAX_BEZIER_CURVE_ANCHORS,
+    "num_bezier_curve_anchors must not exceed 15"
 );
 hdr_plus_rational_field!(
     /// Field: AVHDRPlusColorTransformParams.knee_point_y
@@ -645,10 +677,12 @@ hdr_plus_array_field!(
     distribution_maxrgb_mut: AVHDRPlusPercentile,
     AVHDRPlusColorTransformParams::MAX_DISTRIBUTION_MAXRGB_PERCENTILES
 );
-hdr_plus_scalar_field!(
+hdr_plus_count_field!(
     /// Field: AVHDRPlusColorTransformParams.num_distribution_maxrgb_percentiles
     num_distribution_maxrgb_percentiles,
-    set_num_distribution_maxrgb_percentiles: u8
+    set_num_distribution_maxrgb_percentiles,
+    AVHDRPlusColorTransformParams::MAX_DISTRIBUTION_MAXRGB_PERCENTILES,
+    "num_distribution_maxrgb_percentiles must not exceed 15"
 );
 hdr_plus_array_field!(
     /// Field: AVHDRPlusColorTransformParams.maxscl
@@ -775,6 +809,26 @@ mod color_transform_params_tests {
         assert_eq!(view.tone_mapping_flag(), 1);
         assert_eq!(view.num_bezier_curve_anchors(), 14);
         assert_eq!(view.color_saturation_mapping_flag(), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "num_distribution_maxrgb_percentiles must not exceed 15")]
+    fn a_percentile_count_beyond_the_fixed_table_is_rejected() {
+        let mut params = AVHDRPlusColorTransformParams::new();
+        params
+            .as_mut()
+            .set_num_distribution_maxrgb_percentiles(
+                AVHDRPlusColorTransformParams::MAX_DISTRIBUTION_MAXRGB_PERCENTILES as u8 + 1,
+            );
+    }
+
+    #[test]
+    #[should_panic(expected = "num_bezier_curve_anchors must not exceed 15")]
+    fn a_bezier_anchor_count_beyond_the_fixed_table_is_rejected() {
+        let mut params = AVHDRPlusColorTransformParams::new();
+        params.as_mut().set_num_bezier_curve_anchors(
+            AVHDRPlusColorTransformParams::MAX_BEZIER_CURVE_ANCHORS as u8 + 1,
+        );
     }
 
     #[test]

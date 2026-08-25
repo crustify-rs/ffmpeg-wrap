@@ -405,10 +405,12 @@ impl<'a> Iterator for AVClassChildClasses<'a> {
     type Item = AVClassRef<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // SAFETY: `state` starts null and only values written by this callback
-        // are fed back to it. A non-null result is a live immutable child class
-        // whose lifetime is bounded by the parent AVClass borrow.
-        let pointer = unsafe { (self.function)(addr_of!(self.state).cast_mut()) };
+        // SAFETY: the callback writes the opaque iteration state back through
+        // this slot, so the exclusive borrow supplies its write provenance.
+        // `state` starts null and only values written by this callback are fed
+        // back to it. A non-null result is a live immutable child class whose
+        // lifetime is bounded by the parent AVClass borrow.
+        let pointer = unsafe { (self.function)(&raw mut self.state) };
         // SAFETY: the callback contract establishes the returned class layout,
         // initialization and lifetime; null marks the end of iteration.
         unsafe { AVClassRef::from_ptr(pointer.cast_mut()) }
@@ -579,6 +581,48 @@ mod avclass_tests {
         core::ptr::null()
     }
 
+    /// Mirrors C's `static const AVClass`: a process-lifetime immutable
+    /// record whose pointer fields address string literals and code.
+    #[repr(transparent)]
+    struct StaticClass(ffi::AVClass);
+
+    // SAFETY: the value is never mutated after initialization and every
+    // pointer it holds addresses immutable static storage, so concurrent
+    // shared access observes only constants.
+    unsafe impl Sync for StaticClass {}
+
+    static CHILD_CLASS: StaticClass = StaticClass(ffi::AVClass {
+        class_name: c"ChildClass".as_ptr(),
+        item_name: None,
+        option: core::ptr::null(),
+        version: 1,
+        log_level_offset_offset: 0,
+        parent_log_context_offset: 0,
+        category: 0,
+        get_category: None,
+        query_ranges: None,
+        child_next: None,
+        child_class_iterate: None,
+        state_flags_offset: 0,
+    });
+
+    /// The real iteration protocol: the callback both reads and WRITES the
+    /// caller's opaque state slot, as `av_opt_child_class_iterate` does.
+    unsafe extern "C" fn one_child_class_iterate(state: *mut *mut c_void) -> *const ffi::AVClass {
+        // SAFETY: the caller supplies a live writable slot holding either null
+        // or a value this callback previously wrote.
+        let seen = unsafe { state.read() };
+        if seen.is_null() {
+            let class: *const ffi::AVClass = &raw const CHILD_CLASS.0;
+            // SAFETY: the same live writable slot; the callback contract makes
+            // the opaque state the callee's to define.
+            unsafe { state.write(class.cast_mut().cast::<c_void>()) };
+            class
+        } else {
+            core::ptr::null()
+        }
+    }
+
     #[repr(C)]
     struct TestContext {
         class: *const ffi::AVClass,
@@ -675,6 +719,19 @@ mod avclass_tests {
                 .next()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn child_class_iteration_writes_and_reuses_its_opaque_state() {
+        let mut raw = test_class();
+        raw.child_class_iterate = Some(one_child_class_iterate);
+        // SAFETY: the initialized class stays live for the borrow below.
+        let class = unsafe { AVClassRef::from_ptr(addr_of!(raw).cast_mut()) }.unwrap();
+
+        let mut classes = class.child_class_iterate().unwrap().classes();
+        let child = classes.next().expect("the first child class is produced");
+        assert_eq!(child.class_name(), Some(c"ChildClass"));
+        assert!(classes.next().is_none());
     }
 
     #[test]

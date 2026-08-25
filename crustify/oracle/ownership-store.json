@@ -843,13 +843,19 @@
   {
    "name": "AVHDRPlusColorTransformParams",
    "defined_in": "libavutil/hdr_dynamic_metadata.h",
-   "_comment_agent": "All fields are scalars or fixed-size by-value aggregates; the type has no pointer fields or lifecycle resources.",
+   "_comment_agent": "All fields are scalars or fixed-size by-value aggregates; the type has no pointer fields or lifecycle resources. Two scalars are array bounds C trusts without re-checking: num_distribution_maxrgb_percentiles bounds distribution_maxrgb[15] and num_bezier_curve_anchors bounds bezier_curve_anchors[15]. libavutil's own av_dynamic_hdr_plus_to_t35 and av_dynamic_hdr_plus_from_t35 (libavutil/hdr_dynamic_metadata.c), plus ffprobe, vf_showinfo and swscale/format.c, all iterate i < count and index the fixed array; the parser can only produce 0..=15 because both come from get_bits(gb, 4). A count above 15 is therefore an out-of-bounds read in C, so a safe Rust setter must reject it.",
    "fields": []
   },
   {
    "name": "AVHDRPlusOverlapProcessOption",
    "defined_in": "libavutil/hdr_dynamic_metadata.h",
    "_comment_agent": "Plain C enumeration selecting how overlapping HDR10+ processing windows combine. By-value integer, no pointer slot, no lifecycle role; it is stored by value in AVHDRPlusColorTransformParams.",
+   "fields": []
+  },
+  {
+   "name": "AVHDRVividColorToneMappingParams",
+   "defined_in": "libavutil/hdr_dynamic_vivid_metadata.h",
+   "_comment_agent": "Pure by-value tone-mapping record: every member is an int, an inline AVRational, or the fixed inline three_spline[2] array. No pointer members, no allocator and no lifecycle operation; it lives only embedded in AVHDRVividColorTransformParams.tm_params, itself embedded in the av_malloc'd AVDynamicHDRVivid side-data block. three_Spline_num bounds three_spline: the decoder writes get_bits(gb,1)+1 and rejects anything above FF_ARRAY_ELEMS(three_spline) (libavcodec/dynamic_hdr_vivid.c), while ffprobe and vf_showinfo index three_spline[j] for j < three_Spline_num, so any value above 2 is an out-of-bounds read in C.",
    "fields": []
   },
   {
@@ -1536,6 +1542,12 @@
      }
     }
    ]
+  },
+  {
+   "name": "AVPrimaryCoefficients",
+   "defined_in": "libavutil/csp.h",
+   "_comment_agent": "Pure by-value chromaticity record: r, g and b are inline AVCIExy values with no pointer members, no allocator and no lifecycle operation. It is only ever embedded (AVColorPrimariesDesc.prim) or borrowed by const pointer for reading (ff_fill_rgb2xyz_table, ff_prim_equal, ff_sws_get_adaptation); nothing frees, clones or takes ownership of it.",
+   "fields": []
   },
   {
    "name": "AVStereo3D",
