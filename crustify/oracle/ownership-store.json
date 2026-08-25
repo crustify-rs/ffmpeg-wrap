@@ -1008,6 +1008,63 @@
    ]
   },
   {
+   "name": "AVIAMFMixPresentation",
+   "defined_in": "libavutil/iamf.h",
+   "_comment_agent": "Inspected all three type users and the public contract in iamf.h. The public constructor establishes static class metadata, a nullable owned dictionary option, and an initially empty owned submix graph; the add routine is the only table mutator and the public free routine releases the complete graph.",
+   "fields": [
+    {
+     "name": "annotations",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Optional dictionary owned by the presentation. av_opt_free follows av_class metadata and frees it during av_iamf_mix_presentation_free; callers may configure its entries."
+     }
+    },
+    {
+     "name": "av_class",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Constructor installs immutable translation-unit static mix_presentation_class metadata; it remains valid for process lifetime."
+     }
+    },
+    {
+     "name": "submixes",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Presentation-owned pointer table whose first nb_submixes entries are distinct, non-null, presentation-owned AVIAMFSubmix allocations. A nonzero count requires a non-null table; a zero count may retain a non-null empty table after child allocation failure. Only av_iamf_mix_presentation_add_submix mutates the table and count."
+     }
+    }
+   ]
+  },
+  {
    "name": "AVIAMFParamDefinition",
    "defined_in": "libavutil/iamf.h",
    "_comment_agent": "The av_class slot is initialized from a file-scope static const AVClass in libavutil/iamf.c and only identifies the option-bearing concrete layout.",
@@ -7315,6 +7372,93 @@
       "nullable": false,
       "mutable": true,
       "note": "Transfers ownership of the nullable inner audio-element pointer while transiently borrowing the non-null outer slot; frees the pointee and clears the slot."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_iamf_mix_presentation_add_submix",
+   "defined_in": "libavutil/iamf.c",
+   "ptr_args": [
+    {
+     "name": "mix_presentation",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:mix_presentation"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Mutably borrows the live presentation while reallocating its owned table and appending a child."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:mix_presentation"
+     },
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns the newly allocated child borrowed from the presentation that takes ownership of it, or NULL on failure."
+    }
+   }
+  },
+  {
+   "name": "av_iamf_mix_presentation_alloc",
+   "defined_in": "libavutil/iamf.c",
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns a fresh zero-initialized presentation allocation, or NULL on allocation failure; ownership transfers to the caller for av_iamf_mix_presentation_free."
+    }
+   }
+  },
+  {
+   "name": "av_iamf_mix_presentation_free",
+   "defined_in": "libavutil/iamf.c",
+   "lifetime": {
+    "for": "pmix_presentation",
+    "is_dropper": true,
+    "is_disposer": false,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "pmix_presentation",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": false,
+      "mutable": true,
+      "note": "Required writable pointer slot holding a nullable uniquely owned presentation. The function consumes a non-null inner allocation with its entire child graph and writes NULL back; a null inner value is a no-op."
      }
     }
    ]

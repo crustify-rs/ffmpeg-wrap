@@ -2592,3 +2592,329 @@ mod submix_tests {
         assert_eq!(submix.layouts().count(), 0);
     }
 }
+
+ffibox::define_ctype!(
+    /// Wraps: AVIAMFMixPresentation
+    ///
+    /// Layout-compatible IAMF mix presentation. A valid value is allocated by
+    /// libavutil, carries non-null immutable class metadata, and owns its
+    /// optional annotations dictionary plus a pointer table of distinct owned
+    /// submix allocations. Only libavutil's add operation may change the table
+    /// or its count; borrowed handles expose its elements without exposing the
+    /// container itself.
+    AVIAMFMixPresentation,
+    AVIAMFMixPresentationRef,
+    AVIAMFMixPresentationMut,
+    ffi::AVIAMFMixPresentation
+);
+
+// SAFETY: a value adopted into `CBox` must be the unique fully initialized
+// allocation returned by `av_iamf_mix_presentation_alloc`, with only child
+// owners accepted by the public IAMF API. Its matching destructor accepts an
+// owning in/out slot, releases every child and container exactly once, releases
+// the presentation allocation, and clears the slot.
+unsafe impl CDropped for AVIAMFMixPresentation {
+    unsafe fn c_drop(presentation: NonNull<Self>) {
+        let mut pointer = presentation.as_ptr().cast::<ffi::AVIAMFMixPresentation>();
+        // SAFETY: the trait contract transfers this unique, live presentation
+        // to its matching destructor. The local pointer slot is writable and
+        // remains live for the complete call.
+        unsafe { ffi::av_iamf_mix_presentation_free(addr_of_mut!(pointer)) }
+    }
+}
+
+/// Shared iterator over the submixes owned by an IAMF mix presentation.
+pub struct AVIAMFSubmixes<'a> {
+    table: *mut *mut ffi::AVIAMFSubmix,
+    index: usize,
+    len: usize,
+    _borrow: PhantomData<&'a AVIAMFMixPresentation>,
+}
+
+impl<'a> Iterator for AVIAMFSubmixes<'a> {
+    type Item = AVIAMFSubmixRef<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index == self.len {
+            return None;
+        }
+        let index = self.index;
+        self.index += 1;
+        // SAFETY: the presentation invariant supplies `len` initialized table
+        // entries, each naming a non-null live submix owned by the parent.
+        let submix = unsafe { self.table.add(index).read() };
+        // SAFETY: the parent keeps the submix live for `'a`, and shared
+        // iteration grants no write access to it or its pointer container.
+        Some(
+            unsafe { AVIAMFSubmixRef::from_ptr(submix) }
+                .expect("presentation submix entries are non-null"),
+        )
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.len - self.index;
+        (remaining, Some(remaining))
+    }
+}
+
+impl ExactSizeIterator for AVIAMFSubmixes<'_> {}
+impl core::iter::FusedIterator for AVIAMFSubmixes<'_> {}
+
+/// Exclusive iterator over the distinct submixes owned by a presentation.
+pub struct AVIAMFSubmixesMut<'a> {
+    table: *mut *mut ffi::AVIAMFSubmix,
+    index: usize,
+    len: usize,
+    _borrow: PhantomData<&'a mut AVIAMFMixPresentation>,
+}
+
+impl<'a> Iterator for AVIAMFSubmixesMut<'a> {
+    type Item = AVIAMFSubmixMut<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index == self.len {
+            return None;
+        }
+        let index = self.index;
+        self.index += 1;
+        // SAFETY: the presentation invariant supplies distinct live submix
+        // allocations in every counted entry, and the iterator owns the sole
+        // presentation borrow for `'a`.
+        let submix = unsafe { self.table.add(index).read() };
+        // SAFETY: distinctness permits each yielded exclusive handle to remain
+        // live while iteration proceeds to another entry.
+        Some(
+            unsafe { AVIAMFSubmixMut::from_ptr(submix) }
+                .expect("presentation submix entries are non-null"),
+        )
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.len - self.index;
+        (remaining, Some(remaining))
+    }
+}
+
+impl ExactSizeIterator for AVIAMFSubmixesMut<'_> {}
+impl core::iter::FusedIterator for AVIAMFSubmixesMut<'_> {}
+
+impl<'a> AVIAMFMixPresentationRef<'a> {
+    /// Field: AVIAMFMixPresentation.annotations
+    ///
+    /// Borrows the optional annotations dictionary owned by the presentation.
+    #[must_use]
+    pub fn annotations(&self) -> Option<AVDictionaryRef<'a>> {
+        // SAFETY: raw-place projection copies the nullable owner pointer. A
+        // non-null dictionary remains live with this presentation for `'a`.
+        let annotations = unsafe { addr_of!((*self.as_ptr()).annotations).read() };
+        // SAFETY: the presentation invariant supplies validity and lifetime;
+        // the handle constructor maps null to `None`.
+        unsafe { AVDictionaryRef::from_ptr(annotations) }
+    }
+
+    /// Field: AVIAMFMixPresentation.nb_submixes
+    ///
+    /// Returns the number of initialized pointers in the owned submix table.
+    #[must_use]
+    pub fn nb_submixes(&self) -> usize {
+        // SAFETY: raw-place projection copies one initialized scalar without
+        // forming a reference to C-visible storage.
+        unsafe { addr_of!((*self.as_ptr()).nb_submixes).read() as usize }
+    }
+
+    /// Field: AVIAMFMixPresentation.submixes
+    ///
+    /// Iterates the submixes while keeping every result tied to this shared
+    /// presentation borrow. The pointer container itself is never exposed.
+    #[must_use]
+    pub fn submixes(&self) -> AVIAMFSubmixes<'a> {
+        let len = self.nb_submixes();
+        // SAFETY: raw-place projection copies the table pointer. The type
+        // invariant requires it to be non-null whenever `len` is nonzero.
+        let table = unsafe { addr_of!((*self.as_ptr()).submixes).read() };
+        assert!(
+            len == 0 || !table.is_null(),
+            "non-empty submix table is null"
+        );
+        AVIAMFSubmixes {
+            table,
+            index: 0,
+            len,
+            _borrow: PhantomData,
+        }
+    }
+
+    /// Field: AVIAMFMixPresentation.av_class
+    ///
+    /// Returns the immutable process-lifetime option metadata installed by
+    /// libavutil's constructor.
+    #[must_use]
+    pub fn av_class(&self) -> AVClassRef<'a> {
+        // SAFETY: raw-place projection copies the pointer without forming a
+        // reference. The presentation invariant makes it non-null and static.
+        let class = unsafe { addr_of!((*self.as_ptr()).av_class).read() };
+        // SAFETY: constructor-established non-nullness, immutability, and
+        // static lifetime satisfy this shared handle's contract.
+        unsafe { AVClassRef::from_ptr(class.cast_mut()) }
+            .expect("AVIAMFMixPresentation has a non-null AVClass")
+    }
+}
+
+impl AVIAMFMixPresentationMut<'_> {
+    /// Replaces the owned annotations dictionary and returns the prior owner.
+    pub fn replace_annotations(
+        &mut self,
+        annotations: Option<CBox<AVDictionary>>,
+    ) -> Option<CBox<AVDictionary>> {
+        let annotations = annotations.map_or(core::ptr::null_mut(), CBox::into_raw);
+        // SAFETY: the exclusive presentation handle permits moving an owner
+        // into this slot and moving its previous nullable owner out.
+        let old = unsafe { addr_of_mut!((*self.as_mut_ptr()).annotations).replace(annotations) };
+        // SAFETY: `old` is null or the unique live dictionary removed from the
+        // presentation's owner slot, so it may be adopted exactly once.
+        unsafe { CBox::from_raw(old) }
+    }
+
+    /// Iterates the distinct owned submixes through exclusive handles.
+    #[must_use]
+    pub fn submixes_mut(&mut self) -> AVIAMFSubmixesMut<'_> {
+        let len = self.as_ref().nb_submixes();
+        // SAFETY: raw-place projection copies the table pointer through the
+        // sole presentation borrow. A non-empty table is non-null.
+        let table = unsafe { addr_of!((*self.as_mut_ptr()).submixes).read() };
+        assert!(
+            len == 0 || !table.is_null(),
+            "non-empty submix table is null"
+        );
+        AVIAMFSubmixesMut {
+            table,
+            index: 0,
+            len,
+            _borrow: PhantomData,
+        }
+    }
+}
+
+#[cfg(test)]
+mod mix_presentation_tests {
+    use super::*;
+    use core::mem::{align_of, size_of};
+
+    fn test_class() -> ffi::AVClass {
+        // SAFETY: every field is an integer, raw pointer, or optional callback.
+        // The inert class remains borrowed and is never invoked by these tests.
+        unsafe { core::mem::zeroed() }
+    }
+
+    fn raw_submix(class: *const ffi::AVClass, numerator: i32) -> ffi::AVIAMFSubmix {
+        ffi::AVIAMFSubmix {
+            av_class: class,
+            elements: core::ptr::null_mut(),
+            nb_elements: 0,
+            layouts: core::ptr::null_mut(),
+            nb_layouts: 0,
+            output_mix_config: core::ptr::null_mut(),
+            default_mix_gain: ffi::AVRational {
+                num: numerator,
+                den: 1,
+            },
+        }
+    }
+
+    #[test]
+    fn layout_matches_bindgen() {
+        assert_eq!(
+            size_of::<AVIAMFMixPresentation>(),
+            size_of::<ffi::AVIAMFMixPresentation>()
+        );
+        assert_eq!(
+            align_of::<AVIAMFMixPresentation>(),
+            align_of::<ffi::AVIAMFMixPresentation>()
+        );
+    }
+
+    #[test]
+    fn fields_and_submixes_use_lifetime_bound_handles() {
+        let class = test_class();
+        let mut first = raw_submix(addr_of!(class), 1);
+        let mut second = raw_submix(addr_of!(class), 2);
+        let mut submixes = [addr_of_mut!(first), addr_of_mut!(second)];
+        let mut raw = ffi::AVIAMFMixPresentation {
+            av_class: addr_of!(class),
+            submixes: submixes.as_mut_ptr(),
+            nb_submixes: 2,
+            annotations: core::ptr::null_mut(),
+        };
+        // SAFETY: the presentation and its two distinct children are fully
+        // initialized and exclusively accessed through this handle.
+        let mut presentation =
+            unsafe { AVIAMFMixPresentationMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        assert_eq!(presentation.as_ref().av_class().as_ptr(), addr_of!(class));
+        assert!(presentation.as_ref().annotations().is_none());
+        assert_eq!(presentation.as_ref().nb_submixes(), 2);
+        assert_eq!(
+            presentation
+                .as_ref()
+                .submixes()
+                .map(|submix| submix.default_mix_gain().num())
+                .sum::<i32>(),
+            3
+        );
+        for (index, mut submix) in presentation.submixes_mut().enumerate() {
+            submix.default_mix_gain_mut().set_num(index as i32 + 4);
+        }
+        assert_eq!(presentation.as_ref().submixes().count(), 2);
+        assert_eq!(first.default_mix_gain.num, 4);
+        assert_eq!(second.default_mix_gain.num, 5);
+    }
+
+    #[test]
+    fn annotations_owner_can_be_installed_and_removed() {
+        let class = test_class();
+        let mut raw = ffi::AVIAMFMixPresentation {
+            av_class: addr_of!(class),
+            submixes: core::ptr::null_mut(),
+            nb_submixes: 0,
+            annotations: core::ptr::null_mut(),
+        };
+        // SAFETY: this is a fully initialized empty presentation accessed only
+        // through the exclusive handle until the installed owner is removed.
+        let mut presentation =
+            unsafe { AVIAMFMixPresentationMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        let mut dictionary = crate::dict::Dictionary::default();
+        crate::dict::av_dict_set(&mut dictionary, c"en", Some(c"mix"), 0).unwrap();
+        assert!(
+            presentation
+                .replace_annotations(dictionary.into_owner())
+                .is_none()
+        );
+        assert_eq!(
+            crate::dict::av_dict_count(presentation.as_ref().annotations()),
+            1
+        );
+        let dictionary = presentation.replace_annotations(None).unwrap();
+        assert_eq!(crate::dict::av_dict_count(Some(dictionary.as_ref())), 1);
+        drop(dictionary);
+    }
+
+    #[test]
+    fn cbox_runs_the_published_destructor() {
+        let class = test_class();
+        // SAFETY: request one correctly aligned presentation allocation.
+        let pointer = unsafe { ffi::av_malloc(size_of::<ffi::AVIAMFMixPresentation>()) }
+            .cast::<ffi::AVIAMFMixPresentation>();
+        assert!(!pointer.is_null());
+        // SAFETY: initialize the fresh allocation as an empty presentation.
+        // The borrowed inert class remains live until the owner is dropped.
+        let owner = unsafe {
+            pointer.write(ffi::AVIAMFMixPresentation {
+                av_class: addr_of!(class),
+                submixes: core::ptr::null_mut(),
+                nb_submixes: 0,
+                annotations: core::ptr::null_mut(),
+            });
+            CBox::<AVIAMFMixPresentation>::from_raw(pointer).unwrap()
+        };
+        drop(owner);
+    }
+}
