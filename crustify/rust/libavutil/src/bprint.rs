@@ -411,6 +411,31 @@ mod operation_tests {
         assert_eq!(string.as_c_str(), c"abcc!");
     }
 
+    /// `av_bprint_strftime` is the only `libavutil` entry point taking a
+    /// `struct tm`, so it is where the wrapper's field accessors have to be
+    /// enough to build an argument C reads back correctly.
+    #[test]
+    fn strftime_formats_a_calendar_time_built_through_the_safe_handles() {
+        let mut time = ffibox::CVal::new(libc::struct_tm::Tm::zeroed());
+        let mut fields = time.as_mut();
+        fields.set_year(125);
+        fields.set_mon(7);
+        fields.set_mday(25);
+        fields.set_hour(20);
+        fields.set_min(43);
+        fields.set_sec(14);
+        fields.set_wday(1);
+        fields.set_yday(236);
+        fields.set_isdst(0);
+
+        let mut buffer = av_bprint_init(64, u32::MAX).expect("header allocation");
+        av_bprint_strftime(&mut buffer.as_mut(), c"%Y-%m-%dT%H:%M:%S", time.as_ref());
+        let formatted = av_bprint_finalize(buffer)
+            .unwrap()
+            .expect("string allocation");
+        assert_eq!(formatted.as_c_str(), c"2025-08-25T20:43:14");
+    }
+
     #[test]
     fn fixed_buffer_borrows_caller_storage() {
         let mut storage = [MaybeUninit::uninit(); 8];

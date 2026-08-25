@@ -573,9 +573,21 @@
    "fields": []
   },
   {
+   "name": "AVFilmGrainH274Params",
+   "defined_in": "libavutil/film_grain_params.h",
+   "_comment_agent": "Pure by-value structure: nine scalars and fixed-size integer arrays, no pointer field, no allocation and no lifecycle operation. It exists only as the h274 member of the AVFilmGrainParams.codec union, so its storage is the enclosing AVFilmGrainParams allocation and it has no destructor of its own. model_id and blending_mode_id carry two-bit H.274 SEI syntax elements that libavcodec/h2645_sei.c stores unclamped, so values 2 and 3 are reachable; num_intensity_intervals is bounded by 256 and num_model_values by 6, matching the capacities of the tables they index.",
+   "fields": []
+  },
+  {
    "name": "AVFilmGrainParams",
    "defined_in": "libavutil/film_grain_params.h",
    "_comment_agent": "Reviewed the complete public layout and film_grain_params.c: all fields are scalars, open-enum values, or a tagged by-value union; there are no pointer, refcount, lock, or separately owned-resource fields. Independent storage comes from av_mallocz and is released as one block with av_free; frame side-data storage is borrowed from the frame.",
+   "fields": []
+  },
+  {
+   "name": "AVFilmGrainParamsType",
+   "defined_in": "libavutil/film_grain_params.h",
+   "_comment_agent": "Plain C enumeration used as the AVFilmGrainParams.codec union discriminator. It is a by-value integer with no pointer slot and no lifecycle role; libavcodec assigns it directly and av_film_grain_params_alloc zero-initializes it to AV_FILM_GRAIN_PARAMS_NONE.",
    "fields": []
   },
   {
@@ -817,6 +829,12 @@
    "fields": []
   },
   {
+   "name": "AVHDRPlusOverlapProcessOption",
+   "defined_in": "libavutil/hdr_dynamic_metadata.h",
+   "_comment_agent": "Plain C enumeration selecting how overlapping HDR10+ processing windows combine. By-value integer, no pointer slot, no lifecycle role; it is stored by value in AVHDRPlusColorTransformParams.",
+   "fields": []
+  },
+  {
    "name": "AVHashContext",
    "defined_in": "libavutil/hash.c",
    "_comment_agent": "AVHashContext is public only as an opaque pointer. It exclusively owns the optional type-erased algorithm context selected by its discriminator and borrows the CRC table statically. av_hash_freep releases both the owned inner state and the header.",
@@ -854,6 +872,18 @@
      }
     }
    ]
+  },
+  {
+   "name": "AVIAMFAmbisonicsMode",
+   "defined_in": "libavutil/iamf.h",
+   "_comment_agent": "Plain C enumeration stored by value in AVIAMFLayer.ambisonics_mode. No pointer slot and no lifecycle role.",
+   "fields": []
+  },
+  {
+   "name": "AVIAMFAnimationType",
+   "defined_in": "libavutil/iamf.h",
+   "_comment_agent": "Plain C enumeration stored by value in AVIAMFMixGain.animation_type. No pointer slot and no lifecycle role.",
+   "fields": []
   },
   {
    "name": "AVIAMFAudioElement",
@@ -927,6 +957,12 @@
    ]
   },
   {
+   "name": "AVIAMFAudioElementType",
+   "defined_in": "libavutil/iamf.h",
+   "_comment_agent": "Plain C enumeration stored by value in AVIAMFAudioElement.audio_element_type. No pointer slot and no lifecycle role.",
+   "fields": []
+  },
+  {
    "name": "AVIAMFDemixingInfo",
    "defined_in": "libavutil/iamf.h",
    "_comment_agent": "The av_class slot is initialized from a file-scope static const AVClass in libavutil/iamf.c and only identifies the option-bearing concrete layout.",
@@ -949,6 +985,12 @@
      }
     }
    ]
+  },
+  {
+   "name": "AVIAMFHeadphonesMode",
+   "defined_in": "libavutil/iamf.h",
+   "_comment_agent": "Plain C enumeration stored by value in AVIAMFSubmixElement.headphones_rendering_mode. No pointer slot and no lifecycle role.",
+   "fields": []
   },
   {
    "name": "AVIAMFLayer",
@@ -1093,6 +1135,12 @@
      }
     }
    ]
+  },
+  {
+   "name": "AVIAMFParamDefinitionType",
+   "defined_in": "libavutil/iamf.h",
+   "_comment_agent": "Plain C enumeration stored by value in AVIAMFParamDefinition.type, where it discriminates the subblock type appended after the definition header. It is passed by value to av_iamf_param_definition_alloc and carries no pointer slot or lifecycle role of its own.",
+   "fields": []
   },
   {
    "name": "AVIAMFReconGain",
@@ -1270,6 +1318,12 @@
      }
     }
    ]
+  },
+  {
+   "name": "AVIAMFSubmixLayoutType",
+   "defined_in": "libavutil/iamf.h",
+   "_comment_agent": "Plain C enumeration stored by value in AVIAMFSubmixLayout.layout_type. Its enumerators start at 2 rather than 0, matching the IAMF layout_type field. No pointer slot and no lifecycle role.",
+   "fields": []
   },
   {
    "name": "AVOption",
@@ -1464,6 +1518,24 @@
      }
     }
    ]
+  },
+  {
+   "name": "AVStereo3DPrimaryEye",
+   "defined_in": "libavutil/stereo3d.h",
+   "_comment_agent": "Plain C enumeration stored by value in AVStereo3D.primary_eye. No pointer slot and no lifecycle role.",
+   "fields": []
+  },
+  {
+   "name": "AVStereo3DType",
+   "defined_in": "libavutil/stereo3d.h",
+   "_comment_agent": "Plain C enumeration stored by value in AVStereo3D.type. No pointer slot and no lifecycle role.",
+   "fields": []
+  },
+  {
+   "name": "AVStereo3DView",
+   "defined_in": "libavutil/stereo3d.h",
+   "_comment_agent": "Plain C enumeration stored by value in AVStereo3D.view. No pointer slot and no lifecycle role.",
+   "fields": []
   },
   {
    "name": "tm",

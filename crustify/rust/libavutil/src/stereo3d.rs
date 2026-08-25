@@ -105,7 +105,6 @@ impl From<AVStereo3DView> for ffi::AVStereo3DView {
     }
 }
 
-
 /// Wraps: AVStereo3DPrimaryEye
 ///
 /// Identifies the primary eye for stereoscopic content. The transparent

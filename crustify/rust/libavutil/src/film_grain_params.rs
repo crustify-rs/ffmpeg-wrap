@@ -64,9 +64,20 @@ define_ctype!(
     ffi::AVFilmGrainH274Params
 );
 
+// SAFETY: the structure contains only integers and fixed-size integer arrays,
+// owns no resources, and has no C teardown operation. Disposing an inline
+// value is therefore a no-op, exactly as for its `AVFilmGrainAOMParams` union
+// sibling.
+unsafe impl CValued for AVFilmGrainH274Params {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
 impl AVFilmGrainH274Params {
+    /// Number of colour components each per-component table is indexed by.
     pub const COMPONENTS: usize = 3;
+    /// Capacity of the per-component intensity-interval tables.
     pub const MAX_INTENSITY_INTERVALS: usize = 256;
+    /// Capacity of the per-interval model-value table.
     pub const MAX_MODEL_VALUES: usize = 6;
 }
 
@@ -84,13 +95,15 @@ macro_rules! scalar_field {
 
         impl AVFilmGrainH274ParamsMut<'_> {
             #[doc = concat!("Sets `", stringify!($field), "`.")]
+            ///
+            /// The value is stored unchanged. The H.274 syntax elements this
+            /// field carries are parsed as fixed-width unsigned fields, and
+            /// libavcodec stores every value they can encode here, including
+            /// the ones the specification reserves.
             pub fn $set(&mut self, value: $ty) {
-                if stringify!($field) != "log2_scale_factor" {
-                    assert!((0..=1).contains(&value));
-                }
                 // SAFETY: the exclusive handle supplies write provenance for
-                // this live scalar field; discriminator-like fields were
-                // restricted to their two documented values above.
+                // this live scalar field, and every `$ty` bit pattern is a
+                // valid value of the C field.
                 unsafe { addr_of_mut!((*self.as_mut_ptr()).$field).write(value) }
             }
         }
@@ -120,7 +133,7 @@ scalar_field!(
 );
 
 macro_rules! component_field {
-    ($(#[$attr:meta])* $get:ident, $set:ident, $field:ident, $ty:ty) => {
+    ($(#[$attr:meta])* $get:ident, $set:ident, $field:ident, $ty:ty, $maximum:expr) => {
         impl AVFilmGrainH274ParamsRef<'_> {
             $(#[$attr])*
             ///
@@ -146,17 +159,14 @@ macro_rules! component_field {
             ///
             /// # Panics
             ///
-            /// Panics if `component` is not in `0..3`.
+            #[doc = concat!(
+                "Panics if `component` is not in `0..3`, or if `value` exceeds `",
+                stringify!($maximum),
+                "`, the largest value libavcodec stores in this field.",
+            )]
             pub fn $set(&mut self, component: usize, value: $ty) {
                 assert_component(component);
-                let maximum = match stringify!($field) {
-                    "component_model_present" => 1,
-                    "num_intensity_intervals" => {
-                        AVFilmGrainH274Params::MAX_INTENSITY_INTERVALS
-                    }
-                    "num_model_values" => AVFilmGrainH274Params::MAX_MODEL_VALUES,
-                    _ => unreachable!(),
-                };
+                let maximum: usize = $maximum;
                 assert!((value as usize) <= maximum);
                 // SAFETY: both the index and count/indicator were checked
                 // against the C field's documented capacity; the exclusive
@@ -177,21 +187,24 @@ component_field!(
     component_model_present,
     set_component_model_present,
     component_model_present,
-    i32
+    i32,
+    1
 );
 component_field!(
     /// Field: AVFilmGrainH274Params.num_intensity_intervals
     num_intensity_intervals,
     set_num_intensity_intervals,
     num_intensity_intervals,
-    u16
+    u16,
+    AVFilmGrainH274Params::MAX_INTENSITY_INTERVALS
 );
 component_field!(
     /// Field: AVFilmGrainH274Params.num_model_values
     num_model_values,
     set_num_model_values,
     num_model_values,
-    u8
+    u8,
+    AVFilmGrainH274Params::MAX_MODEL_VALUES
 );
 
 macro_rules! interval_field {
@@ -545,6 +558,8 @@ impl AVFilmGrainAOMParamsMut<'_> {
 mod tests {
     use core::mem::{align_of, size_of};
 
+    use ffibox::CVal;
+
     use super::*;
 
     #[test]
@@ -560,15 +575,8 @@ mod tests {
 
     #[test]
     fn h274_fields_round_trip_at_array_boundaries() {
-        let mut params = AVFilmGrainH274Params::zeroed();
-        // SAFETY: `params` is live and initialized, and this handle is its only
-        // access path for the duration of the borrow.
-        let mut params = unsafe {
-            AVFilmGrainH274ParamsMut::from_ptr(
-                addr_of_mut!(params).cast::<ffi::AVFilmGrainH274Params>(),
-            )
-            .expect("an inline field is non-null")
-        };
+        let mut owner = CVal::new(AVFilmGrainH274Params::zeroed());
+        let mut params = owner.as_mut();
         params.set_model_id(1);
         params.set_blending_mode_id(1);
         params.set_log2_scale_factor(7);
@@ -589,6 +597,41 @@ mod tests {
         assert_eq!(shared.intensity_interval_lower_bound(2, 255), 17);
         assert_eq!(shared.intensity_interval_upper_bound(2, 255), 219);
         assert_eq!(shared.comp_model_value(2, 255, 5), -1234);
+    }
+
+    /// `film_grain_model_id` and `blending_mode_id` are two-bit SEI syntax
+    /// elements. `libavcodec/h2645_sei.c` reads them with `get_bits(gb, 2)`
+    /// and copies them into this structure without clamping, so the wrapper
+    /// must round-trip the reserved values 2 and 3 as well.
+    #[test]
+    fn h274_mode_identifiers_round_trip_every_two_bit_value() {
+        let mut owner = CVal::new(AVFilmGrainH274Params::zeroed());
+        for raw in 0..4 {
+            let mut params = owner.as_mut();
+            params.set_model_id(raw);
+            params.set_blending_mode_id(raw);
+            assert_eq!(params.as_ref().model_id(), raw);
+            assert_eq!(params.as_ref().blending_mode_id(), raw);
+        }
+
+        // `log2_scale_factor` is a four-bit element with the same contract.
+        let mut params = owner.as_mut();
+        params.set_log2_scale_factor(15);
+        assert_eq!(params.as_ref().log2_scale_factor(), 15);
+    }
+
+    #[test]
+    #[should_panic(expected = "assertion failed")]
+    fn h274_rejects_an_interval_count_the_tables_cannot_hold() {
+        let mut owner = CVal::new(AVFilmGrainH274Params::zeroed());
+        owner.as_mut().set_num_intensity_intervals(0, 257);
+    }
+
+    #[test]
+    #[should_panic(expected = "assertion failed")]
+    fn h274_rejects_a_model_value_count_the_tables_cannot_hold() {
+        let mut owner = CVal::new(AVFilmGrainH274Params::zeroed());
+        owner.as_mut().set_num_model_values(0, 7);
     }
 
     #[test]
