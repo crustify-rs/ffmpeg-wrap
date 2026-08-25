@@ -454,6 +454,12 @@
    "fields": []
   },
   {
+   "name": "AVDOVINLQMethod",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "Reviewed: integer-backed C enum (AV_DOVI_NLQ_NONE = -1, AV_DOVI_NLQ_LINEAR_DZ = 0) with no fields, no pointers and no lifecycle operation. It crosses the ABI by value as AVDOVIDataMapping.nlq_method_idc, so the signed integer representation is preserved and values this crate version does not name stay round-trippable.",
+   "fields": []
+  },
+  {
    "name": "AVDOVINLQParams",
    "defined_in": "libavutil/dovi_meta.h",
    "_comment_agent": "Reviewed: this public POD struct has no pointer or refcount fields and no lifecycle operation.",
@@ -541,21 +547,21 @@
   {
    "name": "AVFifo",
    "defined_in": "libavutil/fifo.c",
-   "_comment_agent": "Inspected every buffer field toucher in libavutil/fifo.c: allocation establishes exclusive ownership, grow may transfer it through av_realloc_array, FIFO operations read/write it, and av_fifo_freep2 releases it.",
+   "_comment_agent": "Reviewed every buffer field toucher in libavutil/fifo.c: av_fifo_alloc2 establishes exclusive ownership, av_fifo_grow2 may transfer it through av_realloc_array, fifo_write_common/fifo_peek_common read and write it, and av_fifo_freep2 releases it before the header. The public header keeps AVFifo opaque, so no field is reachable from the wrapper surface.",
    "fields": [
     {
      "name": "buffer",
      "ptr": {
-      "scalar": null,
       "array": {
        "by_val": true
       },
-      "string": false,
       "owned": true,
-      "borrowed": null,
       "nullable": true,
       "mutable": true,
-      "note": "AVFifo exclusively owns this byte allocation. It is NULL exactly for zero-capacity FIFOs, otherwise spans nb_elems * elem_size bytes; av_fifo_grow2 may reallocate it and av_fifo_freep2 frees it before freeing the header. Reads and writes index the allocation as ring-buffer element storage."
+      "note": "AVFifo exclusively owns this byte allocation, which spans nb_elems * elem_size bytes. av_fifo_alloc2 leaves it NULL when it is asked for zero elements, so NULL implies nb_elems == 0; the converse does not hold, because av_fifo_grow2 reaches av_realloc(ptr, 0), which allocates one byte rather than returning NULL, and a zero-increment grow therefore leaves a non-NULL buffer at nb_elems == 0. av_fifo_grow2 may reallocate and move it; av_freep inside av_fifo_freep2 releases it and tolerates NULL. Reads and writes index it as ring-buffer element storage.",
+      "scalar": null,
+      "string": false,
+      "borrowed": null
      }
     }
    ]

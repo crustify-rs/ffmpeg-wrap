@@ -1,6 +1,7 @@
 //! Wrappers for `libavutil/fifo.c`.
 
 use core::ffi::c_void;
+use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 
@@ -107,21 +108,42 @@ pub struct FifoReadBuffer<'a> {
     element_size: usize,
 }
 
-impl FifoReadBuffer<'_> {
+impl<'a> FifoReadBuffer<'a> {
     #[must_use]
     pub fn elements(&self) -> impl ExactSizeIterator<Item = &[u8]> {
         self.bytes.chunks_exact(self.element_size)
     }
 
     #[must_use]
-    pub fn consume(&self, elements: usize) -> Option<FifoConsumed> {
-        (elements <= self.bytes.len() / self.element_size).then_some(FifoConsumed(elements))
+    pub fn consume(&self, elements: usize) -> Option<FifoConsumed<'a>> {
+        (elements <= self.bytes.len() / self.element_size)
+            .then_some(FifoConsumed(elements, PhantomData))
     }
 }
 
 /// A checked element count returned by a consumer callback.
+///
+/// `'a` brands the count to the one [`FifoReadBuffer`] it was checked against.
+/// The brand is invariant, so a count checked against a larger earlier segment
+/// cannot be stored in the callback and returned for a smaller later one —
+/// which C would take at face value, underflowing its own remaining-element
+/// count:
+///
+/// ```compile_fail
+/// use libavutil::fifo::{AVFifoWriteCallback, FifoConsumed, FifoReadBuffer};
+///
+/// struct Hoarder<'h>(Option<FifoConsumed<'h>>);
+///
+/// impl AVFifoWriteCallback for Hoarder<'_> {
+///     fn write<'a>(&mut self, source: FifoReadBuffer<'a>) -> Result<FifoConsumed<'a>, i32> {
+///         let count = source.elements().len();
+///         self.0 = source.consume(count);
+///         Err(-1)
+///     }
+/// }
+/// ```
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FifoConsumed(usize);
+pub struct FifoConsumed<'a>(usize, PhantomData<fn(&'a ()) -> &'a ()>);
 
 /// Wraps: AVFifoCB
 ///
@@ -138,7 +160,7 @@ pub trait AVFifoReadCallback {
 /// `av_fifo_peek_to_cb`. [`FifoReadBuffer::consume`] prevents a safe callback
 /// from claiming more elements than C supplied.
 pub trait AVFifoWriteCallback {
-    fn write(&mut self, source: FifoReadBuffer<'_>) -> Result<FifoConsumed, i32>;
+    fn write<'a>(&mut self, source: FifoReadBuffer<'a>) -> Result<FifoConsumed<'a>, i32>;
 }
 
 #[cfg(test)]
@@ -165,7 +187,7 @@ mod callback_tests {
         assert_eq!(elements.next(), Some(&[1, 2][..]));
         assert_eq!(elements.next(), Some(&[3, 4][..]));
         assert_eq!(elements.next(), None);
-        assert_eq!(input.consume(2), Some(FifoConsumed(2)));
+        assert_eq!(input.consume(2), Some(FifoConsumed(2, PhantomData)));
         assert_eq!(input.consume(3), None);
     }
 }
@@ -233,13 +255,15 @@ fn element_count(bytes: usize, element_size: usize) -> Result<usize, i32> {
 }
 
 /// Wraps: av_fifo_peek
+///
+/// An empty `output` is still forwarded to C, because `offset` is validated
+/// against the readable element count even for a zero-element request.
 pub fn av_fifo_peek(fifo: AVFifoRef<'_>, output: &mut [u8], offset: usize) -> Result<(), i32> {
     let count = element_count(output.len(), av_fifo_elem_size(fifo))?;
-    if count == 0 {
-        return Ok(());
-    }
     // SAFETY: `output` provides exactly `count * element_size` writable bytes;
-    // the FIFO is shared because peeking does not modify it.
+    // C copies into that pointer only while its remaining count is nonzero, so
+    // the dangling pointer of an empty slice is never dereferenced. The FIFO
+    // is shared because peeking does not modify it.
     let status =
         unsafe { ffi::av_fifo_peek(fifo.as_ptr(), output.as_mut_ptr().cast(), count, offset) };
     if status < 0 { Err(status) } else { Ok(()) }
@@ -339,8 +363,10 @@ unsafe extern "C" fn write_callback<C: AVFifoWriteCallback>(
         element_size: state.element_size,
     }) {
         Ok(consumed) => {
-            // SAFETY: `FifoConsumed` is only constructed after checking the
-            // callback-visible maximum.
+            // SAFETY: the count slot is writable, and `FifoConsumed`'s brand
+            // ties this count to the segment built just above, whose checked
+            // maximum is `maximum`. C therefore never sees more elements than
+            // it offered.
             unsafe { *elements = consumed.0 };
             0
         }
@@ -460,7 +486,7 @@ mod operation_tests {
     }
 
     impl AVFifoWriteCallback for Consumer {
-        fn write(&mut self, source: FifoReadBuffer<'_>) -> Result<FifoConsumed, i32> {
+        fn write<'a>(&mut self, source: FifoReadBuffer<'a>) -> Result<FifoConsumed<'a>, i32> {
             let count = source.elements().len();
             for element in source.elements() {
                 let end = self.length + element.len();
@@ -504,6 +530,51 @@ mod operation_tests {
         );
         assert_eq!(&consumer.bytes[..consumer.length], [3, 4]);
         av_fifo_reset2(&mut fifo.as_mut());
+        assert_eq!(av_fifo_can_read(fifo.as_ref()), 0);
+    }
+
+    #[test]
+    fn empty_peek_still_reports_an_out_of_range_offset() {
+        let mut fifo = av_fifo_alloc2(4, 1, 0).unwrap();
+        av_fifo_write(&mut fifo.as_mut(), &[1, 2]).unwrap();
+
+        // C validates `offset` against the readable element count before it
+        // looks at the request size, so a zero-element peek is not a no-op.
+        assert_eq!(av_fifo_peek(fifo.as_ref(), &mut [], 2), Ok(()));
+        assert_eq!(av_fifo_peek(fifo.as_ref(), &mut [], 3), Err(-22));
+    }
+
+    /// A consumer that reports every element it was shown, which is the
+    /// largest count `FifoConsumed`'s brand allows it to report.
+    struct GreedyConsumer;
+
+    impl AVFifoWriteCallback for GreedyConsumer {
+        fn write<'a>(&mut self, source: FifoReadBuffer<'a>) -> Result<FifoConsumed<'a>, i32> {
+            let count = source.elements().len();
+            Ok(source
+                .consume(count)
+                .expect("the whole segment is consumable"))
+        }
+    }
+
+    #[test]
+    fn a_consumer_cannot_claim_more_than_the_segment_it_was_shown() {
+        let mut fifo = av_fifo_alloc2(8, 1, 0).unwrap();
+        av_fifo_write(&mut fifo.as_mut(), &[1, 2, 3, 4, 5, 6]).unwrap();
+
+        // The first call sees six elements, the second only one. A count
+        // carried over from the first would underflow C's remaining count;
+        // the brand makes carrying one over a compile error, so each call
+        // reports at most what it was offered.
+        assert_eq!(
+            av_fifo_read_to_cb(&mut fifo.as_mut(), &mut GreedyConsumer, 6),
+            Ok(6)
+        );
+        av_fifo_write(&mut fifo.as_mut(), &[7]).unwrap();
+        assert_eq!(
+            av_fifo_read_to_cb(&mut fifo.as_mut(), &mut GreedyConsumer, 1),
+            Ok(1)
+        );
         assert_eq!(av_fifo_can_read(fifo.as_ref()), 0);
     }
 }

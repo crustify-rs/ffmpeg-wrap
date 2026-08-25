@@ -312,9 +312,10 @@ define_ctype!(
     /// resources; all fixed-size tables are copied into and out of borrowed
     /// handles so no Rust reference covers memory that C may mutate.
     ///
-    /// The C header explicitly excludes this layout from the stable public
-    /// ABI. Consequently the wrapper matches the headers used to build this
-    /// crate, while the field meanings remain the published API contract.
+    /// The C header excludes this struct's *size* from the public ABI, and
+    /// requires it to be allocated as part of an `AVFilmGrainParams`.
+    /// Consequently the wrapper matches the headers used to build this crate,
+    /// while the field meanings remain the published API contract.
     AVFilmGrainAOMParams,
     AVFilmGrainAOMParamsRef,
     AVFilmGrainAOMParamsMut,
