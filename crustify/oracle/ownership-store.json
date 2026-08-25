@@ -303,6 +303,40 @@
    ]
   },
   {
+   "name": "AVEscapeMode",
+   "defined_in": "libavutil/avstring.h",
+   "_comment_agent": "Integer-backed C enum with no pointer fields or lifecycle operations; values cross the ABI by value.",
+   "fields": []
+  },
+  {
+   "name": "AVFifo",
+   "defined_in": "libavutil/fifo.c",
+   "_comment_agent": "Inspected every buffer field toucher in libavutil/fifo.c: allocation establishes exclusive ownership, grow may transfer it through av_realloc_array, FIFO operations read/write it, and av_fifo_freep2 releases it.",
+   "fields": [
+    {
+     "name": "buffer",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "AVFifo exclusively owns this byte allocation. It is NULL exactly for zero-capacity FIFOs, otherwise spans nb_elems * elem_size bytes; av_fifo_grow2 may reallocate it and av_fifo_freep2 frees it before freeing the header. Reads and writes index the allocation as ring-buffer element storage."
+     }
+    }
+   ]
+  },
+  {
+   "name": "AVFilmGrainAOMParams",
+   "defined_in": "libavutil/film_grain_params.h",
+   "_comment_agent": "Inspected the complete public definition: the type contains only scalar integers and fixed-size integer arrays, owns no allocations, and has no lifecycle primitive separate from its enclosing AVFilmGrainParams storage.",
+   "fields": []
+  },
+  {
    "name": "AVFrame",
    "defined_in": "libavutil/frame.h",
    "_comment_agent": "AVFrame owns its reference headers, side-data collection, dictionaries, channel-layout resources, and conditional pointer tables; plane addresses borrow storage kept alive either by those buffer references or by caller-managed non-refcounted storage. private_ref is an internal RefStruct owner and opaque is application-borrowed identity only. The type has two phases that the pointer fields alone do not express. While it holds no plane and no buffer reference \u2014 the state get_frame_defaults (frame.c:31) builds and every av_frame_unref (frame.c:496) restores \u2014 the geometry scalars format/width/height/nb_samples/linesize and ch_layout constrain nothing, and av_frame_get_buffer (frame.c:203) allocates from whatever it then reads. Once planes are installed the same scalars describe their extent and every reader takes them on trust. linesize is the one geometry scalar C also accepts from the caller in the first phase: get_video_buffer computes strides only when linesize[0] is zero (frame.c:91), av_image_fill_plane_sizes sizes the allocation from the stride, and av_image_copy2 derives each row's byte width from width, so a supplied stride below the row width is an allocation the next av_frame_copy overruns. C validates only overflow, never the stride against the geometry.",
@@ -2600,6 +2634,56 @@
       "nullable": false,
       "mutable": true,
       "note": "Borrowed array-pointer slot; the inner pointer owns the av_malloc-family pointer table, which may be reallocated or freed and nulled on failure. The table carries an unstated CAPACITY invariant, not just a count: FF_DYNARRAY_ADD reallocates only when *nb_ptr reaches a power of two and then doubles it, so an allocation holding n elements must have n.next_power_of_two() slots, and the append writes element n without consulting the allocator otherwise. Passing a buffer sized to its element count - an av_memdup copy, say - overflows it by one element (confirmed under ASan at mem.c:332), so a wrapper must only accept tables this function itself grew."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_fifo_alloc2",
+   "defined_in": "libavutil/fifo.c",
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns a newly allocated, fully initialized AVFifo whose header and byte buffer are exclusively owned by the caller. NULL reports invalid zero elem_size or allocation failure."
+    }
+   }
+  },
+  {
+   "name": "av_fifo_freep2",
+   "defined_in": "libavutil/fifo.c",
+   "lifetime": {
+    "for": "f",
+    "is_dropper": true,
+    "is_disposer": false,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "f",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": {
+       "lifetime": "arg:f"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrows the required outer slot, consumes its nullable owned AVFifo, frees its buffer and header, and writes NULL back. A NULL inner pointer is accepted."
      }
     }
    ]

@@ -5,6 +5,7 @@
 #include <libavutil/channel_layout.h>
 #include <libavutil/dict.h>
 #include <libavutil/dovi_meta.h>
+#include <libavutil/fifo.h>
 #include <libavutil/file.h>
 #include <libavutil/film_grain_params.h>
 #include <libavutil/frame.h>

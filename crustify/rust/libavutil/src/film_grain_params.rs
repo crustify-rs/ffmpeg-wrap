@@ -1,8 +1,8 @@
 //! Wrappers for `libavutil/film_grain_params.c`.
 
-use core::ptr::{addr_of, addr_of_mut};
+use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::define_ctype;
+use ffibox::{CValued, define_ctype};
 
 use crate::ffi;
 
@@ -302,6 +302,242 @@ fn model_value_index(component: usize, interval: usize, value: usize) -> usize {
     interval_index(component, interval) * AVFilmGrainH274Params::MAX_MODEL_VALUES + value
 }
 
+define_ctype!(
+    /// Wraps: AVFilmGrainAOMParams
+    ///
+    /// Layout-compatible AOM/AV1 film-grain parameters embedded by value in
+    /// `AVFilmGrainParams::codec.aom`. The structure owns no pointers or other
+    /// resources; all fixed-size tables are copied into and out of borrowed
+    /// handles so no Rust reference covers memory that C may mutate.
+    ///
+    /// The C header explicitly excludes this layout from the stable public
+    /// ABI. Consequently the wrapper matches the headers used to build this
+    /// crate, while the field meanings remain the published API contract.
+    AVFilmGrainAOMParams,
+    AVFilmGrainAOMParamsRef,
+    AVFilmGrainAOMParamsMut,
+    ffi::AVFilmGrainAOMParams
+);
+
+// SAFETY: the structure contains only integers and fixed-size integer arrays,
+// owns no resources, and has no C teardown operation. Disposing an inline
+// value is therefore a no-op.
+unsafe impl CValued for AVFilmGrainAOMParams {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+impl AVFilmGrainAOMParamsRef<'_> {
+    /// Field: AVFilmGrainAOMParams.limit_output_range
+    #[must_use]
+    pub fn limit_output_range(&self) -> i32 {
+        // SAFETY: the initialized handle permits a raw copy of this integer.
+        unsafe { addr_of!((*self.as_ptr()).limit_output_range).read() }
+    }
+
+    /// Field: AVFilmGrainAOMParams.overlap_flag
+    #[must_use]
+    pub fn overlap_flag(&self) -> i32 {
+        // SAFETY: the initialized handle permits a raw copy of this integer.
+        unsafe { addr_of!((*self.as_ptr()).overlap_flag).read() }
+    }
+
+    /// Field: AVFilmGrainAOMParams.uv_offset
+    #[must_use]
+    pub fn uv_offset(&self) -> [i32; 2] {
+        // SAFETY: the initialized handle permits a raw copy of this fixed array.
+        unsafe { addr_of!((*self.as_ptr()).uv_offset).read() }
+    }
+
+    /// Field: AVFilmGrainAOMParams.uv_mult_luma
+    #[must_use]
+    pub fn uv_mult_luma(&self) -> [i32; 2] {
+        // SAFETY: the initialized handle permits a raw copy of this fixed array.
+        unsafe { addr_of!((*self.as_ptr()).uv_mult_luma).read() }
+    }
+
+    /// Field: AVFilmGrainAOMParams.uv_mult
+    #[must_use]
+    pub fn uv_mult(&self) -> [i32; 2] {
+        // SAFETY: the initialized handle permits a raw copy of this fixed array.
+        unsafe { addr_of!((*self.as_ptr()).uv_mult).read() }
+    }
+
+    /// Field: AVFilmGrainAOMParams.grain_scale_shift
+    #[must_use]
+    pub fn grain_scale_shift(&self) -> i32 {
+        // SAFETY: the initialized handle permits a raw copy of this integer.
+        unsafe { addr_of!((*self.as_ptr()).grain_scale_shift).read() }
+    }
+
+    /// Field: AVFilmGrainAOMParams.ar_coeff_shift
+    #[must_use]
+    pub fn ar_coeff_shift(&self) -> i32 {
+        // SAFETY: the initialized handle permits a raw copy of this integer.
+        unsafe { addr_of!((*self.as_ptr()).ar_coeff_shift).read() }
+    }
+
+    /// Field: AVFilmGrainAOMParams.ar_coeffs_uv
+    #[must_use]
+    pub fn ar_coeffs_uv(&self) -> [[i8; 25]; 2] {
+        // SAFETY: the initialized handle permits a raw copy of this fixed array.
+        unsafe { addr_of!((*self.as_ptr()).ar_coeffs_uv).read() }
+    }
+
+    /// Field: AVFilmGrainAOMParams.ar_coeffs_y
+    #[must_use]
+    pub fn ar_coeffs_y(&self) -> [i8; 24] {
+        // SAFETY: the initialized handle permits a raw copy of this fixed array.
+        unsafe { addr_of!((*self.as_ptr()).ar_coeffs_y).read() }
+    }
+
+    /// Field: AVFilmGrainAOMParams.ar_coeff_lag
+    #[must_use]
+    pub fn ar_coeff_lag(&self) -> i32 {
+        // SAFETY: the initialized handle permits a raw copy of this integer.
+        unsafe { addr_of!((*self.as_ptr()).ar_coeff_lag).read() }
+    }
+
+    /// Field: AVFilmGrainAOMParams.scaling_shift
+    #[must_use]
+    pub fn scaling_shift(&self) -> i32 {
+        // SAFETY: the initialized handle permits a raw copy of this integer.
+        unsafe { addr_of!((*self.as_ptr()).scaling_shift).read() }
+    }
+
+    /// Field: AVFilmGrainAOMParams.uv_points
+    #[must_use]
+    pub fn uv_points(&self) -> [[[u8; 2]; 10]; 2] {
+        // SAFETY: the initialized handle permits a raw copy of this fixed array.
+        unsafe { addr_of!((*self.as_ptr()).uv_points).read() }
+    }
+
+    /// Field: AVFilmGrainAOMParams.num_uv_points
+    #[must_use]
+    pub fn num_uv_points(&self) -> [i32; 2] {
+        // SAFETY: the initialized handle permits a raw copy of this fixed array.
+        unsafe { addr_of!((*self.as_ptr()).num_uv_points).read() }
+    }
+
+    /// Field: AVFilmGrainAOMParams.chroma_scaling_from_luma
+    #[must_use]
+    pub fn chroma_scaling_from_luma(&self) -> i32 {
+        // SAFETY: the initialized handle permits a raw copy of this integer.
+        unsafe { addr_of!((*self.as_ptr()).chroma_scaling_from_luma).read() }
+    }
+
+    /// Field: AVFilmGrainAOMParams.y_points
+    #[must_use]
+    pub fn y_points(&self) -> [[u8; 2]; 14] {
+        // SAFETY: the initialized handle permits a raw copy of this fixed array.
+        unsafe { addr_of!((*self.as_ptr()).y_points).read() }
+    }
+
+    /// Field: AVFilmGrainAOMParams.num_y_points
+    #[must_use]
+    pub fn num_y_points(&self) -> i32 {
+        // SAFETY: the initialized handle permits a raw copy of this integer.
+        unsafe { addr_of!((*self.as_ptr()).num_y_points).read() }
+    }
+}
+
+impl AVFilmGrainAOMParamsMut<'_> {
+    /// Sets whether synthesis output is clipped to limited color levels.
+    pub fn set_limit_output_range(&mut self, value: i32) {
+        // SAFETY: the exclusive handle permits a raw write to this field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).limit_output_range).write(value) }
+    }
+
+    /// Sets whether adjacent film-grain blocks overlap.
+    pub fn set_overlap_flag(&mut self, value: i32) {
+        // SAFETY: the exclusive handle permits a raw write to this field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).overlap_flag).write(value) }
+    }
+
+    /// Sets the Cb and Cr scaling offsets.
+    pub fn set_uv_offset(&mut self, value: [i32; 2]) {
+        // SAFETY: the exclusive handle permits a raw write to this fixed array.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).uv_offset).write(value) }
+    }
+
+    /// Sets the luma multipliers used for the chroma scaling indices.
+    pub fn set_uv_mult_luma(&mut self, value: [i32; 2]) {
+        // SAFETY: the exclusive handle permits a raw write to this fixed array.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).uv_mult_luma).write(value) }
+    }
+
+    /// Sets the Cb and Cr multipliers used for the chroma scaling indices.
+    pub fn set_uv_mult(&mut self, value: [i32; 2]) {
+        // SAFETY: the exclusive handle permits a raw write to this fixed array.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).uv_mult).write(value) }
+    }
+
+    /// Sets the downshift applied to generated Gaussian values.
+    pub fn set_grain_scale_shift(&mut self, value: i32) {
+        // SAFETY: the exclusive handle permits a raw write to this field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).grain_scale_shift).write(value) }
+    }
+
+    /// Sets the range shift for auto-regression coefficients.
+    pub fn set_ar_coeff_shift(&mut self, value: i32) {
+        // SAFETY: the exclusive handle permits a raw write to this field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).ar_coeff_shift).write(value) }
+    }
+
+    /// Replaces both chroma auto-regression coefficient tables.
+    pub fn set_ar_coeffs_uv(&mut self, value: [[i8; 25]; 2]) {
+        // SAFETY: the exclusive handle permits a raw write to this fixed array.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).ar_coeffs_uv).write(value) }
+    }
+
+    /// Replaces the luma auto-regression coefficient table.
+    pub fn set_ar_coeffs_y(&mut self, value: [i8; 24]) {
+        // SAFETY: the exclusive handle permits a raw write to this fixed array.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).ar_coeffs_y).write(value) }
+    }
+
+    /// Sets the auto-regression lag.
+    pub fn set_ar_coeff_lag(&mut self, value: i32) {
+        // SAFETY: the exclusive handle permits a raw write to this field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).ar_coeff_lag).write(value) }
+    }
+
+    /// Sets the piecewise-linear scaling shift.
+    pub fn set_scaling_shift(&mut self, value: i32) {
+        // SAFETY: the exclusive handle permits a raw write to this field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).scaling_shift).write(value) }
+    }
+
+    /// Replaces the Cb and Cr piecewise-linear scaling tables.
+    pub fn set_uv_points(&mut self, value: [[[u8; 2]; 10]; 2]) {
+        // SAFETY: the exclusive handle permits a raw write to this fixed array.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).uv_points).write(value) }
+    }
+
+    /// Sets the number of active Cb and Cr scaling points.
+    pub fn set_num_uv_points(&mut self, value: [i32; 2]) {
+        // SAFETY: the exclusive handle permits a raw write to this fixed array.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).num_uv_points).write(value) }
+    }
+
+    /// Sets whether chroma scaling is derived from luma.
+    pub fn set_chroma_scaling_from_luma(&mut self, value: i32) {
+        // SAFETY: the exclusive handle permits a raw write to this field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).chroma_scaling_from_luma).write(value) }
+    }
+
+    /// Replaces the luma piecewise-linear scaling table.
+    pub fn set_y_points(&mut self, value: [[u8; 2]; 14]) {
+        // SAFETY: the exclusive handle permits a raw write to this fixed array.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).y_points).write(value) }
+    }
+
+    /// Sets the number of active luma scaling points.
+    pub fn set_num_y_points(&mut self, value: i32) {
+        // SAFETY: the exclusive handle permits a raw write to this field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).num_y_points).write(value) }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use core::mem::{align_of, size_of};
@@ -362,5 +598,60 @@ mod tests {
             align_of::<AVFilmGrainH274Params>(),
             align_of::<ffi::AVFilmGrainH274Params>()
         );
+    }
+}
+
+#[cfg(test)]
+mod aom_tests {
+    use core::mem::{align_of, size_of};
+
+    use ffibox::CVal;
+
+    use super::*;
+
+    #[test]
+    fn layout_matches_the_generated_c_structure() {
+        assert_eq!(
+            size_of::<AVFilmGrainAOMParams>(),
+            size_of::<ffi::AVFilmGrainAOMParams>()
+        );
+        assert_eq!(
+            align_of::<AVFilmGrainAOMParams>(),
+            align_of::<ffi::AVFilmGrainAOMParams>()
+        );
+    }
+
+    #[test]
+    fn owned_inline_value_supports_scalar_and_table_access() {
+        let mut value = CVal::new(AVFilmGrainAOMParams::zeroed());
+        value.as_mut().set_num_y_points(2);
+        value.as_mut().set_y_points([
+            [1, 11],
+            [2, 22],
+            [0, 0],
+            [0, 0],
+            [0, 0],
+            [0, 0],
+            [0, 0],
+            [0, 0],
+            [0, 0],
+            [0, 0],
+            [0, 0],
+            [0, 0],
+            [0, 0],
+            [0, 0],
+        ]);
+        value.as_mut().set_num_uv_points([1, 1]);
+        value.as_mut().set_uv_offset([-256, 255]);
+        value.as_mut().set_ar_coeffs_y([7; 24]);
+        value.as_mut().set_ar_coeffs_uv([[3; 25], [4; 25]]);
+
+        let view = value.as_ref();
+        assert_eq!(view.num_y_points(), 2);
+        assert_eq!(view.y_points()[..2], [[1, 11], [2, 22]]);
+        assert_eq!(view.num_uv_points(), [1, 1]);
+        assert_eq!(view.uv_offset(), [-256, 255]);
+        assert_eq!(view.ar_coeffs_y(), [7; 24]);
+        assert_eq!(view.ar_coeffs_uv(), [[3; 25], [4; 25]]);
     }
 }

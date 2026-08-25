@@ -17,6 +17,7 @@ fn main() {
         // formulas, which rustdoc otherwise mistakes for doctests.
         .generate_comments(false)
         .allowlist_type("^(AVColorPrimaries|AVColorRange)$")
+        .allowlist_type("^(AVEscapeMode|AVFifo|AVFilmGrainAOMParams)$")
         .allowlist_type("^(AVChannelOrder|AVChromaLocation)$")
         .allowlist_type("^AVRational$")
         .allowlist_type("^AVRounding$")
@@ -54,6 +55,7 @@ fn main() {
         .allowlist_function(
             "^(av_chroma_location_from_name|av_dynarray_add|av_file_map|av_file_unmap|av_free|av_freep|av_gettime|av_gettime_relative|av_gettime_relative_is_monotonic|av_log_get_flags|av_log_get_level|av_log_set_callback|av_log_set_flags|av_log_set_level|av_malloc|av_malloc_array|av_mallocz|av_match_name|av_md5_sum|av_memdup|av_opt_set|av_opt_set_bin|av_opt_set_double|av_opt_set_image_size|av_opt_set_int|av_realloc|av_reduce|av_strdup|av_strerror|av_strndup|av_usleep|av_version_info|avutil_configuration|avutil_license|avutil_version)$",
         )
+        .allowlist_function("^av_fifo_(alloc2|freep2)$")
         .allowlist_function("^av_(image_(copy_to_buffer|fill_arrays|fill_black|fill_pointers|get_buffer_size)|md5_(alloc|final|init|update)|mul_q|nearer_q|opt_set_(array|dict|pixel_fmt|q|sample_fmt|video_rate)|q2intfloat|rescale_(q|q_rnd|rnd)|sample_fmt_is_planar|samples_(alloc|alloc_array_and_samples|copy|fill_arrays|get_buffer_size|set_silence)|sub_q)$")
         .allowlist_type("^AV(ComponentDescriptor|Dictionary|PixFmtDescriptor)$")
         .allowlist_type(
