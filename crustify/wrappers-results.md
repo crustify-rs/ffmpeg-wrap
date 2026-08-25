@@ -10,11 +10,11 @@
 - **agent backend** — `codex`
 - **model** — `openai/gpt-5.6-sol`
 - **`--billing`** — `subscription`
-- **`--max-types`** — `2`
+- **`--max-types`** — `4`
 - **`--max-syms`** — `50`
 - **`--max-loc`** — `1000`
-- **`--min-fields`** — `10`
-- **`--parallel-max`** — `32`
+- **`--min-fields`** — `20`
+- **`--parallel-max`** — `16`
 - **branch** — `crustify/libavutil-gpt-5.6-sol`, tip `87c1577231`
 - **deps** — crustify-cli `d756ae6` (`docs/results-template-ub`), ffibox `600399f` (`main`)
 
@@ -25,11 +25,11 @@
 - **agent backend** — `claude`
 - **model** — `anthropic/claude-opus-5`
 - **`--billing`** — `subscription`
-- **`--max-types`** — `2`
-- **`--max-syms`** — `50`
-- **`--max-loc`** — `1000`
-- **`--min-fields`** — `10`
-- **`--parallel-max`** — `32`
+- **`--max-types`** — `15`
+- **`--max-syms`** — `150`
+- **`--max-loc`** — `3000`
+- **`--min-fields`** — `60`
+- **`--parallel-max`** — `16`
 - **branch** — `crustify/session/review-2026-08-23_22-14-28_82c3`, tip `414ff93355`
 - **agents** — `28`, over `3` session(s)
 
