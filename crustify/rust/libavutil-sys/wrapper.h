@@ -4,6 +4,7 @@
 #include <libavutil/buffer_internal.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/dict.h>
+#include <libavutil/dovi_meta.h>
 #include <libavutil/file.h>
 #include <libavutil/frame.h>
 #include <libavutil/hwcontext.h>

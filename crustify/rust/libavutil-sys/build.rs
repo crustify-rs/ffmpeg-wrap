@@ -37,6 +37,9 @@ fn main() {
         // Needed to build an option-bearing object at all: every av_opt_set*
         // target is a struct whose first field is a `const AVClass *`.
         .allowlist_type("^AVClass$")
+        .allowlist_type(
+            "^(AVClassCategory|AVDOVICompression|AVDOVIDecoderConfigurationRecord|AVDOVIDmLevel1)$",
+        )
         .allowlist_var("^AV_OPT_SEARCH_FAKE_OBJ$")
         .allowlist_var("^AV_DICT_[A-Z_]+$")
         .allowlist_function(

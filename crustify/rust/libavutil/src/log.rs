@@ -102,3 +102,74 @@ mod tests {
         av_log_set_flags(old_flags);
     }
 }
+
+/// Wraps: AVClassCategory
+///
+/// Classifies the component represented by an [`AVClass`](crate::ffi::AVClass).
+/// The transparent integer representation preserves values introduced by a
+/// newer libavutil instead of creating an invalid Rust enum discriminant.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AVClassCategory(ffi::AVClassCategory);
+
+impl AVClassCategory {
+    pub const NA: Self = Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_NA);
+    pub const INPUT: Self = Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_INPUT);
+    pub const OUTPUT: Self = Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_OUTPUT);
+    pub const MUXER: Self = Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_MUXER);
+    pub const DEMUXER: Self = Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_DEMUXER);
+    pub const ENCODER: Self = Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_ENCODER);
+    pub const DECODER: Self = Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_DECODER);
+    pub const FILTER: Self = Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_FILTER);
+    pub const BITSTREAM_FILTER: Self =
+        Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_BITSTREAM_FILTER);
+    pub const SWSCALER: Self = Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_SWSCALER);
+    pub const SWRESAMPLER: Self = Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_SWRESAMPLER);
+    pub const HWDEVICE: Self = Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_HWDEVICE);
+    pub const DEVICE_VIDEO_OUTPUT: Self =
+        Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_DEVICE_VIDEO_OUTPUT);
+    pub const DEVICE_VIDEO_INPUT: Self =
+        Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_DEVICE_VIDEO_INPUT);
+    pub const DEVICE_AUDIO_OUTPUT: Self =
+        Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_DEVICE_AUDIO_OUTPUT);
+    pub const DEVICE_AUDIO_INPUT: Self =
+        Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_DEVICE_AUDIO_INPUT);
+    pub const DEVICE_OUTPUT: Self = Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_DEVICE_OUTPUT);
+    pub const DEVICE_INPUT: Self = Self(ffi::AVClassCategory_AV_CLASS_CATEGORY_DEVICE_INPUT);
+
+    /// Wraps a raw C enum value, including one unknown to this crate version.
+    #[must_use]
+    pub const fn from_raw(raw: ffi::AVClassCategory) -> Self {
+        Self(raw)
+    }
+
+    /// Returns the ABI value accepted by libavutil.
+    #[must_use]
+    pub const fn as_raw(self) -> ffi::AVClassCategory {
+        self.0
+    }
+}
+
+impl From<ffi::AVClassCategory> for AVClassCategory {
+    fn from(raw: ffi::AVClassCategory) -> Self {
+        Self::from_raw(raw)
+    }
+}
+
+impl From<AVClassCategory> for ffi::AVClassCategory {
+    fn from(category: AVClassCategory) -> Self {
+        category.as_raw()
+    }
+}
+
+#[cfg(test)]
+mod category_tests {
+    use super::*;
+
+    #[test]
+    fn known_and_future_categories_round_trip() {
+        assert_eq!(AVClassCategory::DEVICE_INPUT.as_raw(), 45);
+        let future = AVClassCategory::from_raw(10_000);
+        assert_eq!(future.as_raw(), 10_000);
+    }
+}

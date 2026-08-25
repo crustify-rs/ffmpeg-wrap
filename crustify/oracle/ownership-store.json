@@ -206,9 +206,33 @@
    "fields": []
   },
   {
+   "name": "AVClassCategory",
+   "defined_in": "libavutil/log.h",
+   "_comment_agent": "No pointer or refcount fields; all declared fields are scalar integer values.",
+   "fields": []
+  },
+  {
    "name": "AVComponentDescriptor",
    "defined_in": "libavutil/pixdesc.h",
    "_comment_agent": "AVComponentDescriptor is a pointer-free by-value POD of five ints. It has no lifecycle of its own: it is never heap-allocated on its own, and its only published storage is the inline four-element AVPixFmtDescriptor.comp array in libavutil.s immutable process-lifetime descriptor table, whose entries are freed by nothing. Reviewed 2026-08-23; no ownership slots exist to record.",
+   "fields": []
+  },
+  {
+   "name": "AVDOVICompression",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "No pointer or refcount fields; all declared fields are scalar integer values.",
+   "fields": []
+  },
+  {
+   "name": "AVDOVIDecoderConfigurationRecord",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "No pointer or refcount fields; all declared fields are scalar integer values.",
+   "fields": []
+  },
+  {
+   "name": "AVDOVIDmLevel1",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "No pointer or refcount fields; all declared fields are scalar integer values.",
    "fields": []
   },
   {
