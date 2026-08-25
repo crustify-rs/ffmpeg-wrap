@@ -394,6 +394,12 @@
    "fields": []
   },
   {
+   "name": "AVDOVIDmData",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "AVDOVIDmData is a by-value tagged union of scalar and by-value metadata records. It has no pointer fields, owns no resources, and has no independent lifecycle operation.",
+   "fields": []
+  },
+  {
    "name": "AVDOVIDmLevel1",
    "defined_in": "libavutil/dovi_meta.h",
    "_comment_agent": "No pointer or refcount fields; all declared fields are scalar integer values.",
@@ -1045,6 +1051,81 @@
       "nullable": false,
       "mutable": false,
       "note": "av_iamf_param_definition_alloc assigns the address of the translation-unit static const recon_gain_class to every reconstruction-gain subblock; no path replaces or frees it."
+     }
+    }
+   ]
+  },
+  {
+   "name": "AVIAMFSubmix",
+   "defined_in": "libavutil/iamf.h",
+   "_comment_agent": "A submix is allocated and owned by its parent AVIAMFMixPresentation. Its static class is borrowed for process lifetime. The submix owns nullable growable arrays of individually owned elements and layouts, and owns its nullable output mix parameter definition; av_iamf_mix_presentation_free releases all of them.",
+   "fields": [
+    {
+     "name": "av_class",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "av_iamf_mix_presentation_add_submix installs the address of the translation-unit static submix_class; callers cannot mutate through the const pointer."
+     }
+    },
+    {
+     "name": "elements",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Growable av_realloc_array-owned pointer table with nb_elements entries; every element is an owned allocation. The add helper mutates it and the parent destructor disposes each element and the table."
+     }
+    },
+    {
+     "name": "layouts",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Growable av_realloc_array-owned pointer table with nb_layouts entries; every element is an owned allocation. The add helper mutates it and the parent destructor disposes each layout and the table."
+     }
+    },
+    {
+     "name": "output_mix_config",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Callers optionally install an av_malloc-family AVIAMFParamDefinition allocation. The parent destructor releases it with av_free; consumers mutate its public parameter fields."
      }
     }
    ]

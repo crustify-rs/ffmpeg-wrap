@@ -2202,3 +2202,393 @@ mod audio_element_tests {
         drop(owner);
     }
 }
+
+ffibox::define_ctype!(
+    /// Wraps: AVIAMFSubmix
+    ///
+    /// Layout-compatible view of a submix owned by an enclosing
+    /// `AVIAMFMixPresentation`. Its pointer tables and their elements remain
+    /// parent-owned and are exposed only through lifetime-bound handles.
+    AVIAMFSubmix,
+    AVIAMFSubmixRef,
+    AVIAMFSubmixMut,
+    ffi::AVIAMFSubmix
+);
+
+macro_rules! submix_pointer_iterators {
+    ($shared_iter:ident, $exclusive_iter:ident, $raw:ty, $shared:ident, $exclusive:ident) => {
+        /// Iterator over objects owned indirectly by an IAMF submix.
+        pub struct $shared_iter<'a> {
+            table: *mut *mut $raw,
+            index: usize,
+            len: usize,
+            _borrow: PhantomData<&'a AVIAMFSubmix>,
+        }
+
+        impl<'a> Iterator for $shared_iter<'a> {
+            type Item = $shared<'a>;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.index == self.len {
+                    return None;
+                }
+                let index = self.index;
+                self.index += 1;
+                // SAFETY: the submix invariant supplies `len` initialized
+                // entries, each a non-null live object kept alive by the parent.
+                let pointer = unsafe { self.table.add(index).read() };
+                // SAFETY: validity, non-nullness, and lifetime follow from the
+                // same constructor-established submix invariant.
+                let handle = unsafe { $shared::from_ptr(pointer) };
+                Some(handle.expect("submix pointer-array entries are non-null"))
+            }
+
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                let remaining = self.len - self.index;
+                (remaining, Some(remaining))
+            }
+        }
+        impl ExactSizeIterator for $shared_iter<'_> {}
+        impl core::iter::FusedIterator for $shared_iter<'_> {}
+
+        /// Exclusive iterator over distinct objects owned by an IAMF submix.
+        pub struct $exclusive_iter<'a> {
+            table: *mut *mut $raw,
+            index: usize,
+            len: usize,
+            _borrow: PhantomData<&'a mut AVIAMFSubmix>,
+        }
+
+        impl<'a> Iterator for $exclusive_iter<'a> {
+            type Item = $exclusive<'a>;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.index == self.len {
+                    return None;
+                }
+                let index = self.index;
+                self.index += 1;
+                // SAFETY: libavutil constructs the table from distinct live
+                // allocations and public callers must not modify the table.
+                let pointer = unsafe { self.table.add(index).read() };
+                // SAFETY: the iterator holds the sole parent borrow, and the
+                // distinct-allocation invariant permits this mutable handle.
+                let handle = unsafe { $exclusive::from_ptr(pointer) };
+                Some(handle.expect("submix pointer-array entries are non-null"))
+            }
+
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                let remaining = self.len - self.index;
+                (remaining, Some(remaining))
+            }
+        }
+        impl ExactSizeIterator for $exclusive_iter<'_> {}
+        impl core::iter::FusedIterator for $exclusive_iter<'_> {}
+    };
+}
+
+submix_pointer_iterators!(
+    AVIAMFSubmixElements,
+    AVIAMFSubmixElementsMut,
+    ffi::AVIAMFSubmixElement,
+    AVIAMFSubmixElementRef,
+    AVIAMFSubmixElementMut
+);
+submix_pointer_iterators!(
+    AVIAMFSubmixLayouts,
+    AVIAMFSubmixLayoutsMut,
+    ffi::AVIAMFSubmixLayout,
+    AVIAMFSubmixLayoutRef,
+    AVIAMFSubmixLayoutMut
+);
+
+impl<'a> AVIAMFSubmixRef<'a> {
+    /// Field: AVIAMFSubmix.av_class
+    #[must_use]
+    pub fn av_class(&self) -> AVClassRef<'a> {
+        // SAFETY: the type invariant makes this copied pointer non-null static metadata.
+        let class = unsafe { addr_of!((*self.as_ptr()).av_class).read() };
+        // SAFETY: the constructor-established invariant supplies validity and lifetime.
+        unsafe { AVClassRef::from_ptr(class.cast_mut()) }
+            .expect("AVIAMFSubmix has a non-null AVClass")
+    }
+
+    /// Field: AVIAMFSubmix.default_mix_gain
+    #[must_use]
+    pub fn default_mix_gain(&self) -> AVRationalRef<'a> {
+        // SAFETY: the initialized inline rational remains live with the submix.
+        unsafe { AVRationalRef::from_ptr(addr_of!((*self.as_ptr()).default_mix_gain).cast_mut()) }
+            .expect("an embedded field address is non-null")
+    }
+
+    /// Field: AVIAMFSubmix.output_mix_config
+    #[must_use]
+    pub fn output_mix_config(&self) -> Option<AVIAMFParamDefinitionRef<'a>> {
+        // SAFETY: a non-null copied pointer is initialized and parent-owned for `'a`.
+        let definition = unsafe { addr_of!((*self.as_ptr()).output_mix_config).read() };
+        // SAFETY: the field invariant supplies pointee validity and lifetime.
+        unsafe { AVIAMFParamDefinitionRef::from_ptr(definition) }
+    }
+
+    /// Field: AVIAMFSubmix.nb_layouts
+    #[must_use]
+    pub fn nb_layouts(&self) -> usize {
+        // SAFETY: raw-place projection copies one initialized scalar.
+        unsafe { addr_of!((*self.as_ptr()).nb_layouts).read() as usize }
+    }
+
+    /// Field: AVIAMFSubmix.layouts
+    #[must_use]
+    pub fn layouts(&self) -> AVIAMFSubmixLayouts<'a> {
+        let len = self.nb_layouts();
+        // SAFETY: the field invariant makes the copied table non-null if non-empty.
+        let table = unsafe { addr_of!((*self.as_ptr()).layouts).read() };
+        assert!(
+            len == 0 || !table.is_null(),
+            "non-empty layout table is null"
+        );
+        AVIAMFSubmixLayouts {
+            table,
+            index: 0,
+            len,
+            _borrow: PhantomData,
+        }
+    }
+
+    /// Field: AVIAMFSubmix.nb_elements
+    #[must_use]
+    pub fn nb_elements(&self) -> usize {
+        // SAFETY: raw-place projection copies one initialized scalar.
+        unsafe { addr_of!((*self.as_ptr()).nb_elements).read() as usize }
+    }
+
+    /// Field: AVIAMFSubmix.elements
+    #[must_use]
+    pub fn elements(&self) -> AVIAMFSubmixElements<'a> {
+        let len = self.nb_elements();
+        // SAFETY: the field invariant makes the copied table non-null if non-empty.
+        let table = unsafe { addr_of!((*self.as_ptr()).elements).read() };
+        assert!(
+            len == 0 || !table.is_null(),
+            "non-empty element table is null"
+        );
+        AVIAMFSubmixElements {
+            table,
+            index: 0,
+            len,
+            _borrow: PhantomData,
+        }
+    }
+}
+
+impl AVIAMFSubmixMut<'_> {
+    /// Exclusively borrows the inline default gain rational.
+    #[must_use]
+    pub fn default_mix_gain_mut(&mut self) -> AVRationalMut<'_> {
+        // SAFETY: the exclusive submix reborrow supplies sole access to this field.
+        unsafe { AVRationalMut::from_ptr(addr_of_mut!((*self.as_mut_ptr()).default_mix_gain)) }
+            .expect("an embedded field address is non-null")
+    }
+
+    /// Exclusively borrows the optional output mix definition.
+    #[must_use]
+    pub fn output_mix_config_mut(&mut self) -> Option<AVIAMFParamDefinitionMut<'_>> {
+        // SAFETY: the copied pointer remains owned by the exclusively borrowed parent.
+        let definition = unsafe { addr_of!((*self.as_mut_ptr()).output_mix_config).read() };
+        // SAFETY: the field invariant and exclusive reborrow supply validity and lifetime.
+        unsafe { AVIAMFParamDefinitionMut::from_ptr(definition) }
+    }
+
+    /// Replaces the owned output mix definition and returns the previous one.
+    pub fn replace_output_mix_config(
+        &mut self,
+        definition: Option<CBox<AVIAMFParamDefinition>>,
+    ) -> Result<Option<CBox<AVIAMFParamDefinition>>, CBox<AVIAMFParamDefinition>> {
+        if definition.as_ref().is_some_and(|definition| {
+            definition.as_ref().parameter_type() != AVIAMFParamDefinitionType::MIX_GAIN
+        }) {
+            return Err(definition.expect("the rejected definition is present"));
+        }
+        let definition = definition.map_or(core::ptr::null_mut(), CBox::into_raw);
+        // SAFETY: exclusive access permits moving the new owner in and old owner out.
+        let old =
+            unsafe { addr_of_mut!((*self.as_mut_ptr()).output_mix_config).replace(definition) };
+        // SAFETY: `old` is null or the unique allocation removed from this owner slot.
+        Ok(unsafe { CBox::from_raw(old) })
+    }
+
+    /// Iterates the distinct parent-owned layouts with exclusive handles.
+    #[must_use]
+    pub fn layouts_mut(&mut self) -> AVIAMFSubmixLayoutsMut<'_> {
+        let len = self.as_ref().nb_layouts();
+        // SAFETY: the copied table belongs to this exclusively borrowed parent.
+        let table = unsafe { addr_of!((*self.as_mut_ptr()).layouts).read() };
+        assert!(
+            len == 0 || !table.is_null(),
+            "non-empty layout table is null"
+        );
+        AVIAMFSubmixLayoutsMut {
+            table,
+            index: 0,
+            len,
+            _borrow: PhantomData,
+        }
+    }
+
+    /// Iterates the distinct parent-owned elements with exclusive handles.
+    #[must_use]
+    pub fn elements_mut(&mut self) -> AVIAMFSubmixElementsMut<'_> {
+        let len = self.as_ref().nb_elements();
+        // SAFETY: the copied table belongs to this exclusively borrowed parent.
+        let table = unsafe { addr_of!((*self.as_mut_ptr()).elements).read() };
+        assert!(
+            len == 0 || !table.is_null(),
+            "non-empty element table is null"
+        );
+        AVIAMFSubmixElementsMut {
+            table,
+            index: 0,
+            len,
+            _borrow: PhantomData,
+        }
+    }
+}
+
+#[cfg(test)]
+mod submix_tests {
+    use super::*;
+    use core::mem::{align_of, size_of};
+
+    fn test_class() -> ffi::AVClass {
+        // SAFETY: every field is an integer, raw pointer, or optional callback.
+        unsafe { core::mem::zeroed() }
+    }
+
+    fn mix_gain_definition() -> CBox<AVIAMFParamDefinition> {
+        // SAFETY: this finite header size is valid for `av_malloc`, which
+        // returns null or a fresh suitably aligned allocation.
+        let pointer = unsafe { ffi::av_malloc(size_of::<ffi::AVIAMFParamDefinition>()) }
+            .cast::<ffi::AVIAMFParamDefinition>();
+        assert!(!pointer.is_null());
+        // SAFETY: the fresh allocation is large and aligned for the complete
+        // write, which initializes every header field before adoption.
+        unsafe {
+            pointer.write(ffi::AVIAMFParamDefinition {
+                av_class: core::ptr::null(),
+                subblocks_offset: size_of::<ffi::AVIAMFParamDefinition>(),
+                subblock_size: size_of::<ffi::AVIAMFMixGain>(),
+                nb_subblocks: 0,
+                type_: AVIAMFParamDefinitionType::MIX_GAIN.as_raw(),
+                parameter_id: 11,
+                parameter_rate: 48_000,
+                duration: 0,
+                constant_subblock_duration: 0,
+            });
+        }
+        // SAFETY: this is the initialized unique av_malloc allocation base
+        // required by `AVIAMFParamDefinition`'s drop implementation.
+        unsafe { CBox::from_raw(pointer) }.expect("allocation is non-null")
+    }
+
+    #[test]
+    fn layout_matches_bindgen() {
+        assert_eq!(size_of::<AVIAMFSubmix>(), size_of::<ffi::AVIAMFSubmix>());
+        assert_eq!(align_of::<AVIAMFSubmix>(), align_of::<ffi::AVIAMFSubmix>());
+    }
+
+    #[test]
+    fn pointer_tables_and_inline_gain_use_borrowed_handles() {
+        let class = test_class();
+        let mut element = ffi::AVIAMFSubmixElement {
+            av_class: &class,
+            audio_element_id: 7,
+            element_mix_config: core::ptr::null_mut(),
+            default_mix_gain: ffi::AVRational { num: 0, den: 1 },
+            headphones_rendering_mode: AVIAMFHeadphonesMode::STEREO.as_raw(),
+            annotations: core::ptr::null_mut(),
+        };
+        // SAFETY: zero is the documented empty channel-layout state.
+        let mut layout: ffi::AVIAMFSubmixLayout = unsafe { core::mem::zeroed() };
+        layout.av_class = &class;
+        let mut elements = [addr_of_mut!(element)];
+        let mut layouts = [addr_of_mut!(layout)];
+        let mut raw = ffi::AVIAMFSubmix {
+            av_class: &class,
+            elements: elements.as_mut_ptr(),
+            nb_elements: 1,
+            layouts: layouts.as_mut_ptr(),
+            nb_layouts: 1,
+            output_mix_config: core::ptr::null_mut(),
+            default_mix_gain: ffi::AVRational { num: -3, den: 2 },
+        };
+        // SAFETY: all storage and distinct children are initialized and exclusive.
+        let mut submix = unsafe { AVIAMFSubmixMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        assert_eq!(
+            submix
+                .as_ref()
+                .elements()
+                .next()
+                .unwrap()
+                .audio_element_id(),
+            7
+        );
+        assert_eq!(submix.as_ref().layouts().count(), 1);
+        assert_eq!(submix.as_ref().default_mix_gain().num(), -3);
+        assert!(submix.as_ref().output_mix_config().is_none());
+        assert!(
+            submix
+                .replace_output_mix_config(Some(mix_gain_definition()))
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            submix
+                .as_ref()
+                .output_mix_config()
+                .unwrap()
+                .parameter_type(),
+            AVIAMFParamDefinitionType::MIX_GAIN
+        );
+        let definition = submix
+            .replace_output_mix_config(None)
+            .unwrap()
+            .expect("the installed owner is returned");
+        drop(definition);
+        submix
+            .elements_mut()
+            .next()
+            .unwrap()
+            .set_audio_element_id(9);
+        let mut gain = submix.default_mix_gain_mut();
+        gain.set_num(5);
+        gain.set_den(4);
+        assert_eq!(
+            submix
+                .as_ref()
+                .elements()
+                .next()
+                .unwrap()
+                .audio_element_id(),
+            9
+        );
+        assert_eq!(submix.as_ref().default_mix_gain().num(), 5);
+    }
+
+    #[test]
+    fn empty_pointer_tables_may_be_null() {
+        let class = test_class();
+        let mut raw = ffi::AVIAMFSubmix {
+            av_class: &class,
+            elements: core::ptr::null_mut(),
+            nb_elements: 0,
+            layouts: core::ptr::null_mut(),
+            nb_layouts: 0,
+            output_mix_config: core::ptr::null_mut(),
+            default_mix_gain: ffi::AVRational { num: 0, den: 1 },
+        };
+        // SAFETY: zero-length null tables and the remaining initialized fields are valid.
+        let submix = unsafe { AVIAMFSubmixRef::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        assert_eq!(submix.elements().count(), 0);
+        assert_eq!(submix.layouts().count(), 0);
+    }
+}

@@ -2443,3 +2443,284 @@ mod dm_level_9_10_tests {
         assert_eq!(view.target_display_primaries().prim().r().x().num(), 64);
     }
 }
+
+define_ctype!(
+    /// Wraps: AVDOVIDmData
+    ///
+    /// Layout-compatible tagged union for one Dolby Vision metadata extension
+    /// block. Borrowed access validates `level` before projecting the matching
+    /// union member, so safe callers cannot read an inactive member.
+    AVDOVIDmData,
+    AVDOVIDmDataRef,
+    AVDOVIDmDataMut,
+    ffi::AVDOVIDmData
+);
+
+// SAFETY: every active variant contains only by-value integer or rational
+// metadata and owns no resource, so disposing an initialized inline block is a
+// no-op regardless of its level tag.
+unsafe impl CValued for AVDOVIDmData {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+/// A validated shared view of the active `AVDOVIDmData` union member.
+#[derive(Clone, Copy)]
+pub enum AVDOVIDmDataActiveRef<'a> {
+    Level1(AVDOVIDmLevel1Ref<'a>),
+    Level2(AVDOVIDmLevel2Ref<'a>),
+    Level3(AVDOVIDmLevel3Ref<'a>),
+    Level4(AVDOVIDmLevel4Ref<'a>),
+    Level5(AVDOVIDmLevel5Ref<'a>),
+    Level6(AVDOVIDmLevel6Ref<'a>),
+    Level8(AVDOVIDmLevel8Ref<'a>),
+    Level9(AVDOVIDmLevel9Ref<'a>),
+    Level10(AVDOVIDmLevel10Ref<'a>),
+    Level11(AVDOVIDmLevel11Ref<'a>),
+    Level254(AVDOVIDmLevel254Ref<'a>),
+    Level255(AVDOVIDmLevel255Ref<'a>),
+    /// A level that this crate does not know how to interpret.
+    Unknown(u8),
+}
+
+/// A validated exclusive view of the active `AVDOVIDmData` union member.
+pub enum AVDOVIDmDataActiveMut<'a> {
+    Level1(AVDOVIDmLevel1Mut<'a>),
+    Level2(AVDOVIDmLevel2Mut<'a>),
+    Level3(AVDOVIDmLevel3Mut<'a>),
+    Level4(AVDOVIDmLevel4Mut<'a>),
+    Level5(AVDOVIDmLevel5Mut<'a>),
+    Level6(AVDOVIDmLevel6Mut<'a>),
+    Level8(AVDOVIDmLevel8Mut<'a>),
+    Level9(AVDOVIDmLevel9Mut<'a>),
+    Level10(AVDOVIDmLevel10Mut<'a>),
+    Level11(AVDOVIDmLevel11Mut<'a>),
+    Level254(AVDOVIDmLevel254Mut<'a>),
+    Level255(AVDOVIDmLevel255Mut<'a>),
+    /// A level that this crate does not know how to interpret.
+    Unknown(u8),
+}
+
+impl AVDOVIDmDataRef<'_> {
+    /// Field: AVDOVIDmData.level
+    #[must_use]
+    pub fn level(&self) -> u8 {
+        // SAFETY: raw-place projection copies the initialized tag from the
+        // live block without forming a reference to C-visible storage.
+        unsafe { addr_of!((*self.as_ptr()).level).read() }
+    }
+
+    /// Field: AVDOVIDmData.(unknown field)
+    ///
+    /// Interprets the anonymous union according to its public level tag.
+    #[must_use]
+    pub fn active(&self) -> AVDOVIDmDataActiveRef<'_> {
+        match self.level() {
+            1 => AVDOVIDmDataActiveRef::Level1(self.l1().expect("level was checked")),
+            2 => AVDOVIDmDataActiveRef::Level2(self.l2().expect("level was checked")),
+            3 => AVDOVIDmDataActiveRef::Level3(self.l3().expect("level was checked")),
+            4 => AVDOVIDmDataActiveRef::Level4(self.l4().expect("level was checked")),
+            5 => AVDOVIDmDataActiveRef::Level5(self.l5().expect("level was checked")),
+            6 => AVDOVIDmDataActiveRef::Level6(self.l6().expect("level was checked")),
+            8 => AVDOVIDmDataActiveRef::Level8(self.l8().expect("level was checked")),
+            9 => AVDOVIDmDataActiveRef::Level9(self.l9().expect("level was checked")),
+            10 => AVDOVIDmDataActiveRef::Level10(self.l10().expect("level was checked")),
+            11 => AVDOVIDmDataActiveRef::Level11(self.l11().expect("level was checked")),
+            254 => AVDOVIDmDataActiveRef::Level254(self.l254().expect("level was checked")),
+            255 => AVDOVIDmDataActiveRef::Level255(self.l255().expect("level was checked")),
+            level => AVDOVIDmDataActiveRef::Unknown(level),
+        }
+    }
+}
+
+impl AVDOVIDmDataMut<'_> {
+    /// Exclusively borrows the active anonymous-union member.
+    #[must_use]
+    pub fn active_mut(&mut self) -> AVDOVIDmDataActiveMut<'_> {
+        match self.as_ref().level() {
+            1 => AVDOVIDmDataActiveMut::Level1(self.l1_mut().expect("level was checked")),
+            2 => AVDOVIDmDataActiveMut::Level2(self.l2_mut().expect("level was checked")),
+            3 => AVDOVIDmDataActiveMut::Level3(self.l3_mut().expect("level was checked")),
+            4 => AVDOVIDmDataActiveMut::Level4(self.l4_mut().expect("level was checked")),
+            5 => AVDOVIDmDataActiveMut::Level5(self.l5_mut().expect("level was checked")),
+            6 => AVDOVIDmDataActiveMut::Level6(self.l6_mut().expect("level was checked")),
+            8 => AVDOVIDmDataActiveMut::Level8(self.l8_mut().expect("level was checked")),
+            9 => AVDOVIDmDataActiveMut::Level9(self.l9_mut().expect("level was checked")),
+            10 => AVDOVIDmDataActiveMut::Level10(self.l10_mut().expect("level was checked")),
+            11 => AVDOVIDmDataActiveMut::Level11(self.l11_mut().expect("level was checked")),
+            254 => AVDOVIDmDataActiveMut::Level254(self.l254_mut().expect("level was checked")),
+            255 => AVDOVIDmDataActiveMut::Level255(self.l255_mut().expect("level was checked")),
+            level => AVDOVIDmDataActiveMut::Unknown(level),
+        }
+    }
+}
+
+macro_rules! dm_data_union_field {
+    (
+        $(#[$meta:meta])*
+        $getter:ident, $getter_mut:ident, $select:ident,
+        $level:literal, $shared:ident, $exclusive:ident, $raw:ty, $field:ident
+    ) => {
+        impl<'a> AVDOVIDmDataRef<'a> {
+            $(#[$meta])*
+            #[must_use]
+            pub fn $getter(&self) -> Option<$shared<'a>> {
+                if self.level() != $level {
+                    return None;
+                }
+                // SAFETY: the checked tag identifies this as the active union
+                // member; raw projection forms no reference, and the member
+                // remains live for the enclosing handle's lifetime.
+                unsafe {
+                    $shared::from_ptr(
+                        addr_of!((*self.as_ptr()).__bindgen_anon_1.$field).cast_mut(),
+                    )
+                }
+            }
+        }
+
+        impl AVDOVIDmDataMut<'_> {
+            #[doc = "Exclusively borrows this member when its level is active."]
+            #[must_use]
+            pub fn $getter_mut(&mut self) -> Option<$exclusive<'_>> {
+                if self.as_ref().level() != $level {
+                    return None;
+                }
+                // SAFETY: the checked tag identifies the active member and
+                // the exclusive parent handle supplies write provenance for
+                // the duration of the returned reborrow.
+                unsafe {
+                    $exclusive::from_ptr(addr_of_mut!(
+                        (*self.as_mut_ptr()).__bindgen_anon_1.$field
+                    ))
+                }
+            }
+
+            #[doc = "Selects this level, zero-initializes its union member, and returns it exclusively."]
+            #[must_use]
+            pub fn $select(&mut self) -> $exclusive<'_> {
+                let ptr = self.as_mut_ptr();
+                // SAFETY: all fields of this metadata type accept zero, and
+                // the exclusive parent handle permits initializing the chosen
+                // union member and then publishing its matching tag.
+                unsafe {
+                    addr_of_mut!((*ptr).__bindgen_anon_1.$field)
+                        .write(core::mem::zeroed::<$raw>());
+                    addr_of_mut!((*ptr).level).write($level);
+                    $exclusive::from_ptr(addr_of_mut!((*ptr).__bindgen_anon_1.$field))
+                        .expect("an embedded union member address is non-null")
+                }
+            }
+        }
+    };
+}
+
+dm_data_union_field!(
+    /// Field: AVDOVIDmData.(unknown field).l1
+    l1, l1_mut, select_l1, 1, AVDOVIDmLevel1Ref, AVDOVIDmLevel1Mut,
+    ffi::AVDOVIDmLevel1, l1
+);
+dm_data_union_field!(
+    /// Field: AVDOVIDmData.(unknown field).l2
+    l2, l2_mut, select_l2, 2, AVDOVIDmLevel2Ref, AVDOVIDmLevel2Mut,
+    ffi::AVDOVIDmLevel2, l2
+);
+dm_data_union_field!(
+    /// Field: AVDOVIDmData.(unknown field).l3
+    l3, l3_mut, select_l3, 3, AVDOVIDmLevel3Ref, AVDOVIDmLevel3Mut,
+    ffi::AVDOVIDmLevel3, l3
+);
+dm_data_union_field!(
+    /// Field: AVDOVIDmData.(unknown field).l4
+    l4, l4_mut, select_l4, 4, AVDOVIDmLevel4Ref, AVDOVIDmLevel4Mut,
+    ffi::AVDOVIDmLevel4, l4
+);
+dm_data_union_field!(
+    /// Field: AVDOVIDmData.(unknown field).l5
+    l5, l5_mut, select_l5, 5, AVDOVIDmLevel5Ref, AVDOVIDmLevel5Mut,
+    ffi::AVDOVIDmLevel5, l5
+);
+dm_data_union_field!(
+    /// Field: AVDOVIDmData.(unknown field).l6
+    l6, l6_mut, select_l6, 6, AVDOVIDmLevel6Ref, AVDOVIDmLevel6Mut,
+    ffi::AVDOVIDmLevel6, l6
+);
+dm_data_union_field!(
+    /// Field: AVDOVIDmData.(unknown field).l8
+    l8, l8_mut, select_l8, 8, AVDOVIDmLevel8Ref, AVDOVIDmLevel8Mut,
+    ffi::AVDOVIDmLevel8, l8
+);
+dm_data_union_field!(
+    /// Field: AVDOVIDmData.(unknown field).l9
+    l9, l9_mut, select_l9, 9, AVDOVIDmLevel9Ref, AVDOVIDmLevel9Mut,
+    ffi::AVDOVIDmLevel9, l9
+);
+dm_data_union_field!(
+    /// Field: AVDOVIDmData.(unknown field).l10
+    l10, l10_mut, select_l10, 10, AVDOVIDmLevel10Ref, AVDOVIDmLevel10Mut,
+    ffi::AVDOVIDmLevel10, l10
+);
+dm_data_union_field!(
+    /// Field: AVDOVIDmData.(unknown field).l11
+    l11, l11_mut, select_l11, 11, AVDOVIDmLevel11Ref, AVDOVIDmLevel11Mut,
+    ffi::AVDOVIDmLevel11, l11
+);
+dm_data_union_field!(
+    /// Field: AVDOVIDmData.(unknown field).l254
+    l254, l254_mut, select_l254, 254, AVDOVIDmLevel254Ref, AVDOVIDmLevel254Mut,
+    ffi::AVDOVIDmLevel254, l254
+);
+dm_data_union_field!(
+    /// Field: AVDOVIDmData.(unknown field).l255
+    l255, l255_mut, select_l255, 255, AVDOVIDmLevel255Ref, AVDOVIDmLevel255Mut,
+    ffi::AVDOVIDmLevel255, l255
+);
+
+#[cfg(test)]
+mod dm_data_tests {
+    use core::mem::{align_of, size_of};
+
+    use super::*;
+
+    #[test]
+    fn layout_matches_bindgen() {
+        assert_eq!(size_of::<AVDOVIDmData>(), size_of::<ffi::AVDOVIDmData>());
+        assert_eq!(align_of::<AVDOVIDmData>(), align_of::<ffi::AVDOVIDmData>());
+    }
+
+    #[test]
+    fn selection_keeps_tag_and_union_member_in_sync() {
+        let mut data = CVal::new(AVDOVIDmData::zeroed());
+        {
+            let mut data_view = data.as_mut();
+            let mut level = data_view.select_l2();
+            level.set_target_max_pq(123);
+            level.set_ms_weight(-4);
+        }
+
+        let shared = data.as_ref();
+        assert_eq!(shared.level(), 2);
+        assert!(shared.l1().is_none());
+        let level = shared.l2().expect("level 2 is active");
+        assert_eq!(level.target_max_pq(), 123);
+        assert_eq!(level.ms_weight(), -4);
+        assert!(matches!(shared.active(), AVDOVIDmDataActiveRef::Level2(_)));
+    }
+
+    #[test]
+    fn unknown_levels_are_not_interpreted_as_union_members() {
+        let mut data = CVal::new(AVDOVIDmData::zeroed());
+        data.as_mut().select_l255().set_dm_debug([1, 2, 3, 4]);
+        assert!(matches!(
+            data.as_ref().active(),
+            AVDOVIDmDataActiveRef::Level255(_)
+        ));
+
+        // SAFETY: the test has exclusive access to initialized inline storage;
+        // changing only the tag to an unknown value leaves a valid opaque union.
+        unsafe { addr_of_mut!((*data.as_mut().as_mut_ptr()).level).write(42) };
+        assert!(matches!(
+            data.as_ref().active(),
+            AVDOVIDmDataActiveRef::Unknown(42)
+        ));
+    }
+}
