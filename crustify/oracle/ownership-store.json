@@ -236,6 +236,30 @@
    "fields": []
   },
   {
+   "name": "AVDOVIDmLevel11",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "Reviewed all published fields: these four structs contain only by-value integer scalars and one by-value fixed uint8_t array; no pointer ownership, borrowing, refcount, lock, or lifecycle finding applies.",
+   "fields": []
+  },
+  {
+   "name": "AVDOVIDmLevel2",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "Reviewed all published fields: these four structs contain only by-value integer scalars and one by-value fixed uint8_t array; no pointer ownership, borrowing, refcount, lock, or lifecycle finding applies.",
+   "fields": []
+  },
+  {
+   "name": "AVDOVIDmLevel254",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "Reviewed all published fields: these four structs contain only by-value integer scalars and one by-value fixed uint8_t array; no pointer ownership, borrowing, refcount, lock, or lifecycle finding applies.",
+   "fields": []
+  },
+  {
+   "name": "AVDOVIDmLevel255",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "Reviewed all published fields: these four structs contain only by-value integer scalars and one by-value fixed uint8_t array; no pointer ownership, borrowing, refcount, lock, or lifecycle finding applies.",
+   "fields": []
+  },
+  {
    "name": "AVDOVIDmLevel3",
    "defined_in": "libavutil/dovi_meta.h",
    "_comment_agent": "All fields are by-value uint16_t scalars; the type owns no resources and has no lifecycle operation.",

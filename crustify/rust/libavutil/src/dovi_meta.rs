@@ -350,6 +350,405 @@ scalar_accessors! {
     ext_mapping_idc_5_7, set_ext_mapping_idc_5_7, ext_mapping_idc_5_7;
 }
 
+ffibox::define_ctype!(
+    /// Wraps: AVDOVIDmLevel11
+    ///
+    /// ABI-compatible storage for Dolby Vision level 11 metadata. Access is
+    /// through borrowed handles so no Rust reference covers C-visible bytes.
+    AVDOVIDmLevel11,
+    AVDOVIDmLevel11Ref,
+    AVDOVIDmLevel11Mut,
+    ffi::AVDOVIDmLevel11
+);
+
+// SAFETY: level 11 metadata contains only by-value integers and owns no
+// resources, so disposing an initialized inline value is always a no-op.
+unsafe impl CValued for AVDOVIDmLevel11 {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+impl AVDOVIDmLevel11Ref<'_> {
+    /// Field: AVDOVIDmLevel11.color
+    #[must_use]
+    pub fn color(&self) -> u8 {
+        // SAFETY: the handle keeps an initialized level 11 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).color).read() }
+    }
+
+    /// Field: AVDOVIDmLevel11.brightness
+    #[must_use]
+    pub fn brightness(&self) -> u8 {
+        // SAFETY: the handle keeps an initialized level 11 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).brightness).read() }
+    }
+
+    /// Field: AVDOVIDmLevel11.frame_rate_conversion
+    #[must_use]
+    pub fn frame_rate_conversion(&self) -> u8 {
+        // SAFETY: the handle keeps an initialized level 11 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).frame_rate_conversion).read() }
+    }
+
+    /// Field: AVDOVIDmLevel11.mpeg_noise_reduction
+    #[must_use]
+    pub fn mpeg_noise_reduction(&self) -> u8 {
+        // SAFETY: the handle keeps an initialized level 11 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).mpeg_noise_reduction).read() }
+    }
+
+    /// Field: AVDOVIDmLevel11.noise_reduction
+    #[must_use]
+    pub fn noise_reduction(&self) -> u8 {
+        // SAFETY: the handle keeps an initialized level 11 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).noise_reduction).read() }
+    }
+
+    /// Field: AVDOVIDmLevel11.sharpness
+    #[must_use]
+    pub fn sharpness(&self) -> u8 {
+        // SAFETY: the handle keeps an initialized level 11 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).sharpness).read() }
+    }
+
+    /// Field: AVDOVIDmLevel11.reference_mode_flag
+    #[must_use]
+    pub fn reference_mode_flag(&self) -> u8 {
+        // SAFETY: the handle keeps an initialized level 11 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).reference_mode_flag).read() }
+    }
+
+    /// Field: AVDOVIDmLevel11.whitepoint
+    #[must_use]
+    pub fn whitepoint(&self) -> u8 {
+        // SAFETY: the handle keeps an initialized level 11 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).whitepoint).read() }
+    }
+
+    /// Field: AVDOVIDmLevel11.content_type
+    #[must_use]
+    pub fn content_type(&self) -> u8 {
+        // SAFETY: the handle keeps an initialized level 11 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).content_type).read() }
+    }
+}
+
+impl AVDOVIDmLevel11Mut<'_> {
+    /// Sets the deprecated color processing parameter.
+    pub fn set_color(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).color).write(value) }
+    }
+
+    /// Sets the deprecated brightness processing parameter.
+    pub fn set_brightness(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).brightness).write(value) }
+    }
+
+    /// Sets the deprecated frame-rate-conversion parameter.
+    pub fn set_frame_rate_conversion(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).frame_rate_conversion).write(value) }
+    }
+
+    /// Sets the deprecated MPEG noise-reduction parameter.
+    pub fn set_mpeg_noise_reduction(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).mpeg_noise_reduction).write(value) }
+    }
+
+    /// Sets the deprecated noise-reduction parameter.
+    pub fn set_noise_reduction(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).noise_reduction).write(value) }
+    }
+
+    /// Sets the deprecated sharpness parameter.
+    pub fn set_sharpness(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).sharpness).write(value) }
+    }
+
+    /// Sets whether reference mode is enabled.
+    pub fn set_reference_mode_flag(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).reference_mode_flag).write(value) }
+    }
+
+    /// Sets the whitepoint selector.
+    pub fn set_whitepoint(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).whitepoint).write(value) }
+    }
+
+    /// Sets the content type.
+    pub fn set_content_type(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).content_type).write(value) }
+    }
+}
+
+ffibox::define_ctype!(
+    /// Wraps: AVDOVIDmLevel2
+    ///
+    /// ABI-compatible storage for Dolby Vision level 2 trim metadata.
+    AVDOVIDmLevel2,
+    AVDOVIDmLevel2Ref,
+    AVDOVIDmLevel2Mut,
+    ffi::AVDOVIDmLevel2
+);
+
+// SAFETY: level 2 metadata contains only by-value integers and owns no
+// resources, so disposing an initialized inline value is always a no-op.
+unsafe impl CValued for AVDOVIDmLevel2 {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+impl AVDOVIDmLevel2Ref<'_> {
+    /// Field: AVDOVIDmLevel2.target_max_pq
+    #[must_use]
+    pub fn target_max_pq(&self) -> u16 {
+        // SAFETY: the handle keeps an initialized level 2 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).target_max_pq).read() }
+    }
+
+    /// Field: AVDOVIDmLevel2.ms_weight
+    #[must_use]
+    pub fn ms_weight(&self) -> i16 {
+        // SAFETY: the handle keeps an initialized level 2 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).ms_weight).read() }
+    }
+
+    /// Field: AVDOVIDmLevel2.trim_saturation_gain
+    #[must_use]
+    pub fn trim_saturation_gain(&self) -> u16 {
+        // SAFETY: the handle keeps an initialized level 2 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).trim_saturation_gain).read() }
+    }
+
+    /// Field: AVDOVIDmLevel2.trim_chroma_weight
+    #[must_use]
+    pub fn trim_chroma_weight(&self) -> u16 {
+        // SAFETY: the handle keeps an initialized level 2 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).trim_chroma_weight).read() }
+    }
+
+    /// Field: AVDOVIDmLevel2.trim_power
+    #[must_use]
+    pub fn trim_power(&self) -> u16 {
+        // SAFETY: the handle keeps an initialized level 2 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).trim_power).read() }
+    }
+
+    /// Field: AVDOVIDmLevel2.trim_offset
+    #[must_use]
+    pub fn trim_offset(&self) -> u16 {
+        // SAFETY: the handle keeps an initialized level 2 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).trim_offset).read() }
+    }
+
+    /// Field: AVDOVIDmLevel2.trim_slope
+    #[must_use]
+    pub fn trim_slope(&self) -> u16 {
+        // SAFETY: the handle keeps an initialized level 2 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).trim_slope).read() }
+    }
+}
+
+impl AVDOVIDmLevel2Mut<'_> {
+    /// Sets the target display maximum PQ code.
+    pub fn set_target_max_pq(&mut self, value: u16) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).target_max_pq).write(value) }
+    }
+
+    /// Sets the mid-tone saturation weight.
+    pub fn set_ms_weight(&mut self, value: i16) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).ms_weight).write(value) }
+    }
+
+    /// Sets the trim saturation gain.
+    pub fn set_trim_saturation_gain(&mut self, value: u16) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).trim_saturation_gain).write(value) }
+    }
+
+    /// Sets the trim chroma weight.
+    pub fn set_trim_chroma_weight(&mut self, value: u16) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).trim_chroma_weight).write(value) }
+    }
+
+    /// Sets the trim power.
+    pub fn set_trim_power(&mut self, value: u16) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).trim_power).write(value) }
+    }
+
+    /// Sets the trim offset.
+    pub fn set_trim_offset(&mut self, value: u16) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).trim_offset).write(value) }
+    }
+
+    /// Sets the trim slope.
+    pub fn set_trim_slope(&mut self, value: u16) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).trim_slope).write(value) }
+    }
+}
+
+ffibox::define_ctype!(
+    /// Wraps: AVDOVIDmLevel254
+    ///
+    /// ABI-compatible storage for the always-present Dolby Vision DMv2 block.
+    AVDOVIDmLevel254,
+    AVDOVIDmLevel254Ref,
+    AVDOVIDmLevel254Mut,
+    ffi::AVDOVIDmLevel254
+);
+
+// SAFETY: level 254 metadata contains only by-value integers and owns no
+// resources, so disposing an initialized inline value is always a no-op.
+unsafe impl CValued for AVDOVIDmLevel254 {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+impl AVDOVIDmLevel254Ref<'_> {
+    /// Field: AVDOVIDmLevel254.dm_version_index
+    #[must_use]
+    pub fn dm_version_index(&self) -> u8 {
+        // SAFETY: the handle keeps an initialized level 254 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).dm_version_index).read() }
+    }
+
+    /// Field: AVDOVIDmLevel254.dm_mode
+    #[must_use]
+    pub fn dm_mode(&self) -> u8 {
+        // SAFETY: the handle keeps an initialized level 254 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).dm_mode).read() }
+    }
+}
+
+impl AVDOVIDmLevel254Mut<'_> {
+    /// Sets the DM version index.
+    pub fn set_dm_version_index(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).dm_version_index).write(value) }
+    }
+
+    /// Sets the DM mode.
+    pub fn set_dm_mode(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).dm_mode).write(value) }
+    }
+}
+
+ffibox::define_ctype!(
+    /// Wraps: AVDOVIDmLevel255
+    ///
+    /// ABI-compatible storage for Dolby Vision debug metadata.
+    AVDOVIDmLevel255,
+    AVDOVIDmLevel255Ref,
+    AVDOVIDmLevel255Mut,
+    ffi::AVDOVIDmLevel255
+);
+
+// SAFETY: level 255 metadata contains only by-value integers and a by-value
+// byte array, so disposing an initialized inline value is always a no-op.
+unsafe impl CValued for AVDOVIDmLevel255 {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+impl AVDOVIDmLevel255Ref<'_> {
+    /// Field: AVDOVIDmLevel255.dm_debug
+    ///
+    /// Returns a copy so the result does not assert a Rust shared borrow over
+    /// array storage that C may mutate.
+    #[must_use]
+    pub fn dm_debug(&self) -> [u8; 4] {
+        // SAFETY: the handle keeps an initialized level 255 value live; the
+        // raw-place projection copies the fixed array without making a slice.
+        unsafe { addr_of!((*self.as_ptr()).dm_debug).read() }
+    }
+
+    /// Field: AVDOVIDmLevel255.dm_run_version
+    #[must_use]
+    pub fn dm_run_version(&self) -> u8 {
+        // SAFETY: the handle keeps an initialized level 255 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).dm_run_version).read() }
+    }
+
+    /// Field: AVDOVIDmLevel255.dm_run_mode
+    #[must_use]
+    pub fn dm_run_mode(&self) -> u8 {
+        // SAFETY: the handle keeps an initialized level 255 value live; the
+        // raw-place projection copies this integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).dm_run_mode).read() }
+    }
+}
+
+impl AVDOVIDmLevel255Mut<'_> {
+    /// Replaces the four-byte debug payload.
+    pub fn set_dm_debug(&mut self, value: [u8; 4]) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection replaces only the fixed byte array.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).dm_debug).write(value) }
+    }
+
+    /// Sets the DM run version.
+    pub fn set_dm_run_version(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).dm_run_version).write(value) }
+    }
+
+    /// Sets the DM run mode.
+    pub fn set_dm_run_mode(&mut self, value: u8) {
+        // SAFETY: the exclusive handle supplies write provenance to the live
+        // object; raw-place projection writes only the selected integer field.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).dm_run_mode).write(value) }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use core::mem::{align_of, size_of};
@@ -606,6 +1005,109 @@ mod tests {
         assert_eq!(level6.as_ref().min_luminance(), 42);
         assert_eq!(level6.as_ref().max_cll(), 43);
         assert_eq!(level6.as_ref().max_fall(), 44);
+    }
+
+    #[test]
+    fn layouts_match_bindgen() {
+        assert_eq!(
+            size_of::<AVDOVIDmLevel11>(),
+            size_of::<ffi::AVDOVIDmLevel11>()
+        );
+        assert_eq!(
+            align_of::<AVDOVIDmLevel11>(),
+            align_of::<ffi::AVDOVIDmLevel11>()
+        );
+        assert_eq!(
+            size_of::<AVDOVIDmLevel2>(),
+            size_of::<ffi::AVDOVIDmLevel2>()
+        );
+        assert_eq!(
+            align_of::<AVDOVIDmLevel2>(),
+            align_of::<ffi::AVDOVIDmLevel2>()
+        );
+        assert_eq!(
+            size_of::<AVDOVIDmLevel254>(),
+            size_of::<ffi::AVDOVIDmLevel254>()
+        );
+        assert_eq!(
+            align_of::<AVDOVIDmLevel254>(),
+            align_of::<ffi::AVDOVIDmLevel254>()
+        );
+        assert_eq!(
+            size_of::<AVDOVIDmLevel255>(),
+            size_of::<ffi::AVDOVIDmLevel255>()
+        );
+        assert_eq!(
+            align_of::<AVDOVIDmLevel255>(),
+            align_of::<ffi::AVDOVIDmLevel255>()
+        );
+    }
+
+    #[test]
+    fn level_11_owned_storage_supports_shared_and_exclusive_access() {
+        let mut value = CVal::new(AVDOVIDmLevel11::zeroed());
+        {
+            let mut view = value.as_mut();
+            view.set_content_type(1);
+            view.set_whitepoint(2);
+            view.set_reference_mode_flag(3);
+            view.set_sharpness(4);
+            view.set_noise_reduction(5);
+            view.set_mpeg_noise_reduction(6);
+            view.set_frame_rate_conversion(7);
+            view.set_brightness(8);
+            view.set_color(9);
+        }
+        let view = value.as_ref();
+        assert_eq!(view.content_type(), 1);
+        assert_eq!(view.whitepoint(), 2);
+        assert_eq!(view.reference_mode_flag(), 3);
+        assert_eq!(view.sharpness(), 4);
+        assert_eq!(view.noise_reduction(), 5);
+        assert_eq!(view.mpeg_noise_reduction(), 6);
+        assert_eq!(view.frame_rate_conversion(), 7);
+        assert_eq!(view.brightness(), 8);
+        assert_eq!(view.color(), 9);
+    }
+
+    #[test]
+    fn level_2_round_trips_signed_and_unsigned_fields() {
+        let mut value = CVal::new(AVDOVIDmLevel2::zeroed());
+        {
+            let mut view = value.as_mut();
+            view.set_target_max_pq(10);
+            view.set_trim_slope(11);
+            view.set_trim_offset(12);
+            view.set_trim_power(13);
+            view.set_trim_chroma_weight(14);
+            view.set_trim_saturation_gain(15);
+            view.set_ms_weight(-16);
+        }
+        let view = value.as_ref();
+        assert_eq!(view.target_max_pq(), 10);
+        assert_eq!(view.trim_slope(), 11);
+        assert_eq!(view.trim_offset(), 12);
+        assert_eq!(view.trim_power(), 13);
+        assert_eq!(view.trim_chroma_weight(), 14);
+        assert_eq!(view.trim_saturation_gain(), 15);
+        assert_eq!(view.ms_weight(), -16);
+    }
+
+    #[test]
+    fn high_numbered_levels_round_trip_scalar_and_array_fields() {
+        let mut level_254 = CVal::new(AVDOVIDmLevel254::zeroed());
+        level_254.as_mut().set_dm_mode(20);
+        level_254.as_mut().set_dm_version_index(21);
+        assert_eq!(level_254.as_ref().dm_mode(), 20);
+        assert_eq!(level_254.as_ref().dm_version_index(), 21);
+
+        let mut level_255 = CVal::new(AVDOVIDmLevel255::zeroed());
+        level_255.as_mut().set_dm_run_mode(30);
+        level_255.as_mut().set_dm_run_version(31);
+        level_255.as_mut().set_dm_debug([32, 33, 34, 35]);
+        assert_eq!(level_255.as_ref().dm_run_mode(), 30);
+        assert_eq!(level_255.as_ref().dm_run_version(), 31);
+        assert_eq!(level_255.as_ref().dm_debug(), [32, 33, 34, 35]);
     }
 }
 
