@@ -4,7 +4,7 @@ use core::ffi::{CStr, c_char, c_uint, c_void};
 use core::marker::PhantomData;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::{CBox, CrustifyStr};
+use ffibox::{CBox, CDropped, CrustifyStr};
 
 use crate::channel_layout::AVChannelLayoutRef;
 use crate::dict::AVDictionary;
@@ -2956,5 +2956,180 @@ mod scheduled_get_tests {
         assert_eq!(parsed.key.unwrap().as_c_str(), c"key");
         assert_eq!(parsed.value.as_c_str(), c"some value");
         assert_eq!(options, c",next=2");
+    }
+}
+
+ffibox::define_ctype!(
+    /// Wraps: AVOptionRanges
+    ///
+    /// ABI-compatible aggregate returned by an option range query. The object
+    /// owns its pointer table, every non-null range in that table, and each
+    /// range's optional string.
+    ///
+    /// # Handle invariant
+    ///
+    /// Both counts are non-negative and their product fits a C `int`. That
+    /// product is the pointer-table length; a non-zero length requires a live
+    /// table of that many initialized slots.
+    /// Each non-null slot satisfies [`AVOptionRange`]'s handle invariant. The
+    /// table, elements and object use libavutil's allocator family and are
+    /// uniquely owned by this aggregate.
+    AVOptionRanges,
+    AVOptionRangesRef,
+    AVOptionRangesMut,
+    ffi::AVOptionRanges
+);
+
+// SAFETY: a uniquely owned, well-formed `AVOptionRanges` has exactly the
+// ownership graph expected by `av_opt_freep_ranges`. That function frees every
+// range string and range object, then the table and aggregate allocation.
+unsafe impl CDropped for AVOptionRanges {
+    unsafe fn c_drop(object: NonNull<Self>) {
+        let mut raw = object.as_ptr().cast::<ffi::AVOptionRanges>();
+        // SAFETY: the caller transfers one uniquely owned aggregate satisfying
+        // the documented handle invariant. The local slot is live and mutable;
+        // the C destructor consumes its pointee and writes null back.
+        unsafe { ffi::av_opt_freep_ranges(addr_of_mut!(raw)) }
+    }
+}
+
+impl AVOptionRangesRef<'_> {
+    /// Field: AVOptionRanges.nb_components
+    ///
+    /// Returns the number of components represented by the table.
+    #[must_use]
+    pub fn nb_components(&self) -> i32 {
+        // SAFETY: the handle keeps an initialized aggregate live and this
+        // raw-place projection copies its integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).nb_components).read() }
+    }
+
+    /// Field: AVOptionRanges.nb_ranges
+    ///
+    /// Returns the number of ranges per component.
+    #[must_use]
+    pub fn nb_ranges(&self) -> i32 {
+        // SAFETY: the handle keeps an initialized aggregate live and this
+        // raw-place projection copies its integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).nb_ranges).read() }
+    }
+}
+
+impl<'a> AVOptionRangesRef<'a> {
+    /// Field: AVOptionRanges.range
+    ///
+    /// Borrows one range using the public component-major table indexing.
+    /// Returns `None` for an out-of-bounds coordinate or a null slot.
+    #[must_use]
+    pub fn range(&self, component: usize, range: usize) -> Option<AVOptionRangeRef<'a>> {
+        let components = usize::try_from(self.nb_components()).ok()?;
+        let ranges = usize::try_from(self.nb_ranges()).ok()?;
+        if component >= components || range >= ranges {
+            return None;
+        }
+        let index = ranges.checked_mul(component)?.checked_add(range)?;
+        // SAFETY: the handle invariant makes `range` null only for an empty
+        // table; this path has in-bounds coordinates and therefore a non-empty
+        // table. It has `components * ranges` initialized pointer slots, so the
+        // checked index is readable without forming a reference.
+        let table = unsafe { addr_of!((*self.as_ptr()).range).read() };
+        let table = NonNull::new(table)?;
+        // SAFETY: `index` is in the initialized table established above. A
+        // non-null element addresses a range owned by the aggregate for `'a`.
+        let pointer = unsafe { table.as_ptr().add(index).read() };
+        // SAFETY: the aggregate handle invariant guarantees liveness, layout
+        // and the nested range invariant for every non-null element.
+        unsafe { AVOptionRangeRef::from_ptr(pointer) }
+    }
+}
+
+impl AVOptionRangesMut<'_> {
+    /// Exclusively borrows one range using component-major table indexing.
+    /// Returns `None` for an out-of-bounds coordinate or a null slot.
+    #[must_use]
+    pub fn range_mut(&mut self, component: usize, range: usize) -> Option<AVOptionRangeMut<'_>> {
+        let shared = self.as_ref();
+        let components = usize::try_from(shared.nb_components()).ok()?;
+        let ranges = usize::try_from(shared.nb_ranges()).ok()?;
+        if component >= components || range >= ranges {
+            return None;
+        }
+        let index = ranges.checked_mul(component)?.checked_add(range)?;
+        // SAFETY: as the shared accessor, while the exclusive parent handle
+        // supplies write provenance for the selected owned element.
+        let table = unsafe { addr_of_mut!((*self.as_mut_ptr()).range).read() };
+        let table = NonNull::new(table)?;
+        // SAFETY: the checked coordinate is within the initialized table.
+        let pointer = unsafe { table.as_ptr().add(index).read() };
+        // SAFETY: the exclusive borrow of the parent prevents another handle
+        // from being obtained through this API for the returned reborrow.
+        unsafe { AVOptionRangeMut::from_ptr(pointer) }
+    }
+}
+
+#[cfg(test)]
+mod option_ranges_tests {
+    use core::mem::{align_of, size_of};
+
+    use super::*;
+
+    unsafe fn malloc_zeroed<T>() -> *mut T {
+        // SAFETY: allocation size is exactly one `T`; the caller takes
+        // responsibility for initializing its semantic invariants and freeing
+        // it with the matching libavutil allocator.
+        unsafe { ffi::av_mallocz(size_of::<T>()).cast::<T>() }
+    }
+
+    #[test]
+    fn layout_and_owned_pointer_table_match_c() {
+        assert_eq!(
+            size_of::<AVOptionRanges>(),
+            size_of::<ffi::AVOptionRanges>()
+        );
+        assert_eq!(
+            align_of::<AVOptionRanges>(),
+            align_of::<ffi::AVOptionRanges>()
+        );
+
+        // SAFETY: all allocations below use libavutil's allocator and are
+        // initialized into one valid ownership graph before CBox adopts it.
+        let mut owned = unsafe {
+            let aggregate = malloc_zeroed::<ffi::AVOptionRanges>();
+            let table = ffi::av_mallocz(4 * size_of::<*mut ffi::AVOptionRange>())
+                .cast::<*mut ffi::AVOptionRange>();
+            assert!(!aggregate.is_null());
+            assert!(!table.is_null());
+            for index in 0..4 {
+                let item = malloc_zeroed::<ffi::AVOptionRange>();
+                assert!(!item.is_null());
+                addr_of_mut!((*item).value_min).write(index as f64);
+                addr_of_mut!((*item).value_max).write(index as f64 + 0.5);
+                table.add(index).write(item);
+            }
+            addr_of_mut!((*aggregate).range).write(table);
+            addr_of_mut!((*aggregate).nb_ranges).write(2);
+            addr_of_mut!((*aggregate).nb_components).write(2);
+            CBox::<AVOptionRanges>::from_raw(aggregate).expect("non-null allocation")
+        };
+
+        let view = owned.as_ref();
+        assert_eq!(view.nb_ranges(), 2);
+        assert_eq!(view.nb_components(), 2);
+        assert_eq!(
+            view.range(1, 0).expect("component 1 range 0").value_min(),
+            2.0
+        );
+        assert!(view.range(2, 0).is_none());
+
+        owned
+            .as_mut()
+            .range_mut(0, 1)
+            .expect("component 0 range 1")
+            .set_value_max(9.0);
+        assert_eq!(owned.as_ref().range(0, 1).unwrap().value_max(), 9.0);
+
+        // `Drop` exercises `av_opt_freep_ranges` for all four elements, their
+        // pointer table, and the aggregate. ASan catches an ownership mismatch.
+        drop(owned);
     }
 }

@@ -11,6 +11,7 @@
 #include <libavutil/frame.h>
 #include <libavutil/hash.h>
 #include <libavutil/hdr_dynamic_metadata.h>
+#include <libavutil/hdr_dynamic_vivid_metadata.h>
 #include <libavutil/hwcontext.h>
 #include <libavutil/iamf.h>
 #include <libavutil/imgutils.h>

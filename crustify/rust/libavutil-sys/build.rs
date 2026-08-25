@@ -23,6 +23,9 @@ fn main() {
         .allowlist_type("^AVRational$")
         .allowlist_type("^AVDOVIDmLevel[3-6]$")
         .allowlist_type("^AVDynamicHDRSmpte2094App5$")
+        .allowlist_type(
+            "^(AVHDRPlusPercentile|AVHDRVivid3SplineParams|AVLumaCoefficients|AVOptionRanges)$",
+        )
         .allowlist_type("^AVRounding$")
         .allowlist_type("^(AVDOVINLQParams|AVDOVIRpuDataHeader)$")
         .allowlist_type("^AVDOVIDmLevel(2|11|254|255)$")
@@ -49,6 +52,7 @@ fn main() {
         .allowlist_type("^AVStereo3D(Type|View)?$")
         .allowlist_type("^AVOption(ArrayDef|Type)?$")
         .allowlist_type("^AVOptionRange$")
+        .allowlist_function("^av_opt_freep_ranges$")
         .allowlist_type("^AVIAMF(ParamDefinition|SubmixLayout)Type$")
         .allowlist_type("^AVStereo3DPrimaryEye$")
         // Needed to build an option-bearing object at all: every av_opt_set*

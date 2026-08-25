@@ -68,6 +68,8 @@ use core::ptr::{NonNull, addr_of, addr_of_mut};
 
 use ffibox::{CSlice, CSliceMut, CVal, CValued};
 
+use crate::rational::{AVRationalMut, AVRationalRef};
+
 ffibox::define_ctype!(
     /// Wraps: AVDynamicHDRSmpte2094App5
     ///
@@ -375,5 +377,102 @@ mod tests {
             Some([10; 32])
         );
         assert_eq!(view.gain_curve_control_points_theta().elem(4), None);
+    }
+}
+
+ffibox::define_ctype!(
+    /// Wraps: AVHDRPlusPercentile
+    ///
+    /// ABI-compatible percentile entry embedded in HDR10+ metadata. It is
+    /// plain by-value storage and owns no resources.
+    AVHDRPlusPercentile,
+    AVHDRPlusPercentileRef,
+    AVHDRPlusPercentileMut,
+    ffi::AVHDRPlusPercentile
+);
+
+// SAFETY: this C structure contains only an integer and an inline
+// `AVRational`; neither field has a teardown operation.
+unsafe impl CValued for AVHDRPlusPercentile {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+impl AVHDRPlusPercentile {
+    /// Creates a zero-initialized percentile entry in owned inline storage.
+    #[must_use]
+    pub fn new() -> CVal<Self> {
+        CVal::new(Self::zeroed())
+    }
+}
+
+impl<'a> AVHDRPlusPercentileRef<'a> {
+    /// Field: AVHDRPlusPercentile.percentile
+    ///
+    /// Borrows the inline linearized maxRGB value.
+    #[must_use]
+    pub fn percentile(&self) -> AVRationalRef<'a> {
+        // SAFETY: the projected field is an initialized inline `AVRational`
+        // that remains live for the enclosing handle's lifetime.
+        unsafe { AVRationalRef::from_ptr(addr_of!((*self.as_ptr()).percentile).cast_mut()) }
+            .expect("an inline field is non-null")
+    }
+
+    /// Field: AVHDRPlusPercentile.percentage
+    ///
+    /// Returns the percentage corresponding to the percentile.
+    #[must_use]
+    pub fn percentage(&self) -> u8 {
+        // SAFETY: the handle keeps the object initialized and live; raw-place
+        // projection copies the integer without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).percentage).read() }
+    }
+}
+
+impl AVHDRPlusPercentileMut<'_> {
+    /// Exclusively borrows the inline linearized maxRGB value.
+    #[must_use]
+    pub fn percentile_mut(&mut self) -> AVRationalMut<'_> {
+        // SAFETY: the exclusive parent handle supplies write provenance to
+        // the projected initialized inline field for this reborrow.
+        unsafe { AVRationalMut::from_ptr(addr_of_mut!((*self.as_mut_ptr()).percentile)) }
+            .expect("an inline field is non-null")
+    }
+
+    /// Sets the percentage corresponding to the percentile.
+    pub fn set_percentage(&mut self, value: u8) {
+        // SAFETY: the exclusive handle permits writing this integer field and
+        // the raw-place projection forms no reference to C-visible storage.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).percentage).write(value) }
+    }
+}
+
+#[cfg(test)]
+mod percentile_tests {
+    use core::mem::{align_of, size_of};
+
+    use super::*;
+
+    #[test]
+    fn layout_and_fields_match_c() {
+        assert_eq!(
+            size_of::<AVHDRPlusPercentile>(),
+            size_of::<ffi::AVHDRPlusPercentile>()
+        );
+        assert_eq!(
+            align_of::<AVHDRPlusPercentile>(),
+            align_of::<ffi::AVHDRPlusPercentile>()
+        );
+
+        let mut entry = AVHDRPlusPercentile::new();
+        let mut view = entry.as_mut();
+        view.set_percentage(73);
+        let mut percentile = view.percentile_mut();
+        percentile.set_num(12_345);
+        percentile.set_den(100_000);
+
+        let view = entry.as_ref();
+        assert_eq!(view.percentage(), 73);
+        assert_eq!(view.percentile().num(), 12_345);
+        assert_eq!(view.percentile().den(), 100_000);
     }
 }
