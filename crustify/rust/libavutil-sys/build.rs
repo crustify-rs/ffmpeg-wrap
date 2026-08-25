@@ -22,12 +22,12 @@ fn main() {
         .allowlist_type("^(AVChannelOrder|AVChromaLocation)$")
         .allowlist_type("^AVRational$")
         .allowlist_type(
-            "^(AVBPrint|AVCIExy|AVDOVIColorMetadata|AVPrimaryCoefficients)$",
+            "^(AVBPrint|AVCIExy|AVColorPrimariesDesc|AVDOVIColorMetadata|AVPrimaryCoefficients)$",
         )
         .allowlist_type("^AVDOVIDmLevel[3-6]$")
-        .allowlist_type("^AVDynamicHDRSmpte2094App5$")
+        .allowlist_type("^AVDynamicHDR(Plus|Smpte2094App5)$")
         .allowlist_type(
-            "^(AVHDRPlusPercentile|AVHDRVivid3SplineParams|AVHDRVividColorToneMappingParams|AVLumaCoefficients|AVOptionRanges)$",
+            "^(AVHDRPlusPercentile|AVHDRVivid3SplineParams|AVHDRVividColorToneMappingParams|AVHDRVividColorTransformParams|AVLumaCoefficients|AVOptionRanges)$",
         )
         .allowlist_type("^AVRounding$")
         .allowlist_type("^(AVDOVINLQParams|AVDOVIRpuDataHeader)$")

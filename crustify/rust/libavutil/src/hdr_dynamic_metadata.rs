@@ -66,7 +66,7 @@ mod overlap_option_tests {
 
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::{CSlice, CSliceMut, CVal, CValued};
+use ffibox::{CDropped, CSlice, CSliceMut, CVal, CValued};
 
 use crate::rational::{AVRationalMut, AVRationalRef};
 
@@ -818,5 +818,410 @@ mod color_transform_params_tests {
         assert!(view.maxscl().get(3).is_none());
         assert!(view.distribution_maxrgb().get(15).is_none());
         assert!(view.bezier_curve_anchors().get(15).is_none());
+    }
+}
+
+ffibox::define_ctype!(
+    /// Wraps: AVDynamicHDRPlus
+    ///
+    /// ABI-compatible HDR10+ metadata. The complete metadata structure is
+    /// inline storage and contains no owned pointers or other resources.
+    AVDynamicHDRPlus,
+    AVDynamicHDRPlusRef,
+    AVDynamicHDRPlusMut,
+    ffi::AVDynamicHDRPlus
+);
+
+// SAFETY: this structure contains only integer scalars, inline rationals, and
+// fixed arrays of resource-free by-value structures.
+unsafe impl CValued for AVDynamicHDRPlus {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+// SAFETY: owned pointers to this type originate from
+// `av_dynamic_hdr_plus_alloc`, which uses the `av_malloc` family. `av_free`
+// is its matching storage destructor and the type has no field teardown.
+unsafe impl CDropped for AVDynamicHDRPlus {
+    unsafe fn c_drop(obj: NonNull<Self>) {
+        // SAFETY: the trait contract provides unique ownership of a live
+        // `av_malloc`-family allocation and transfers it exactly once here.
+        unsafe { ffi::av_free(obj.as_ptr().cast()) }
+    }
+}
+
+impl AVDynamicHDRPlus {
+    /// Number of processing-window parameter slots.
+    pub const MAX_WINDOWS: usize = 3;
+    /// Width and height of each fixed actual-peak-luminance grid.
+    pub const PEAK_LUMINANCE_GRID_SIDE: usize = 25;
+    /// Total entries in each flattened actual-peak-luminance grid.
+    pub const PEAK_LUMINANCE_GRID_LEN: usize =
+        Self::PEAK_LUMINANCE_GRID_SIDE * Self::PEAK_LUMINANCE_GRID_SIDE;
+
+    /// Creates zero-initialized HDR10+ metadata in owned inline storage.
+    #[must_use]
+    pub fn new() -> CVal<Self> {
+        CVal::new(Self::zeroed())
+    }
+}
+
+macro_rules! hdr_plus_metadata_scalar_field {
+    ($(#[$meta:meta])* $field:ident, $setter:ident) => {
+        impl AVDynamicHDRPlusRef<'_> {
+            $(#[$meta])*
+            #[must_use]
+            pub fn $field(&self) -> u8 {
+                // SAFETY: the shared handle keeps initialized metadata live;
+                // raw-place projection copies one byte without forming a
+                // reference to the C-visible object or field.
+                unsafe { addr_of!((*self.as_ptr()).$field).read() }
+            }
+        }
+
+        impl AVDynamicHDRPlusMut<'_> {
+            #[doc = concat!("Sets [`", stringify!($field), "`](AVDynamicHDRPlusRef::", stringify!($field), ").")]
+            pub fn $setter(&mut self, value: u8) {
+                // SAFETY: the exclusive handle supplies write provenance to
+                // initialized metadata and raw-place projection writes only
+                // the selected byte.
+                unsafe { addr_of_mut!((*self.as_mut_ptr()).$field).write(value) }
+            }
+        }
+    };
+}
+
+hdr_plus_metadata_scalar_field!(
+    /// Field: AVDynamicHDRPlus.itu_t_t35_country_code
+    itu_t_t35_country_code,
+    set_itu_t_t35_country_code
+);
+hdr_plus_metadata_scalar_field!(
+    /// Field: AVDynamicHDRPlus.application_version
+    application_version,
+    set_application_version
+);
+hdr_plus_metadata_scalar_field!(
+    /// Field: AVDynamicHDRPlus.targeted_system_display_actual_peak_luminance_flag
+    targeted_system_display_actual_peak_luminance_flag,
+    set_targeted_system_display_actual_peak_luminance_flag
+);
+hdr_plus_metadata_scalar_field!(
+    /// Field: AVDynamicHDRPlus.mastering_display_actual_peak_luminance_flag
+    mastering_display_actual_peak_luminance_flag,
+    set_mastering_display_actual_peak_luminance_flag
+);
+
+macro_rules! hdr_plus_metadata_count_field {
+    ($(#[$meta:meta])* $field:ident, $setter:ident, $valid:expr, $message:literal) => {
+        impl AVDynamicHDRPlusRef<'_> {
+            $(#[$meta])*
+            #[must_use]
+            pub fn $field(&self) -> u8 {
+                // SAFETY: the shared handle keeps initialized metadata live;
+                // raw-place projection copies one byte without forming a
+                // reference to C-visible storage.
+                unsafe { addr_of!((*self.as_ptr()).$field).read() }
+            }
+        }
+
+        impl AVDynamicHDRPlusMut<'_> {
+            #[doc = concat!("Sets [`", stringify!($field), "`](AVDynamicHDRPlusRef::", stringify!($field), ").")]
+            ///
+            /// # Panics
+            ///
+            #[doc = $message]
+            pub fn $setter(&mut self, value: u8) {
+                assert!($valid(value), $message);
+                // SAFETY: the exclusive handle supplies write provenance and
+                // the validated count cannot make a C consumer overrun its
+                // corresponding fixed array.
+                unsafe { addr_of_mut!((*self.as_mut_ptr()).$field).write(value) }
+            }
+        }
+    };
+}
+
+hdr_plus_metadata_count_field!(
+    /// Field: AVDynamicHDRPlus.num_windows
+    num_windows,
+    set_num_windows,
+    |value: u8| (1..=AVDynamicHDRPlus::MAX_WINDOWS as u8).contains(&value),
+    "num_windows must be in 1..=3"
+);
+hdr_plus_metadata_count_field!(
+    /// Field: AVDynamicHDRPlus.num_rows_targeted_system_display_actual_peak_luminance
+    num_rows_targeted_system_display_actual_peak_luminance,
+    set_num_rows_targeted_system_display_actual_peak_luminance,
+    |value: u8| (2..=AVDynamicHDRPlus::PEAK_LUMINANCE_GRID_SIDE as u8).contains(&value),
+    "the targeted-system-display row count must be in 2..=25"
+);
+hdr_plus_metadata_count_field!(
+    /// Field: AVDynamicHDRPlus.num_cols_targeted_system_display_actual_peak_luminance
+    num_cols_targeted_system_display_actual_peak_luminance,
+    set_num_cols_targeted_system_display_actual_peak_luminance,
+    |value: u8| (2..=AVDynamicHDRPlus::PEAK_LUMINANCE_GRID_SIDE as u8).contains(&value),
+    "the targeted-system-display column count must be in 2..=25"
+);
+hdr_plus_metadata_count_field!(
+    /// Field: AVDynamicHDRPlus.num_rows_mastering_display_actual_peak_luminance
+    num_rows_mastering_display_actual_peak_luminance,
+    set_num_rows_mastering_display_actual_peak_luminance,
+    |value: u8| (2..=AVDynamicHDRPlus::PEAK_LUMINANCE_GRID_SIDE as u8).contains(&value),
+    "the mastering-display row count must be in 2..=25"
+);
+hdr_plus_metadata_count_field!(
+    /// Field: AVDynamicHDRPlus.num_cols_mastering_display_actual_peak_luminance
+    num_cols_mastering_display_actual_peak_luminance,
+    set_num_cols_mastering_display_actual_peak_luminance,
+    |value: u8| (2..=AVDynamicHDRPlus::PEAK_LUMINANCE_GRID_SIDE as u8).contains(&value),
+    "the mastering-display column count must be in 2..=25"
+);
+
+impl<'a> AVDynamicHDRPlusRef<'a> {
+    /// Field: AVDynamicHDRPlus.params
+    ///
+    /// Borrows all three inline processing-window parameter slots.
+    #[must_use]
+    pub fn params(&self) -> CSlice<'a, AVHDRPlusColorTransformParams> {
+        // SAFETY: raw-place projection locates the three initialized inline
+        // slots without forming a reference. They live for the parent handle's
+        // lifetime and the returned view grants shared access only.
+        unsafe {
+            let pointer = addr_of!((*self.as_ptr()).params)
+                .cast::<AVHDRPlusColorTransformParams>()
+                .cast_mut();
+            CSlice::from_raw_parts(
+                NonNull::new_unchecked(pointer),
+                AVDynamicHDRPlus::MAX_WINDOWS,
+            )
+        }
+    }
+
+    /// Field: AVDynamicHDRPlus.targeted_system_display_maximum_luminance
+    #[must_use]
+    pub fn targeted_system_display_maximum_luminance(&self) -> AVRationalRef<'a> {
+        // SAFETY: raw-place projection locates an initialized inline rational
+        // that remains live for the parent metadata handle's lifetime.
+        unsafe {
+            AVRationalRef::from_ptr(
+                addr_of!((*self.as_ptr()).targeted_system_display_maximum_luminance).cast_mut(),
+            )
+            .expect("an inline field is non-null")
+        }
+    }
+
+    /// Field: AVDynamicHDRPlus.targeted_system_display_actual_peak_luminance
+    ///
+    /// Borrows the row-major 25-by-25 grid as a flat bounded view.
+    #[must_use]
+    pub fn targeted_system_display_actual_peak_luminance(
+        &self,
+    ) -> CSlice<'a, crate::rational::AVRational> {
+        // SAFETY: C arrays are contiguous in row-major order. Raw-place
+        // projection locates all 625 initialized inline rationals without
+        // forming a reference, and they live for the parent handle's lifetime.
+        unsafe {
+            let pointer = addr_of!((*self.as_ptr()).targeted_system_display_actual_peak_luminance)
+                .cast::<crate::rational::AVRational>()
+                .cast_mut();
+            CSlice::from_raw_parts(
+                NonNull::new_unchecked(pointer),
+                AVDynamicHDRPlus::PEAK_LUMINANCE_GRID_LEN,
+            )
+        }
+    }
+
+    /// Field: AVDynamicHDRPlus.mastering_display_actual_peak_luminance
+    ///
+    /// Borrows the row-major 25-by-25 grid as a flat bounded view.
+    #[must_use]
+    pub fn mastering_display_actual_peak_luminance(
+        &self,
+    ) -> CSlice<'a, crate::rational::AVRational> {
+        // SAFETY: as the targeted-system grid, this fixed C array is 625
+        // contiguous initialized rationals that live for the parent lifetime.
+        unsafe {
+            let pointer = addr_of!((*self.as_ptr()).mastering_display_actual_peak_luminance)
+                .cast::<crate::rational::AVRational>()
+                .cast_mut();
+            CSlice::from_raw_parts(
+                NonNull::new_unchecked(pointer),
+                AVDynamicHDRPlus::PEAK_LUMINANCE_GRID_LEN,
+            )
+        }
+    }
+}
+
+impl AVDynamicHDRPlusMut<'_> {
+    /// Exclusively borrows all three inline processing-window parameter slots.
+    #[must_use]
+    pub fn params_mut(&mut self) -> CSliceMut<'_, AVHDRPlusColorTransformParams> {
+        // SAFETY: raw-place projection locates all initialized slots and the
+        // exclusive parent handle prevents competing access for this reborrow.
+        unsafe {
+            let pointer =
+                addr_of_mut!((*self.as_mut_ptr()).params).cast::<AVHDRPlusColorTransformParams>();
+            CSliceMut::from_raw_parts(
+                NonNull::new_unchecked(pointer),
+                AVDynamicHDRPlus::MAX_WINDOWS,
+            )
+        }
+    }
+
+    /// Exclusively borrows the nominal maximum targeted-display luminance.
+    #[must_use]
+    pub fn targeted_system_display_maximum_luminance_mut(&mut self) -> AVRationalMut<'_> {
+        // SAFETY: the exclusive parent handle supplies write provenance to
+        // this initialized inline rational for the returned reborrow.
+        unsafe {
+            AVRationalMut::from_ptr(addr_of_mut!(
+                (*self.as_mut_ptr()).targeted_system_display_maximum_luminance
+            ))
+            .expect("an inline field is non-null")
+        }
+    }
+
+    /// Exclusively borrows the flattened targeted-display peak-luminance grid.
+    #[must_use]
+    pub fn targeted_system_display_actual_peak_luminance_mut(
+        &mut self,
+    ) -> CSliceMut<'_, crate::rational::AVRational> {
+        // SAFETY: raw-place projection locates all contiguous initialized grid
+        // entries and the exclusive parent handle prevents competing access.
+        unsafe {
+            let pointer =
+                addr_of_mut!((*self.as_mut_ptr()).targeted_system_display_actual_peak_luminance)
+                    .cast::<crate::rational::AVRational>();
+            CSliceMut::from_raw_parts(
+                NonNull::new_unchecked(pointer),
+                AVDynamicHDRPlus::PEAK_LUMINANCE_GRID_LEN,
+            )
+        }
+    }
+
+    /// Exclusively borrows the flattened mastering-display peak-luminance grid.
+    #[must_use]
+    pub fn mastering_display_actual_peak_luminance_mut(
+        &mut self,
+    ) -> CSliceMut<'_, crate::rational::AVRational> {
+        // SAFETY: as the targeted-system grid, all fixed initialized entries
+        // are covered by this exclusive reborrow and no references are formed.
+        unsafe {
+            let pointer =
+                addr_of_mut!((*self.as_mut_ptr()).mastering_display_actual_peak_luminance)
+                    .cast::<crate::rational::AVRational>();
+            CSliceMut::from_raw_parts(
+                NonNull::new_unchecked(pointer),
+                AVDynamicHDRPlus::PEAK_LUMINANCE_GRID_LEN,
+            )
+        }
+    }
+}
+
+#[cfg(test)]
+mod dynamic_hdr_plus_tests {
+    use core::mem::{align_of, size_of};
+
+    use super::*;
+
+    #[test]
+    fn layout_and_all_fields_match_c() {
+        assert_eq!(
+            size_of::<AVDynamicHDRPlus>(),
+            size_of::<ffi::AVDynamicHDRPlus>()
+        );
+        assert_eq!(
+            align_of::<AVDynamicHDRPlus>(),
+            align_of::<ffi::AVDynamicHDRPlus>()
+        );
+
+        let mut metadata = AVDynamicHDRPlus::new();
+        let mut view = metadata.as_mut();
+        view.set_itu_t_t35_country_code(0xb5);
+        view.set_application_version(1);
+        view.set_num_windows(3);
+        view.set_targeted_system_display_actual_peak_luminance_flag(1);
+        view.set_num_rows_targeted_system_display_actual_peak_luminance(25);
+        view.set_num_cols_targeted_system_display_actual_peak_luminance(24);
+        view.set_mastering_display_actual_peak_luminance_flag(1);
+        view.set_num_rows_mastering_display_actual_peak_luminance(23);
+        view.set_num_cols_mastering_display_actual_peak_luminance(22);
+        view.targeted_system_display_maximum_luminance_mut()
+            .set_num(10_000);
+        view.params_mut()
+            .get_mut(2)
+            .expect("the third window exists")
+            .set_center_of_ellipse_x(321);
+        view.targeted_system_display_actual_peak_luminance_mut()
+            .get_mut(624)
+            .expect("the last targeted-display grid entry exists")
+            .set_num(15);
+        view.mastering_display_actual_peak_luminance_mut()
+            .get_mut(0)
+            .expect("the first mastering-display grid entry exists")
+            .set_den(17);
+
+        let view = metadata.as_ref();
+        assert_eq!(view.itu_t_t35_country_code(), 0xb5);
+        assert_eq!(view.application_version(), 1);
+        assert_eq!(view.num_windows(), 3);
+        assert_eq!(
+            view.targeted_system_display_maximum_luminance().num(),
+            10_000
+        );
+        assert_eq!(view.targeted_system_display_actual_peak_luminance_flag(), 1);
+        assert_eq!(
+            view.num_rows_targeted_system_display_actual_peak_luminance(),
+            25
+        );
+        assert_eq!(
+            view.num_cols_targeted_system_display_actual_peak_luminance(),
+            24
+        );
+        assert_eq!(view.mastering_display_actual_peak_luminance_flag(), 1);
+        assert_eq!(view.num_rows_mastering_display_actual_peak_luminance(), 23);
+        assert_eq!(view.num_cols_mastering_display_actual_peak_luminance(), 22);
+        assert_eq!(view.params().get(2).unwrap().center_of_ellipse_x(), 321);
+        assert_eq!(
+            view.targeted_system_display_actual_peak_luminance()
+                .get(624)
+                .unwrap()
+                .num(),
+            15
+        );
+        assert_eq!(
+            view.mastering_display_actual_peak_luminance()
+                .get(0)
+                .unwrap()
+                .den(),
+            17
+        );
+        assert!(view.params().get(3).is_none());
+        assert!(
+            view.targeted_system_display_actual_peak_luminance()
+                .get(625)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn owned_allocation_uses_the_av_malloc_destructor() {
+        // SAFETY: allocating exactly the generated C layout size is within
+        // `av_malloc`'s contract; NULL is handled before the pointer is used.
+        let raw = unsafe { ffi::av_malloc(size_of::<ffi::AVDynamicHDRPlus>()) }
+            .cast::<ffi::AVDynamicHDRPlus>();
+        assert!(!raw.is_null());
+        // SAFETY: `raw` is suitably aligned writable storage for exactly one
+        // C layout value. Every field admits the zero representation used by
+        // libavutil's own allocator, so this finishes initialization.
+        unsafe { raw.write(core::mem::zeroed()) };
+        // SAFETY: the initialized pointer is a uniquely owned av_malloc-family
+        // allocation whose matching `CDropped` implementation calls av_free.
+        let mut metadata = unsafe { ffibox::CBox::<AVDynamicHDRPlus>::from_raw(raw) }
+            .expect("av_malloc returned a non-null pointer");
+
+        metadata.as_mut().set_num_windows(1);
+        assert_eq!(metadata.as_ref().num_windows(), 1);
+        // `metadata` releases the allocation through `av_free` here.
     }
 }

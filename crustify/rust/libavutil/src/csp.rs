@@ -311,3 +311,108 @@ mod primary_coefficients_tests {
         assert_eq!(view.b().x().den(), 100);
     }
 }
+
+ffibox::define_ctype!(
+    /// Wraps: AVColorPrimariesDesc
+    ///
+    /// ABI-compatible complete color-gamut description. Both the white point
+    /// and primary coordinates are stored inline and own no resources.
+    AVColorPrimariesDesc,
+    AVColorPrimariesDescRef,
+    AVColorPrimariesDescMut,
+    ffi::AVColorPrimariesDesc
+);
+
+// SAFETY: both fields are initialized inline coordinate structures with no
+// teardown operation or separately owned resource.
+unsafe impl CValued for AVColorPrimariesDesc {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+impl AVColorPrimariesDesc {
+    /// Creates a zero-initialized gamut description in owned inline storage.
+    #[must_use]
+    pub fn new() -> CVal<Self> {
+        CVal::new(Self::zeroed())
+    }
+}
+
+impl<'a> AVColorPrimariesDescRef<'a> {
+    /// Field: AVColorPrimariesDesc.wp
+    ///
+    /// Borrows the inline white-point coordinates.
+    #[must_use]
+    pub fn wp(&self) -> AVCIExyRef<'a> {
+        // SAFETY: raw-place projection locates the initialized inline white
+        // point without forming a reference. It lives for the parent handle's
+        // lifetime and is exposed through a shared handle only.
+        unsafe { AVCIExyRef::from_ptr(addr_of!((*self.as_ptr()).wp).cast_mut()) }
+            .expect("an inline field is non-null")
+    }
+
+    /// Field: AVColorPrimariesDesc.prim
+    ///
+    /// Borrows the inline red, green, and blue primary coordinates.
+    #[must_use]
+    pub fn prim(&self) -> AVPrimaryCoefficientsRef<'a> {
+        // SAFETY: raw-place projection locates the initialized inline primary
+        // coordinates without forming a reference. They live for the parent
+        // handle's lifetime and are exposed through a shared handle only.
+        unsafe { AVPrimaryCoefficientsRef::from_ptr(addr_of!((*self.as_ptr()).prim).cast_mut()) }
+            .expect("an inline field is non-null")
+    }
+}
+
+impl AVColorPrimariesDescMut<'_> {
+    /// Exclusively borrows the inline white-point coordinates.
+    #[must_use]
+    pub fn wp_mut(&mut self) -> AVCIExyMut<'_> {
+        // SAFETY: the exclusive parent handle supplies write provenance to
+        // this initialized inline field for the returned reborrow.
+        unsafe { AVCIExyMut::from_ptr(addr_of_mut!((*self.as_mut_ptr()).wp)) }
+            .expect("an inline field is non-null")
+    }
+
+    /// Exclusively borrows the inline primary coordinates.
+    #[must_use]
+    pub fn prim_mut(&mut self) -> AVPrimaryCoefficientsMut<'_> {
+        // SAFETY: the exclusive parent handle supplies write provenance to
+        // this initialized inline field for the returned reborrow.
+        unsafe { AVPrimaryCoefficientsMut::from_ptr(addr_of_mut!((*self.as_mut_ptr()).prim)) }
+            .expect("an inline field is non-null")
+    }
+}
+
+#[cfg(test)]
+mod color_primaries_desc_tests {
+    use core::mem::{align_of, size_of};
+
+    use super::*;
+
+    #[test]
+    fn layout_and_nested_fields_match_c() {
+        assert_eq!(
+            size_of::<AVColorPrimariesDesc>(),
+            size_of::<ffi::AVColorPrimariesDesc>()
+        );
+        assert_eq!(
+            align_of::<AVColorPrimariesDesc>(),
+            align_of::<ffi::AVColorPrimariesDesc>()
+        );
+
+        let mut description = AVColorPrimariesDesc::new();
+        let mut view = description.as_mut();
+        view.wp_mut().x_mut().set_num(31_270);
+        view.wp_mut().y_mut().set_den(100_000);
+        view.prim_mut().r_mut().x_mut().set_num(64);
+        view.prim_mut().g_mut().y_mut().set_num(60);
+        view.prim_mut().b_mut().x_mut().set_den(100);
+
+        let view = description.as_ref();
+        assert_eq!(view.wp().x().num(), 31_270);
+        assert_eq!(view.wp().y().den(), 100_000);
+        assert_eq!(view.prim().r().x().num(), 64);
+        assert_eq!(view.prim().g().y().num(), 60);
+        assert_eq!(view.prim().b().x().den(), 100);
+    }
+}
