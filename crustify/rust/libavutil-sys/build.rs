@@ -21,11 +21,13 @@ fn main() {
         .allowlist_type("^(AVEscapeMode|AVFifo|AVFilmGrainAOMParams)$")
         .allowlist_type("^(AVChannelOrder|AVChromaLocation)$")
         .allowlist_type("^AVRational$")
-        .allowlist_type("^(AVBPrint|AVCIExy|AVDOVIColorMetadata)$")
+        .allowlist_type(
+            "^(AVBPrint|AVCIExy|AVDOVIColorMetadata|AVPrimaryCoefficients)$",
+        )
         .allowlist_type("^AVDOVIDmLevel[3-6]$")
         .allowlist_type("^AVDynamicHDRSmpte2094App5$")
         .allowlist_type(
-            "^(AVHDRPlusPercentile|AVHDRVivid3SplineParams|AVLumaCoefficients|AVOptionRanges)$",
+            "^(AVHDRPlusPercentile|AVHDRVivid3SplineParams|AVHDRVividColorToneMappingParams|AVLumaCoefficients|AVOptionRanges)$",
         )
         .allowlist_type("^AVRounding$")
         .allowlist_type("^(AVDOVINLQParams|AVDOVIRpuDataHeader)$")

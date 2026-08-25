@@ -209,3 +209,105 @@ mod avciexy_tests {
         assert_eq!(xy.as_ref().y().den(), 12);
     }
 }
+
+ffibox::define_ctype!(
+    /// Wraps: AVPrimaryCoefficients
+    ///
+    /// ABI-compatible CIE 1931 red, green, and blue primary locations. The
+    /// structure contains only inline chromaticity coordinates.
+    AVPrimaryCoefficients,
+    AVPrimaryCoefficientsRef,
+    AVPrimaryCoefficientsMut,
+    ffi::AVPrimaryCoefficients
+);
+
+// SAFETY: all three fields are initialized inline `AVCIExy` values with no
+// teardown operation or separately owned resource.
+unsafe impl CValued for AVPrimaryCoefficients {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+impl AVPrimaryCoefficients {
+    /// Creates zero-initialized primary coordinates in owned inline storage.
+    #[must_use]
+    pub fn new() -> CVal<Self> {
+        CVal::new(Self::zeroed())
+    }
+}
+
+macro_rules! primary_field {
+    ($(#[$meta:meta])* $field:ident, $field_mut:ident) => {
+        impl<'a> AVPrimaryCoefficientsRef<'a> {
+            $(#[$meta])*
+            #[must_use]
+            pub fn $field(&self) -> AVCIExyRef<'a> {
+                // SAFETY: raw-place projection locates an initialized inline
+                // coordinate that lives for the parent handle's lifetime.
+                unsafe {
+                    AVCIExyRef::from_ptr(addr_of!((*self.as_ptr()).$field).cast_mut())
+                        .expect("an embedded field is non-null")
+                }
+            }
+        }
+
+        impl AVPrimaryCoefficientsMut<'_> {
+            #[doc = concat!("Exclusively borrows [`", stringify!($field), "`](AVPrimaryCoefficientsRef::", stringify!($field), ").")]
+            #[must_use]
+            pub fn $field_mut(&mut self) -> AVCIExyMut<'_> {
+                // SAFETY: the exclusive parent handle supplies write
+                // provenance to this initialized inline coordinate for the
+                // returned reborrow.
+                unsafe {
+                    AVCIExyMut::from_ptr(addr_of_mut!((*self.as_mut_ptr()).$field))
+                        .expect("an embedded field is non-null")
+                }
+            }
+        }
+    };
+}
+
+primary_field!(
+    /// Field: AVPrimaryCoefficients.r
+    r,
+    r_mut
+);
+primary_field!(
+    /// Field: AVPrimaryCoefficients.g
+    g,
+    g_mut
+);
+primary_field!(
+    /// Field: AVPrimaryCoefficients.b
+    b,
+    b_mut
+);
+
+#[cfg(test)]
+mod primary_coefficients_tests {
+    use core::mem::{align_of, size_of};
+
+    use super::*;
+
+    #[test]
+    fn layout_and_nested_coordinate_access_match_c() {
+        assert_eq!(
+            size_of::<AVPrimaryCoefficients>(),
+            size_of::<ffi::AVPrimaryCoefficients>()
+        );
+        assert_eq!(
+            align_of::<AVPrimaryCoefficients>(),
+            align_of::<ffi::AVPrimaryCoefficients>()
+        );
+
+        let mut primaries = AVPrimaryCoefficients::new();
+        let mut view = primaries.as_mut();
+        view.r_mut().x_mut().set_num(64);
+        view.g_mut().y_mut().set_num(60);
+        view.b_mut().x_mut().set_den(100);
+
+        let view = primaries.as_ref();
+        assert_eq!(view.r().x().num(), 64);
+        assert_eq!(view.g().y().num(), 60);
+        assert_eq!(view.b().x().den(), 100);
+    }
+}
