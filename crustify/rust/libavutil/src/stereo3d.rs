@@ -3,7 +3,7 @@
 use core::ffi::c_void;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::CDropped;
+use ffibox::{CDropped, CVal, CValued};
 
 use crate::ffi;
 
@@ -147,6 +147,75 @@ impl From<AVStereo3DPrimaryEye> for ffi::AVStereo3DPrimaryEye {
     }
 }
 
+/// The bit set carried by [`AVStereo3D.flags`](AVStereo3DRef::flags).
+///
+/// `stereo3d.h` publishes exactly one bit today, so the word stays a
+/// transparent `int` and unrecognized bits round-trip unchanged instead of
+/// being masked away by a read-modify-write.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AVStereo3DFlags(i32);
+
+impl AVStereo3DFlags {
+    /// No flag bit is set.
+    pub const NONE: Self = Self(0);
+
+    /// The views are inverted: the right or bottom half carries the left view.
+    pub const INVERT: Self = Self(ffi::AV_STEREO3D_FLAG_INVERT as i32);
+
+    /// Wraps a raw C flag word, including bits unknown to this crate version.
+    #[must_use]
+    pub const fn from_raw(raw: i32) -> Self {
+        Self(raw)
+    }
+
+    /// Returns the ABI flag word accepted by libavutil.
+    #[must_use]
+    pub const fn as_raw(self) -> i32 {
+        self.0
+    }
+
+    /// Returns whether every bit of `other` is set.
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// Returns `self` with every bit of `other` set.
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// Returns `self` with every bit of `other` cleared.
+    #[must_use]
+    pub const fn difference(self, other: Self) -> Self {
+        Self(self.0 & !other.0)
+    }
+}
+
+impl core::ops::BitOr for AVStereo3DFlags {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        self.union(rhs)
+    }
+}
+
+impl core::ops::BitOrAssign for AVStereo3DFlags {
+    fn bitor_assign(&mut self, rhs: Self) {
+        *self = self.union(rhs);
+    }
+}
+
+impl core::ops::BitAnd for AVStereo3DFlags {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self(self.0 & rhs.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use core::mem::{align_of, size_of};
@@ -250,10 +319,49 @@ mod tests {
 
     #[test]
     fn primary_eye_values_match_c_and_preserve_unknowns() {
-        assert_eq!(AVStereo3DPrimaryEye::NONE.as_raw(), 0);
-        assert_eq!(AVStereo3DPrimaryEye::LEFT.as_raw(), 1);
-        assert_eq!(AVStereo3DPrimaryEye::RIGHT.as_raw(), 2);
+        for (value, raw) in [
+            (
+                AVStereo3DPrimaryEye::NONE,
+                ffi::AVStereo3DPrimaryEye_AV_PRIMARY_EYE_NONE,
+            ),
+            (
+                AVStereo3DPrimaryEye::LEFT,
+                ffi::AVStereo3DPrimaryEye_AV_PRIMARY_EYE_LEFT,
+            ),
+            (
+                AVStereo3DPrimaryEye::RIGHT,
+                ffi::AVStereo3DPrimaryEye_AV_PRIMARY_EYE_RIGHT,
+            ),
+        ] {
+            assert_eq!(value.as_raw(), raw);
+        }
         assert_eq!(AVStereo3DPrimaryEye::from_raw(99).as_raw(), 99);
+    }
+
+    #[test]
+    fn flags_track_the_c_bit_and_keep_unknown_bits() {
+        assert_eq!(AVStereo3DFlags::NONE.as_raw(), 0);
+        assert_eq!(
+            AVStereo3DFlags::INVERT.as_raw(),
+            ffi::AV_STEREO3D_FLAG_INVERT as i32
+        );
+
+        let unknown = AVStereo3DFlags::from_raw(1 << 7);
+        let both = unknown | AVStereo3DFlags::INVERT;
+        assert!(both.contains(AVStereo3DFlags::INVERT));
+        assert!(both.contains(unknown));
+        assert_eq!(both.as_raw(), (1 << 7) | 1);
+
+        // Clearing the one published bit must leave the unknown bit alone.
+        let cleared = both.difference(AVStereo3DFlags::INVERT);
+        assert_eq!(cleared, unknown);
+        assert!(!cleared.contains(AVStereo3DFlags::INVERT));
+        assert_eq!(both & AVStereo3DFlags::INVERT, AVStereo3DFlags::INVERT);
+
+        let mut accumulated = AVStereo3DFlags::default();
+        assert_eq!(accumulated, AVStereo3DFlags::NONE);
+        accumulated |= AVStereo3DFlags::INVERT;
+        assert_eq!(accumulated, AVStereo3DFlags::INVERT);
     }
 }
 
@@ -264,8 +372,11 @@ ffibox::define_ctype!(
     /// values returned by `av_stereo3d_alloc` are owned as
     /// [`ffibox::CBox<AVStereo3D>`] and released with `av_free`, the allocator
     /// underlying the public API's documented `av_freep` release. Values kept
-    /// in an `AVFrameSideData` buffer are instead reached only through borrowed
-    /// handles tied to the owning frame.
+    /// in an `AVFrameSideData` buffer — what `av_stereo3d_create_side_data`
+    /// hands back — are stored by value inside that buffer and are reached
+    /// only through borrowed handles tied to the owning frame. Rust-owned
+    /// inline storage takes the same by-value form through
+    /// [`AVStereo3D::new`].
     AVStereo3D,
     AVStereo3DRef,
     AVStereo3DMut,
@@ -285,6 +396,34 @@ unsafe impl CDropped for AVStereo3D {
     }
 }
 
+// SAFETY: every field is an integer scalar, an integer-backed enum or an
+// inline `AVRational`. The structure owns no pointer and no separate
+// allocation, so a value living inside another buffer — a frame's side data,
+// or Rust-owned inline storage — needs no field teardown at all.
+unsafe impl CValued for AVStereo3D {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+impl AVStereo3D {
+    /// Creates stereoscopic metadata in owned inline storage, initialized the
+    /// way libavutil initializes it.
+    ///
+    /// `av_stereo3d_alloc` zeroes the structure and then applies
+    /// `get_defaults`, which sets both rationals to `0/1`. Zeroing alone would
+    /// leave them at `0/0`, so this constructor applies the same defaults
+    /// rather than exposing a degenerate denominator.
+    #[must_use]
+    pub fn new() -> CVal<Self> {
+        let mut value = CVal::new(Self::zeroed());
+        {
+            let mut stereo = value.as_mut();
+            stereo.horizontal_disparity_adjustment_mut().set_den(1);
+            stereo.horizontal_field_of_view_mut().set_den(1);
+        }
+        value
+    }
+}
+
 impl<'a> AVStereo3DRef<'a> {
     /// Field: AVStereo3D.type
     ///
@@ -301,10 +440,10 @@ impl<'a> AVStereo3DRef<'a> {
     ///
     /// Returns the frame-packing flags, including unknown future bits.
     #[must_use]
-    pub fn flags(&self) -> i32 {
+    pub fn flags(&self) -> AVStereo3DFlags {
         // SAFETY: the handle keeps an initialized structure live; raw-place
         // projection copies the scalar without forming a reference.
-        unsafe { addr_of!((*self.as_ptr()).flags).read() }
+        AVStereo3DFlags::from_raw(unsafe { addr_of!((*self.as_ptr()).flags).read() })
     }
 
     /// Field: AVStereo3D.horizontal_field_of_view
@@ -379,10 +518,10 @@ impl AVStereo3DMut<'_> {
     }
 
     /// Replaces all frame-packing flag bits.
-    pub fn set_flags(&mut self, flags: i32) {
+    pub fn set_flags(&mut self, flags: AVStereo3DFlags) {
         // SAFETY: the exclusive handle supplies write provenance to the live
         // scalar field and raw-place projection forms no reference.
-        unsafe { addr_of_mut!((*self.as_mut_ptr()).flags).write(flags) }
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).flags).write(flags.as_raw()) }
     }
 
     /// Exclusively borrows the horizontal field of view.
@@ -437,9 +576,66 @@ impl AVStereo3DMut<'_> {
 mod stereo_metadata_tests {
     use core::mem::{align_of, size_of};
 
-    use ffibox::CDropped;
+    use ffibox::{CBox, CDropped, CValued};
 
     use super::*;
+
+    #[test]
+    fn new_applies_the_c_defaults_in_inline_storage() {
+        let value = AVStereo3D::new();
+        let stereo = value.as_ref();
+
+        // `av_stereo3d_alloc` zeroes the struct, then `get_defaults` sets both
+        // rationals to 0/1 — a plain `zeroed()` would leave 0/0.
+        assert_eq!(stereo.kind(), AVStereo3DType::TWO_DIMENSIONAL);
+        assert_eq!(stereo.flags(), AVStereo3DFlags::NONE);
+        assert_eq!(stereo.view(), AVStereo3DView::PACKED);
+        assert_eq!(stereo.primary_eye(), AVStereo3DPrimaryEye::NONE);
+        assert_eq!(stereo.baseline(), 0);
+        assert_eq!(stereo.horizontal_disparity_adjustment().num(), 0);
+        assert_eq!(stereo.horizontal_disparity_adjustment().den(), 1);
+        assert_eq!(stereo.horizontal_field_of_view().num(), 0);
+        assert_eq!(stereo.horizontal_field_of_view().den(), 1);
+    }
+
+    #[test]
+    fn c_allocated_metadata_is_owned_and_released_by_the_registered_dropper() {
+        // SAFETY: `av_stereo3d_alloc` returns the base of one fresh, uniquely
+        // owned `av_mallocz` allocation, or null. Nothing else holds it, so
+        // adopting it into a `CBox` is the sole ownership transfer, and the
+        // sanitizers check that `CDropped`'s `av_free` matches that allocator.
+        let owned = unsafe { CBox::<AVStereo3D>::from_raw(ffi::av_stereo3d_alloc()) }
+            .expect("av_stereo3d_alloc returned null");
+
+        // C's own defaults must be exactly what `AVStereo3D::new` reproduces.
+        let expected = AVStereo3D::new();
+        let stereo = owned.as_ref();
+        let expected = expected.as_ref();
+        assert_eq!(stereo.kind(), expected.kind());
+        assert_eq!(stereo.flags(), expected.flags());
+        assert_eq!(stereo.view(), expected.view());
+        assert_eq!(stereo.primary_eye(), expected.primary_eye());
+        assert_eq!(stereo.baseline(), expected.baseline());
+        assert_eq!(
+            stereo.horizontal_disparity_adjustment().den(),
+            expected.horizontal_disparity_adjustment().den()
+        );
+        assert_eq!(
+            stereo.horizontal_field_of_view().den(),
+            expected.horizontal_field_of_view().den()
+        );
+
+        // `owned` drops here, running `av_free` on the `av_mallocz` block.
+    }
+
+    #[test]
+    fn inline_storage_is_writable_through_its_exclusive_handle() {
+        let mut value = AVStereo3D::new();
+        value.as_mut().set_view(AVStereo3DView::LEFT);
+        value.as_mut().set_baseline(65_000);
+        assert_eq!(value.as_ref().view(), AVStereo3DView::LEFT);
+        assert_eq!(value.as_ref().baseline(), 65_000);
+    }
 
     #[test]
     fn stereo_metadata_layout_matches_ffi() {
@@ -448,6 +644,11 @@ mod stereo_metadata_tests {
 
         fn assert_has_allocator_matched_drop<T: CDropped>() {}
         assert_has_allocator_matched_drop::<AVStereo3D>();
+
+        // The same layout also embeds by value in an `AVFrameSideData` buffer
+        // and in Rust-owned inline storage, with no field teardown.
+        fn assert_has_by_value_teardown<T: CValued>() {}
+        assert_has_by_value_teardown::<AVStereo3D>();
     }
 
     #[test]
@@ -466,7 +667,7 @@ mod stereo_metadata_tests {
         // handle's scope, and the exclusive handle is its only access path.
         let mut stereo = unsafe { AVStereo3DMut::from_ptr(&raw mut raw) }.unwrap();
         stereo.set_kind(AVStereo3DType::SIDE_BY_SIDE);
-        stereo.set_flags(0x41);
+        stereo.set_flags(AVStereo3DFlags::INVERT | AVStereo3DFlags::from_raw(0x40));
         stereo.set_view(AVStereo3DView::RIGHT);
         stereo.set_primary_eye(AVStereo3DPrimaryEye::LEFT);
         stereo.set_baseline(63_500);
@@ -483,7 +684,8 @@ mod stereo_metadata_tests {
 
         let stereo = stereo.as_ref();
         assert_eq!(stereo.kind(), AVStereo3DType::SIDE_BY_SIDE);
-        assert_eq!(stereo.flags(), 0x41);
+        assert_eq!(stereo.flags().as_raw(), 0x41);
+        assert!(stereo.flags().contains(AVStereo3DFlags::INVERT));
         assert_eq!(stereo.view(), AVStereo3DView::RIGHT);
         assert_eq!(stereo.primary_eye(), AVStereo3DPrimaryEye::LEFT);
         assert_eq!(stereo.baseline(), 63_500);

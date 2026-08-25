@@ -1538,6 +1538,48 @@
    ]
   },
   {
+   "name": "AVStereo3D",
+   "defined_in": "libavutil/stereo3d.h",
+   "_comment_agent": "Reviewed 2026-08-25 for the api-50pct-review campaign. AVStereo3D holds no pointer field: `type`, `view` and `primary_eye` are integer-backed C enums, `flags` and `baseline` are integer scalars, and `horizontal_disparity_adjustment` / `horizontal_field_of_view` are inline by-value AVRational members. So the struct owns no separate allocation and has no field disposer, and its whole lifecycle is the storage itself. Two storage forms exist and both are exercised in-tree: av_stereo3d_alloc / av_stereo3d_alloc_size hand back one independent av_mallocz block whose documented release is av_freep (that is av_free on the base pointer), while av_stereo3d_create_side_data returns a borrowed interior pointer into an AVFrameSideData buffer that av_frame_new_side_data owns -- that one must never be adopted as an owning pointer. get_defaults, the only non-opaque toucher, writes both rationals to 0/1, so a merely zeroed value is NOT the C default: it would carry a zero denominator. No field is refcounted and none is accessed under a lock; the type is single-threaded plain metadata.",
+   "fields": [
+    {
+     "name": "baseline",
+     "refcount": false,
+     "locked_by": null
+    },
+    {
+     "name": "flags",
+     "refcount": false,
+     "locked_by": null
+    },
+    {
+     "name": "horizontal_disparity_adjustment",
+     "refcount": false,
+     "locked_by": null
+    },
+    {
+     "name": "horizontal_field_of_view",
+     "refcount": false,
+     "locked_by": null
+    },
+    {
+     "name": "primary_eye",
+     "refcount": false,
+     "locked_by": null
+    },
+    {
+     "name": "type",
+     "refcount": false,
+     "locked_by": null
+    },
+    {
+     "name": "view",
+     "refcount": false,
+     "locked_by": null
+    }
+   ]
+  },
+  {
    "name": "AVStereo3DPrimaryEye",
    "defined_in": "libavutil/stereo3d.h",
    "_comment_agent": "Plain C enumeration stored by value in AVStereo3D.primary_eye. No pointer slot and no lifecycle role.",
