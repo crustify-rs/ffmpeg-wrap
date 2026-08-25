@@ -59,7 +59,7 @@ fn main() {
         .allowlist_function("^av_opt_freep_ranges$")
         .allowlist_function("^av_(bprint_(append_data|chars|clear|escape|finalize|get_buffer|init|init_for_buffer|strftime)|get_padded_bits_per_pixel|image_fill_max_pixsteps|opt_(eval_(double|flags|float|int|int64|q|uint)|find|is_set_to_default|next|query_ranges|query_ranges_default)|read_image_line2?|write_image_line2?)$")
         .allowlist_function("^crustify_av_(bprintf_string|vbprintf_string|dovi_get_color)$")
-        .allowlist_type("^AVIAMF(ParamDefinition|SubmixLayout)Type$")
+        .allowlist_type("^AVIAMF((ParamDefinition|SubmixLayout)Type|ReconGain|SubmixLayout)$")
         .allowlist_type("^AVStereo3DPrimaryEye$")
         // Needed to build an option-bearing object at all: every av_opt_set*
         // target is a struct whose first field is a `const AVClass *`.

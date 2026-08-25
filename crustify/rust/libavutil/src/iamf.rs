@@ -762,6 +762,228 @@ readonly_scalar_field!(
     usize
 );
 
+ffibox::define_ctype!(
+    /// Wraps: AVIAMFReconGain
+    ///
+    /// Borrowed view of reconstruction-gain subblock storage embedded in an
+    /// [`AVIAMFParamDefinition`](ffi::AVIAMFParamDefinition) allocation.
+    /// Libavutil initializes every such subblock with a non-null pointer to
+    /// immutable static `AVClass` metadata. Its duration starts at zero and
+    /// must be configured before the subblock is consumed. The subblock has no
+    /// independent allocation or teardown operation. Foreign instances must
+    /// keep equivalent immutable class metadata live with the subblock.
+    AVIAMFReconGain,
+    AVIAMFReconGainRef,
+    AVIAMFReconGainMut,
+    ffi::AVIAMFReconGain
+);
+
+impl<'a> AVIAMFReconGainRef<'a> {
+    /// Field: AVIAMFReconGain.av_class
+    ///
+    /// Returns the immutable process-lifetime option metadata for this
+    /// reconstruction-gain subblock.
+    #[must_use]
+    pub fn av_class(&self) -> crate::log::AVClassRef<'a> {
+        // SAFETY: the type invariant establishes that this field is a non-null
+        // pointer to immutable class metadata live for at least `'a`.
+        let class = unsafe { core::ptr::addr_of!((*self.as_ptr()).av_class).read() };
+        // SAFETY: that same invariant establishes initialization, immutability,
+        // non-nullness, and the returned handle's lifetime. Libavutil's own
+        // instances point at the translation unit's static `recon_gain_class`.
+        unsafe { crate::log::AVClassRef::from_ptr(class.cast_mut()) }
+            .expect("AVIAMFReconGain has a non-null AVClass")
+    }
+
+    /// Field: AVIAMFReconGain.recon_gain
+    ///
+    /// Copies the six layers of twelve channel gains. Entries belonging to a
+    /// layer without reconstruction gain have unspecified semantics, but their
+    /// zero-initialized bytes remain safe to copy.
+    #[must_use]
+    pub fn recon_gain(&self) -> [[u8; 12]; 6] {
+        // SAFETY: libavutil zero-initializes the complete subblock allocation;
+        // raw-place projection copies the fixed array without forming a
+        // reference to C-visible storage.
+        unsafe { core::ptr::addr_of!((*self.as_ptr()).recon_gain).read() }
+    }
+
+    /// Field: AVIAMFReconGain.subblock_duration
+    ///
+    /// Returns the duration in units of the parent definition's parameter
+    /// rate. A freshly allocated subblock is zero until its required duration
+    /// is configured.
+    #[must_use]
+    pub fn subblock_duration(&self) -> Option<core::num::NonZeroU32> {
+        // SAFETY: the scalar is copied through a raw projection from the live
+        // subblock. Zero is retained as the not-yet-configured state.
+        let duration = unsafe { core::ptr::addr_of!((*self.as_ptr()).subblock_duration).read() };
+        core::num::NonZeroU32::new(duration)
+    }
+}
+
+impl AVIAMFReconGainMut<'_> {
+    /// Replaces all reconstruction-gain entries.
+    pub fn set_recon_gain(&mut self, gain: [[u8; 12]; 6]) {
+        // SAFETY: the exclusive handle permits replacing this initialized
+        // fixed array; raw-place projection forms no reference to C storage.
+        unsafe {
+            core::ptr::addr_of_mut!((*self.as_mut_ptr()).recon_gain).write(gain);
+        }
+    }
+
+    /// Sets the duration while preserving its documented nonzero invariant.
+    pub fn set_subblock_duration(&mut self, duration: core::num::NonZeroU32) {
+        // SAFETY: the exclusive handle permits writing this scalar and the
+        // argument's type preserves the subblock invariant.
+        unsafe {
+            core::ptr::addr_of_mut!((*self.as_mut_ptr()).subblock_duration).write(duration.get());
+        }
+    }
+}
+
+ffibox::define_ctype!(
+    /// Wraps: AVIAMFSubmixLayout
+    ///
+    /// Borrowed view of a submix layout owned by its enclosing
+    /// `AVIAMFMixPresentation`. Libavutil allocates and zero-initializes the
+    /// object, installs immutable static `AVClass` metadata, initializes the
+    /// embedded channel layout, and later disposes it with its parent. Foreign
+    /// instances must keep equivalent immutable class metadata live with the
+    /// layout. This type deliberately has no independent owning handle.
+    AVIAMFSubmixLayout,
+    AVIAMFSubmixLayoutRef,
+    AVIAMFSubmixLayoutMut,
+    ffi::AVIAMFSubmixLayout
+);
+
+impl<'a> AVIAMFSubmixLayoutRef<'a> {
+    /// Field: AVIAMFSubmixLayout.av_class
+    ///
+    /// Returns the immutable process-lifetime option metadata for this layout.
+    #[must_use]
+    pub fn av_class(&self) -> crate::log::AVClassRef<'a> {
+        // SAFETY: the type invariant establishes that this field is a non-null
+        // pointer to immutable class metadata live for at least `'a`.
+        let class = unsafe { core::ptr::addr_of!((*self.as_ptr()).av_class).read() };
+        // SAFETY: that same invariant establishes initialization, immutability,
+        // non-nullness, and the returned handle's lifetime. Libavutil's own
+        // instances point at the translation unit's static `layout_class`.
+        unsafe { crate::log::AVClassRef::from_ptr(class.cast_mut()) }
+            .expect("AVIAMFSubmixLayout has a non-null AVClass")
+    }
+
+    /// Field: AVIAMFSubmixLayout.layout_type
+    #[must_use]
+    pub fn layout_type(&self) -> AVIAMFSubmixLayoutType {
+        // SAFETY: raw-place projection copies the integer-backed enum from the
+        // live layout without forming a reference to C storage.
+        AVIAMFSubmixLayoutType::from_raw(unsafe {
+            core::ptr::addr_of!((*self.as_ptr()).layout_type).read()
+        })
+    }
+
+    /// Field: AVIAMFSubmixLayout.sound_system
+    ///
+    /// Borrows the initialized channel layout embedded in this submix layout.
+    #[must_use]
+    pub fn sound_system(&self) -> crate::channel_layout::AVChannelLayoutRef<'a> {
+        // SAFETY: libavutil initializes the by-value channel layout and it
+        // remains live with the enclosing layout for `'a`.
+        unsafe {
+            crate::channel_layout::AVChannelLayoutRef::from_ptr(
+                core::ptr::addr_of!((*self.as_ptr()).sound_system).cast_mut(),
+            )
+        }
+        .expect("an embedded field address is non-null")
+    }
+}
+
+impl AVIAMFSubmixLayoutMut<'_> {
+    /// Sets whether this is a loudspeaker or binaural layout.
+    pub fn set_layout_type(&mut self, layout_type: AVIAMFSubmixLayoutType) {
+        // SAFETY: the exclusive handle permits replacing this integer-backed
+        // enum and raw-place projection forms no reference to C storage.
+        unsafe {
+            core::ptr::addr_of_mut!((*self.as_mut_ptr()).layout_type).write(layout_type.as_raw());
+        }
+    }
+
+    /// Exclusively borrows the embedded channel layout.
+    #[must_use]
+    pub fn sound_system_mut(&mut self) -> crate::channel_layout::AVChannelLayoutMut<'_> {
+        // SAFETY: the exclusive parent handle supplies write provenance to the
+        // initialized inline layout for the duration of this reborrow.
+        unsafe {
+            crate::channel_layout::AVChannelLayoutMut::from_ptr(core::ptr::addr_of_mut!(
+                (*self.as_mut_ptr()).sound_system
+            ))
+        }
+        .expect("an embedded field address is non-null")
+    }
+}
+
+macro_rules! submix_rational_field {
+    ($(#[$meta:meta])* $field:ident, $field_mut:ident) => {
+        impl<'a> AVIAMFSubmixLayoutRef<'a> {
+            $(#[$meta])*
+            #[must_use]
+            pub fn $field(&self) -> crate::rational::AVRationalRef<'a> {
+                // SAFETY: the projected inline rational is initialized and
+                // remains live for the enclosing layout handle's lifetime.
+                unsafe {
+                    crate::rational::AVRationalRef::from_ptr(
+                        core::ptr::addr_of!((*self.as_ptr()).$field).cast_mut(),
+                    )
+                }
+                .expect("an embedded field address is non-null")
+            }
+        }
+
+        impl AVIAMFSubmixLayoutMut<'_> {
+            #[doc = concat!("Exclusively borrows [`", stringify!($field), "`](AVIAMFSubmixLayoutRef::", stringify!($field), ").")]
+            #[must_use]
+            pub fn $field_mut(&mut self) -> crate::rational::AVRationalMut<'_> {
+                // SAFETY: the exclusive parent handle supplies write
+                // provenance to this initialized inline rational for the
+                // duration of the returned reborrow.
+                unsafe {
+                    crate::rational::AVRationalMut::from_ptr(core::ptr::addr_of_mut!(
+                        (*self.as_mut_ptr()).$field
+                    ))
+                }
+                .expect("an embedded field address is non-null")
+            }
+        }
+    };
+}
+
+submix_rational_field!(
+    /// Field: AVIAMFSubmixLayout.album_anchored_loudness
+    album_anchored_loudness,
+    album_anchored_loudness_mut
+);
+submix_rational_field!(
+    /// Field: AVIAMFSubmixLayout.dialogue_anchored_loudness
+    dialogue_anchored_loudness,
+    dialogue_anchored_loudness_mut
+);
+submix_rational_field!(
+    /// Field: AVIAMFSubmixLayout.true_peak
+    true_peak,
+    true_peak_mut
+);
+submix_rational_field!(
+    /// Field: AVIAMFSubmixLayout.digital_peak
+    digital_peak,
+    digital_peak_mut
+);
+submix_rational_field!(
+    /// Field: AVIAMFSubmixLayout.integrated_loudness
+    integrated_loudness,
+    integrated_loudness_mut
+);
+
 #[cfg(test)]
 mod struct_tests {
     use core::mem::{align_of, size_of};
@@ -922,5 +1144,127 @@ mod struct_tests {
         definition.as_mut().set_parameter_id(9);
         assert_eq!(definition.as_ref().parameter_id(), 9);
         // `CBox` drops through the allocator-matched `av_free` here.
+    }
+}
+
+#[cfg(test)]
+mod scheduled_struct_tests {
+    use core::num::NonZeroU32;
+    use core::ptr::{addr_of, addr_of_mut};
+
+    use crate::channel_layout::AVChannelOrder;
+
+    use super::*;
+
+    fn test_class() -> ffi::AVClass {
+        // SAFETY: every bit pattern of the scalar and pointer fields in AVClass
+        // is valid, and all callback pointers are optional. The test keeps this
+        // value live longer than the synthetic object that borrows it.
+        unsafe { core::mem::zeroed::<ffi::AVClass>() }
+    }
+
+    fn rational(num: i32, den: i32) -> ffi::AVRational {
+        ffi::AVRational { num, den }
+    }
+
+    fn unspecified_layout() -> ffi::AVChannelLayout {
+        ffi::AVChannelLayout {
+            order: ffi::AVChannelOrder_AV_CHANNEL_ORDER_UNSPEC,
+            nb_channels: 0,
+            u: ffi::AVChannelLayout__bindgen_ty_1 { mask: 0 },
+            opaque: core::ptr::null_mut(),
+        }
+    }
+
+    #[test]
+    fn scheduled_struct_layouts_match_bindgen() {
+        assert_eq!(
+            core::mem::size_of::<AVIAMFReconGain>(),
+            core::mem::size_of::<ffi::AVIAMFReconGain>()
+        );
+        assert_eq!(
+            core::mem::align_of::<AVIAMFReconGain>(),
+            core::mem::align_of::<ffi::AVIAMFReconGain>()
+        );
+        assert_eq!(
+            core::mem::size_of::<AVIAMFSubmixLayout>(),
+            core::mem::size_of::<ffi::AVIAMFSubmixLayout>()
+        );
+        assert_eq!(
+            core::mem::align_of::<AVIAMFSubmixLayout>(),
+            core::mem::align_of::<ffi::AVIAMFSubmixLayout>()
+        );
+    }
+
+    #[test]
+    fn recon_gain_fields_are_copied_and_mutated_without_references() {
+        let class = test_class();
+        let class = addr_of!(class);
+        let mut raw = ffi::AVIAMFReconGain {
+            av_class: class,
+            subblock_duration: 0,
+            recon_gain: [[0; 12]; 6],
+        };
+        // SAFETY: `raw` is initialized according to AVIAMFReconGain's
+        // invariants and this is its only access path for the handle's life.
+        let view = unsafe { AVIAMFReconGainRef::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        assert_eq!(view.av_class().as_ptr(), class);
+        assert_eq!(view.subblock_duration(), None);
+        assert_eq!(view.recon_gain(), [[0; 12]; 6]);
+
+        // SAFETY: the shared handle is no longer used and `raw` remains a live,
+        // initialized subblock reached only through this exclusive handle.
+        let mut view = unsafe { AVIAMFReconGainMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        let mut gains = [[0; 12]; 6];
+        gains[5][11] = 37;
+        view.set_recon_gain(gains);
+        view.set_subblock_duration(NonZeroU32::new(9).unwrap());
+        assert_eq!(view.as_ref().recon_gain()[5][11], 37);
+        assert_eq!(view.as_ref().subblock_duration().unwrap().get(), 9);
+    }
+
+    #[test]
+    fn submix_layout_projects_typed_embedded_fields() {
+        let class = test_class();
+        let class = addr_of!(class);
+        let mut raw = ffi::AVIAMFSubmixLayout {
+            av_class: class,
+            layout_type: AVIAMFSubmixLayoutType::LOUDSPEAKERS.as_raw(),
+            sound_system: unspecified_layout(),
+            integrated_loudness: rational(-23, 1),
+            digital_peak: rational(-2, 1),
+            true_peak: rational(-1, 1),
+            dialogue_anchored_loudness: rational(-24, 1),
+            album_anchored_loudness: rational(-22, 1),
+        };
+        // SAFETY: every embedded value is initialized, the class remains live,
+        // and this shared handle is the only access path for its duration.
+        let view = unsafe { AVIAMFSubmixLayoutRef::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        assert_eq!(view.av_class().as_ptr(), class);
+        assert_eq!(view.layout_type(), AVIAMFSubmixLayoutType::LOUDSPEAKERS);
+        assert_eq!(view.sound_system().order(), AVChannelOrder::UNSPECIFIED);
+        assert_eq!(
+            (
+                view.integrated_loudness().num(),
+                view.integrated_loudness().den()
+            ),
+            (-23, 1)
+        );
+        assert_eq!(view.album_anchored_loudness().num(), -22);
+
+        // SAFETY: the shared handle is no longer used and the live initialized
+        // object is reached only through this exclusive handle.
+        let mut view = unsafe { AVIAMFSubmixLayoutMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        view.set_layout_type(AVIAMFSubmixLayoutType::BINAURAL);
+        view.true_peak_mut().set_num(-3);
+        assert_eq!(
+            view.sound_system_mut().as_ref().order(),
+            AVChannelOrder::UNSPECIFIED
+        );
+        assert_eq!(
+            view.as_ref().layout_type(),
+            AVIAMFSubmixLayoutType::BINAURAL
+        );
+        assert_eq!(view.as_ref().true_peak().num(), -3);
     }
 }
