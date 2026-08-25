@@ -3,9 +3,10 @@
 use core::ffi::c_void;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::{CDropped, CSlice, CSliceMut};
+use ffibox::{CBox, CDropped, CSlice, CSliceMut};
 
 use crate::channel_layout::{AVChannelLayoutMut, AVChannelLayoutRef};
+use crate::dict::{AVDictionary, AVDictionaryRef};
 use crate::ffi;
 use crate::log::AVClassRef;
 use crate::rational::{AVRational, AVRationalMut, AVRationalRef};
@@ -1266,5 +1267,301 @@ mod scheduled_struct_tests {
             AVIAMFSubmixLayoutType::BINAURAL
         );
         assert_eq!(view.as_ref().true_peak().num(), -3);
+    }
+}
+
+ffibox::define_ctype!(
+    /// Wraps: AVIAMFSubmixElement
+    ///
+    /// Layout-compatible view of an element owned by an `AVIAMFSubmix`
+    /// within a mix presentation. Libavutil creates these values through
+    /// `av_iamf_submix_add_element`, installs immutable static class metadata,
+    /// and releases the element, its optional dictionary, and its optional
+    /// parameter definition with the enclosing mix presentation. It therefore
+    /// has borrowed handles but no independent owning handle.
+    AVIAMFSubmixElement,
+    AVIAMFSubmixElementRef,
+    AVIAMFSubmixElementMut,
+    ffi::AVIAMFSubmixElement
+);
+
+impl<'a> AVIAMFSubmixElementRef<'a> {
+    /// Field: AVIAMFSubmixElement.annotations
+    ///
+    /// Borrows the optional dictionary owned by this element.
+    #[must_use]
+    pub fn annotations(&self) -> Option<AVDictionaryRef<'a>> {
+        // SAFETY: raw-place projection only copies the pointer from the live
+        // element. Its invariant makes a non-null pointer one fully formed
+        // dictionary kept alive by the enclosing mix presentation for `'a`.
+        let annotations = unsafe { addr_of!((*self.as_ptr()).annotations).read() };
+        // SAFETY: the ownership invariant above supplies validity and lifetime;
+        // null is represented by `None`.
+        unsafe { AVDictionaryRef::from_ptr(annotations) }
+    }
+
+    /// Field: AVIAMFSubmixElement.av_class
+    ///
+    /// Returns the immutable process-lifetime option metadata installed by
+    /// libavutil's element constructor.
+    #[must_use]
+    pub fn av_class(&self) -> AVClassRef<'a> {
+        // SAFETY: raw-place projection copies the pointer without forming a
+        // reference. The type invariant makes it non-null static metadata.
+        let class = unsafe { addr_of!((*self.as_ptr()).av_class).read() };
+        // SAFETY: the constructor-established invariant supplies non-nullness,
+        // immutability, initialization, and a lifetime exceeding `'a`.
+        unsafe { AVClassRef::from_ptr(class.cast_mut()) }
+            .expect("AVIAMFSubmixElement has a non-null AVClass")
+    }
+
+    /// Field: AVIAMFSubmixElement.default_mix_gain
+    ///
+    /// Borrows the inline default gain rational.
+    #[must_use]
+    pub fn default_mix_gain(&self) -> AVRationalRef<'a> {
+        // SAFETY: the inline rational is initialized and remains live with the
+        // element for `'a`; the returned handle contains only its raw address.
+        unsafe { AVRationalRef::from_ptr(addr_of!((*self.as_ptr()).default_mix_gain).cast_mut()) }
+            .expect("an embedded field address is non-null")
+    }
+
+    /// Field: AVIAMFSubmixElement.headphones_rendering_mode
+    #[must_use]
+    pub fn headphones_rendering_mode(&self) -> AVIAMFHeadphonesMode {
+        // SAFETY: bindgen represents this open C enum as an integer. Raw-place
+        // projection copies it without forming a reference to C storage.
+        AVIAMFHeadphonesMode::from_raw(unsafe {
+            addr_of!((*self.as_ptr()).headphones_rendering_mode).read()
+        })
+    }
+
+    /// Field: AVIAMFSubmixElement.element_mix_config
+    ///
+    /// Borrows the optional parameter definition owned by this element.
+    #[must_use]
+    pub fn element_mix_config(&self) -> Option<AVIAMFParamDefinitionRef<'a>> {
+        // SAFETY: raw-place projection only copies the pointer. A non-null
+        // value is an initialized definition kept alive by the element for
+        // the lifetime of this shared handle.
+        let definition = unsafe { addr_of!((*self.as_ptr()).element_mix_config).read() };
+        // SAFETY: the field invariant establishes validity and lifetime; null
+        // is represented by `None`.
+        unsafe { AVIAMFParamDefinitionRef::from_ptr(definition) }
+    }
+
+    /// Field: AVIAMFSubmixElement.audio_element_id
+    #[must_use]
+    pub fn audio_element_id(&self) -> u32 {
+        // SAFETY: raw-place projection copies one initialized scalar without
+        // forming a reference to C-visible storage.
+        unsafe { addr_of!((*self.as_ptr()).audio_element_id).read() }
+    }
+}
+
+impl AVIAMFSubmixElementMut<'_> {
+    /// Replaces the owned annotations dictionary and returns the previous one.
+    pub fn replace_annotations(
+        &mut self,
+        annotations: Option<CBox<AVDictionary>>,
+    ) -> Option<CBox<AVDictionary>> {
+        let annotations = annotations.map_or(core::ptr::null_mut(), CBox::into_raw);
+        // SAFETY: this exclusive handle permits replacing the owner slot. The
+        // incoming pointer transfers exactly one ownership unit to the field;
+        // `replace` returns the old pointer without releasing it.
+        let old = unsafe { addr_of_mut!((*self.as_mut_ptr()).annotations).replace(annotations) };
+        // SAFETY: the field invariant makes `old` null or the unique live
+        // dictionary owner removed from the slot above.
+        unsafe { CBox::from_raw(old) }
+    }
+
+    /// Exclusively borrows the inline default gain rational.
+    #[must_use]
+    pub fn default_mix_gain_mut(&mut self) -> AVRationalMut<'_> {
+        // SAFETY: the exclusive element reborrow supplies the sole access to
+        // this initialized inline rational for the returned handle's lifetime.
+        unsafe { AVRationalMut::from_ptr(addr_of_mut!((*self.as_mut_ptr()).default_mix_gain)) }
+            .expect("an embedded field address is non-null")
+    }
+
+    /// Sets the headphones rendering mode while preserving unknown C values.
+    pub fn set_headphones_rendering_mode(&mut self, mode: AVIAMFHeadphonesMode) {
+        // SAFETY: the exclusive handle permits replacing this integer-backed
+        // enum, and the wrapper represents every possible C value.
+        unsafe {
+            addr_of_mut!((*self.as_mut_ptr()).headphones_rendering_mode).write(mode.as_raw());
+        }
+    }
+
+    /// Exclusively borrows the optional owned parameter definition.
+    #[must_use]
+    pub fn element_mix_config_mut(&mut self) -> Option<AVIAMFParamDefinitionMut<'_>> {
+        // SAFETY: raw-place projection copies the pointer from the exclusive
+        // element. A non-null definition remains owned by the element and the
+        // returned handle is bound to this exclusive reborrow.
+        let definition = unsafe { addr_of!((*self.as_mut_ptr()).element_mix_config).read() };
+        // SAFETY: the field invariant supplies validity and this method's
+        // exclusive borrow supplies the returned mutable lifetime.
+        unsafe { AVIAMFParamDefinitionMut::from_ptr(definition) }
+    }
+
+    /// Replaces the owned parameter definition and returns the previous one.
+    ///
+    /// A non-null definition must describe mix gain, as required by the C
+    /// structure contract. An owner of another parameter type is returned in
+    /// `Err` without changing the element.
+    pub fn replace_element_mix_config(
+        &mut self,
+        definition: Option<CBox<AVIAMFParamDefinition>>,
+    ) -> Result<Option<CBox<AVIAMFParamDefinition>>, CBox<AVIAMFParamDefinition>> {
+        if definition.as_ref().is_some_and(|definition| {
+            definition.as_ref().parameter_type() != AVIAMFParamDefinitionType::MIX_GAIN
+        }) {
+            return Err(definition.expect("the rejected definition is present"));
+        }
+        let definition = definition.map_or(core::ptr::null_mut(), CBox::into_raw);
+        // SAFETY: this exclusive handle permits replacing the owner slot. The
+        // incoming pointer transfers one ownership unit into the element and
+        // `replace` moves the old unit out without releasing it.
+        let old =
+            unsafe { addr_of_mut!((*self.as_mut_ptr()).element_mix_config).replace(definition) };
+        // SAFETY: the field invariant makes `old` null or the unique live
+        // av_malloc-family allocation removed from the slot above.
+        Ok(unsafe { CBox::from_raw(old) })
+    }
+
+    /// Sets the referenced audio-element identifier.
+    pub fn set_audio_element_id(&mut self, id: u32) {
+        // SAFETY: the exclusive handle permits replacing this scalar and raw
+        // projection forms no reference to C-visible storage.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).audio_element_id).write(id) }
+    }
+}
+
+#[cfg(test)]
+mod submix_element_tests {
+    use core::mem::{align_of, size_of};
+    use core::ptr::{addr_of, addr_of_mut};
+
+    use super::*;
+
+    fn test_class() -> ffi::AVClass {
+        // SAFETY: every field is an integer, raw pointer, or optional callback,
+        // so zero initializes a valid inert class used only as borrowed test
+        // metadata.
+        unsafe { core::mem::zeroed() }
+    }
+
+    fn raw_element(class: *const ffi::AVClass) -> ffi::AVIAMFSubmixElement {
+        ffi::AVIAMFSubmixElement {
+            av_class: class,
+            audio_element_id: 7,
+            element_mix_config: core::ptr::null_mut(),
+            default_mix_gain: ffi::AVRational { num: -3, den: 2 },
+            headphones_rendering_mode: AVIAMFHeadphonesMode::STEREO.as_raw(),
+            annotations: core::ptr::null_mut(),
+        }
+    }
+
+    fn parameter_definition(
+        parameter_type: AVIAMFParamDefinitionType,
+    ) -> CBox<AVIAMFParamDefinition> {
+        // SAFETY: the requested finite size fits one header; av_malloc returns
+        // null or a fresh allocation with sufficient alignment.
+        let pointer = unsafe { ffi::av_malloc(size_of::<ffi::AVIAMFParamDefinition>()) }
+            .cast::<ffi::AVIAMFParamDefinition>();
+        assert!(!pointer.is_null());
+        // SAFETY: the fresh allocation is large and aligned for this write,
+        // which initializes every header field before ownership is adopted.
+        unsafe {
+            pointer.write(ffi::AVIAMFParamDefinition {
+                av_class: core::ptr::null(),
+                subblocks_offset: size_of::<ffi::AVIAMFParamDefinition>(),
+                subblock_size: size_of::<ffi::AVIAMFMixGain>(),
+                nb_subblocks: 0,
+                type_: parameter_type.as_raw(),
+                parameter_id: 11,
+                parameter_rate: 48_000,
+                duration: 0,
+                constant_subblock_duration: 0,
+            });
+        }
+        // SAFETY: the initialized pointer is the unique allocation base from
+        // av_malloc and transfers exactly once into the matching CBox owner.
+        unsafe { CBox::from_raw(pointer) }.unwrap()
+    }
+
+    #[test]
+    fn layout_and_borrowed_fields_match_c() {
+        assert_eq!(
+            size_of::<AVIAMFSubmixElement>(),
+            size_of::<ffi::AVIAMFSubmixElement>()
+        );
+        assert_eq!(
+            align_of::<AVIAMFSubmixElement>(),
+            align_of::<ffi::AVIAMFSubmixElement>()
+        );
+
+        let class = test_class();
+        let mut raw = raw_element(addr_of!(class));
+        // SAFETY: `raw` is fully initialized according to the wrapper's
+        // invariant and remains live and exclusively accessed through `view`.
+        let mut view = unsafe { AVIAMFSubmixElementMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        assert_eq!(view.as_ref().av_class().as_ptr(), addr_of!(class));
+        assert_eq!(view.as_ref().audio_element_id(), 7);
+        assert!(view.as_ref().annotations().is_none());
+        assert!(view.as_ref().element_mix_config().is_none());
+        assert_eq!(view.as_ref().default_mix_gain().num(), -3);
+        assert_eq!(view.as_ref().default_mix_gain().den(), 2);
+        assert_eq!(
+            view.as_ref().headphones_rendering_mode(),
+            AVIAMFHeadphonesMode::STEREO
+        );
+
+        view.set_audio_element_id(9);
+        view.set_headphones_rendering_mode(AVIAMFHeadphonesMode::BINAURAL);
+        view.default_mix_gain_mut().set_den(4);
+        assert_eq!(view.as_ref().audio_element_id(), 9);
+        assert_eq!(
+            view.as_ref().headphones_rendering_mode(),
+            AVIAMFHeadphonesMode::BINAURAL
+        );
+        assert_eq!(view.as_ref().default_mix_gain().den(), 4);
+    }
+
+    #[test]
+    fn owned_fields_can_be_replaced_and_taken() {
+        let class = test_class();
+        let mut raw = raw_element(addr_of!(class));
+        // SAFETY: `raw` is fully initialized and only this handle accesses it
+        // until all installed owners are taken back out.
+        let mut view = unsafe { AVIAMFSubmixElementMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+
+        let rejected = parameter_definition(AVIAMFParamDefinitionType::DEMIXING);
+        assert!(view.replace_element_mix_config(Some(rejected)).is_err());
+        assert!(view.as_ref().element_mix_config().is_none());
+
+        let definition = parameter_definition(AVIAMFParamDefinitionType::MIX_GAIN);
+        assert!(
+            view.replace_element_mix_config(Some(definition))
+                .unwrap()
+                .is_none()
+        );
+        view.element_mix_config_mut().unwrap().set_parameter_id(13);
+        assert_eq!(
+            view.as_ref().element_mix_config().unwrap().parameter_id(),
+            13
+        );
+        let definition = view.replace_element_mix_config(None).unwrap().unwrap();
+        assert_eq!(definition.as_ref().parameter_id(), 13);
+        drop(definition);
+
+        let mut dictionary = crate::dict::Dictionary::default();
+        crate::dict::av_dict_set(&mut dictionary, c"en", Some(c"name"), 0).unwrap();
+        assert!(view.replace_annotations(dictionary.into_owner()).is_none());
+        assert_eq!(crate::dict::av_dict_count(view.as_ref().annotations()), 1);
+        let annotations = view.replace_annotations(None).unwrap();
+        assert_eq!(crate::dict::av_dict_count(Some(annotations.as_ref())), 1);
+        drop(annotations);
     }
 }

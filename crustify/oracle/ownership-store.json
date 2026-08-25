@@ -979,6 +979,60 @@
    ]
   },
   {
+   "name": "AVIAMFSubmixElement",
+   "defined_in": "libavutil/iamf.h",
+   "_comment_agent": "Public submix elements are parent-owned construction-phase objects. Their av_class is static metadata; annotations and element_mix_config are nullable exclusive subobjects disposed with the parent.",
+   "fields": [
+    {
+     "name": "annotations",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "The element exclusively owns the optional dictionary pointer. av_opt_free(submix_element), reached from av_iamf_mix_presentation_free, calls the AVOption dictionary disposer; parsing also mutates the owning AVDictionary ** slot with av_dict_set."
+     }
+    },
+    {
+     "name": "av_class",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "av_iamf_submix_add_element installs the translation-unit static element_class; the published allocation contract requires construction through that function and C only reads the immutable metadata."
+     }
+    },
+    {
+     "name": "element_mix_config",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "The element exclusively owns an optional av_malloc-family AVIAMFParamDefinition allocation. It starts null, callers install or replace it, and av_iamf_mix_presentation_free releases it exactly once with av_free."
+     }
+    }
+   ]
+  },
+  {
    "name": "AVIAMFSubmixLayout",
    "defined_in": "libavutil/iamf.h",
    "_comment_agent": "AVIAMFSubmixLayout is parent-owned by AVIAMFSubmix/AVIAMFMixPresentation and has no standalone releaser. Its AVClass pointer borrows immutable static metadata.",
