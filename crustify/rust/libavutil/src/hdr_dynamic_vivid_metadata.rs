@@ -726,7 +726,10 @@ ffibox::define_ctype!(
     /// ABI-compatible HDR Vivid payload. A standalone value returned by
     /// `av_dynamic_hdr_vivid_alloc` can be adopted by
     /// [`ffibox::CBox<AVDynamicHDRVivid>`]. Values returned as frame side data
-    /// must instead remain borrowed from their frame owner.
+    /// are stored by value inside that buffer — `av_dynamic_hdr_vivid_create_side_data`
+    /// hands back the interior of an `AVFrameSideData` — and must remain
+    /// borrowed from their frame owner. Rust-owned inline storage takes the
+    /// same by-value form through [`AVDynamicHDRVivid::new`].
     AVDynamicHDRVivid,
     AVDynamicHDRVividRef,
     AVDynamicHDRVividMut,
@@ -742,6 +745,26 @@ unsafe impl CDropped for AVDynamicHDRVivid {
         // SAFETY: the trait contract transfers the allocation base exactly
         // once and `av_free` matches the allocator used by the constructor.
         unsafe { ffi::av_free(vivid.as_ptr().cast::<c_void>()) }
+    }
+}
+
+// SAFETY: the payload holds two integers and three inline color-transform
+// parameter values, each of which declares a no-op inline disposal because it
+// owns no resource either. A payload living inside another buffer — a frame's
+// side data, or Rust-owned inline storage — therefore needs no field teardown.
+unsafe impl CValued for AVDynamicHDRVivid {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+impl AVDynamicHDRVivid {
+    /// Creates an HDR Vivid payload in owned inline storage, initialized the
+    /// way libavutil initializes it.
+    ///
+    /// `av_dynamic_hdr_vivid_alloc` only zeroes the allocation, so zeroed
+    /// inline storage reproduces the C constructor exactly.
+    #[must_use]
+    pub fn new() -> CVal<Self> {
+        CVal::new(Self::zeroed())
     }
 }
 
@@ -811,6 +834,8 @@ impl AVDynamicHDRVividMut<'_> {
 mod vivid_payload_tests {
     use core::mem::{align_of, size_of};
 
+    use ffibox::CBox;
+
     use super::*;
 
     #[test]
@@ -849,5 +874,45 @@ mod vivid_payload_tests {
             1
         );
         assert!(view.as_ref().params().get(3).is_none());
+    }
+
+    #[test]
+    fn new_reproduces_the_c_constructor_in_inline_storage() {
+        let value = AVDynamicHDRVivid::new();
+        let vivid = value.as_ref();
+
+        // `av_dynamic_hdr_vivid_alloc` applies no defaults beyond `av_mallocz`.
+        assert_eq!(vivid.system_start_code(), 0);
+        assert_eq!(vivid.num_windows(), 0);
+        assert_eq!(vivid.params().len(), 3);
+        assert_eq!(vivid.params().get(2).unwrap().tone_mapping_mode_flag(), 0);
+    }
+
+    #[test]
+    fn c_allocated_payload_is_owned_and_released_by_the_registered_dropper() {
+        let mut size = 0usize;
+        // SAFETY: `av_dynamic_hdr_vivid_alloc` returns the base of one fresh,
+        // uniquely owned `av_mallocz` allocation, or null, and writes the
+        // payload size into the non-null slot it is handed. Nothing else holds
+        // the result, so adopting it into a `CBox` is the sole ownership
+        // transfer, and the sanitizers check that `CDropped`'s `av_free`
+        // matches that allocator.
+        let owned = unsafe {
+            CBox::<AVDynamicHDRVivid>::from_raw(ffi::av_dynamic_hdr_vivid_alloc(&mut size))
+        }
+        .expect("av_dynamic_hdr_vivid_alloc returned null");
+        assert_eq!(size, size_of::<ffi::AVDynamicHDRVivid>());
+
+        // C's own initialization must be exactly what `AVDynamicHDRVivid::new`
+        // reproduces in inline storage.
+        let expected = AVDynamicHDRVivid::new();
+        let expected = expected.as_ref();
+        let vivid = owned.as_ref();
+        assert_eq!(vivid.system_start_code(), expected.system_start_code());
+        assert_eq!(vivid.num_windows(), expected.num_windows());
+        assert_eq!(
+            vivid.params().get(0).unwrap().tone_mapping_mode_flag(),
+            expected.params().get(0).unwrap().tone_mapping_mode_flag()
+        );
     }
 }

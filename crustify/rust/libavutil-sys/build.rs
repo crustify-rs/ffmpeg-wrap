@@ -122,6 +122,7 @@ fn main() {
         .allowlist_var("^AV_OPT_FLAG_IMPLICIT_KEY$")
         .allowlist_var("^AV_STEREO3D_FLAG_[A-Z_]+$")
         .allowlist_function("^av_stereo3d_alloc$")
+        .allowlist_function("^av_dynamic_hdr_vivid_alloc$")
         .generate()
         .expect("generate libavutil bindings");
     bindings
