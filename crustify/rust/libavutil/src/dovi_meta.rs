@@ -2204,6 +2204,7 @@ mod header_tests {
 /// Wraps: av_dovi_get_color
 ///
 /// Borrows the color metadata embedded in the same allocation as `metadata`.
+/// This shared variant does not expose C's const-discarding return type.
 #[must_use]
 pub fn av_dovi_get_color<'a>(metadata: AVDOVIMetadataRef<'a>) -> AVDOVIColorMetadataRef<'a> {
     // SAFETY: the metadata handle keeps the complete offset-based allocation
@@ -2211,6 +2212,75 @@ pub fn av_dovi_get_color<'a>(metadata: AVDOVIMetadataRef<'a>) -> AVDOVIColorMeta
     unsafe {
         AVDOVIColorMetadataRef::from_ptr(ffi::crustify_av_dovi_get_color(metadata.as_ptr()))
             .expect("a live metadata allocation has embedded color metadata")
+    }
+}
+
+/// Wraps: av_dovi_get_color
+///
+/// Exclusively borrows the embedded color metadata. The C helper casts away
+/// its argument's `const` and hands back a writable pointer that callers do
+/// write through — `libavcodec/dovi_rpudec.c` copies a decoded record straight
+/// into it — so the writable contract gets its own variant rather than being
+/// derived from a shared metadata handle. It is also the only route to
+/// [`AVDOVIColorMetadataMut`]'s setters.
+#[must_use]
+pub fn av_dovi_get_color_mut<'a>(
+    mut metadata: AVDOVIMetadataMut<'a>,
+) -> AVDOVIColorMetadataMut<'a> {
+    // SAFETY: consuming the exclusive metadata handle preserves its exclusive
+    // borrow for `'a`. The helper returns the color record inside that same
+    // allocation, so the new exclusive handle cannot outlive or alias its
+    // parent borrow.
+    unsafe {
+        AVDOVIColorMetadataMut::from_ptr(ffi::crustify_av_dovi_get_color(metadata.as_mut_ptr()))
+            .expect("a live metadata allocation has embedded color metadata")
+    }
+}
+
+#[cfg(test)]
+mod color_borrow_tests {
+    use super::*;
+
+    #[repr(C)]
+    struct MetadataWithColor {
+        metadata: ffi::AVDOVIMetadata,
+        color: ffi::AVDOVIColorMetadata,
+    }
+
+    fn storage() -> MetadataWithColor {
+        // SAFETY: both records hold only integer and rational members, for
+        // which all-zero is an initialized representation.
+        let mut storage: MetadataWithColor = unsafe { core::mem::zeroed() };
+        storage.metadata.color_offset = core::mem::offset_of!(MetadataWithColor, color);
+        storage
+    }
+
+    #[test]
+    fn exclusive_borrow_can_update_the_color_metadata() {
+        let mut storage = storage();
+        // SAFETY: the aggregate is live and exclusively accessed through this
+        // handle, and its color offset addresses the initialized member.
+        let metadata = unsafe { AVDOVIMetadataMut::from_ptr(&mut storage.metadata) }.unwrap();
+        let mut color = av_dovi_get_color_mut(metadata);
+        color.set_dm_metadata_id(3);
+        color.set_source_max_pq(4095);
+        assert_eq!(storage.color.dm_metadata_id, 3);
+        assert_eq!(storage.color.source_max_pq, 4095);
+    }
+
+    #[test]
+    fn both_variants_land_on_the_same_embedded_record() {
+        let mut storage = storage();
+        {
+            // SAFETY: as above — the sole handle to a live aggregate.
+            let metadata = unsafe { AVDOVIMetadataMut::from_ptr(&mut storage.metadata) }.unwrap();
+            av_dovi_get_color_mut(metadata).set_signal_bit_depth(12);
+        }
+        // SAFETY: the aggregate is still live and is only read from here on.
+        let metadata = unsafe { AVDOVIMetadataRef::from_ptr(&mut storage.metadata) }.unwrap();
+        let color = av_dovi_get_color(metadata);
+        assert_eq!(color.as_ptr(), &raw const storage.color);
+        assert_eq!(color.signal_bit_depth(), 12);
     }
 }
 

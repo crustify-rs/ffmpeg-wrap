@@ -1359,7 +1359,7 @@ pub fn av_write_image_line(
     let (descriptor, mut data, linesizes, width) =
         line_outputs(image, x, y, component, source.len())?;
     // SAFETY: `image` is exclusively borrowed, the source has `width` values,
-    // and `line_inputs` bounds the selected line within its complete planes.
+    // and `line_outputs` bounds the selected line within its complete planes.
     unsafe {
         ffi::av_write_image_line(
             source.as_ptr(),
@@ -1432,5 +1432,152 @@ mod image_line_tests {
         let (steps, components) = av_image_fill_max_pixsteps(descriptor);
         assert_eq!(steps[0], 3);
         assert_eq!(components[0], 0);
+    }
+
+    /// The padded count is the one that reports the storage a pixel occupies
+    /// rather than the bits it carries, so a format with a dead byte is what
+    /// separates it from `av_get_bits_per_pixel`. It also has to agree with
+    /// the widest step `av_image_fill_max_pixsteps` finds for plane 0.
+    #[test]
+    fn padding_is_what_separates_the_two_bit_counts() {
+        let packed = av_pix_fmt_desc_get(AVPixelFormat::RGB24).unwrap();
+        assert_eq!(av_get_bits_per_pixel(packed), 24);
+        assert_eq!(av_get_padded_bits_per_pixel(packed), 24);
+
+        let padded = av_pix_fmt_desc_get(AVPixelFormat::_0RGB).unwrap();
+        assert_eq!(av_get_bits_per_pixel(padded), 24);
+        assert_eq!(av_get_padded_bits_per_pixel(padded), 32);
+        let (steps, _) = av_image_fill_max_pixsteps(padded);
+        assert_eq!(steps[0] * 8, av_get_padded_bits_per_pixel(padded));
+
+        // A planar format spreads its steps across planes, and the reported
+        // component per plane is the one that owns the widest step there.
+        let planar = av_pix_fmt_desc_get(AVPixelFormat::YUV420P).unwrap();
+        let (steps, components) = av_image_fill_max_pixsteps(planar);
+        assert_eq!(steps, [1, 1, 1, 0]);
+        assert_eq!(components, [0, 1, 2, 0]);
+    }
+
+    /// A packed format is where the component index selects a byte *within*
+    /// the pixel rather than a plane, so round-tripping one component has to
+    /// leave its neighbours alone. The `u16` and `u32` element widths reach
+    /// the same C body through different `dst_element_size` discriminators,
+    /// so both are driven here.
+    #[test]
+    fn a_packed_component_round_trips_without_disturbing_its_neighbours() {
+        let mut storage = [0_u8; 12];
+        {
+            let mut image = image_planes_mut(&mut storage, AVPixelFormat::RGB24, 4, 1, 1).unwrap();
+            av_write_image_line(&[1, 2, 3, 4], &mut image, 0, 0, 1).unwrap();
+            av_write_image_line2(&[9, 9, 9, 9], &mut image, 0, 0, 2).unwrap();
+        }
+        let image = av_image_fill_arrays(&storage, AVPixelFormat::RGB24, 4, 1, 1).unwrap();
+
+        let mut green = [0_u16; 4];
+        av_read_image_line(&mut green, &image, 0, 0, 1, false).unwrap();
+        assert_eq!(green, [1, 2, 3, 4]);
+
+        let mut blue = [0_u32; 4];
+        av_read_image_line2(&mut blue, &image, 0, 0, 2, false).unwrap();
+        assert_eq!(blue, [9, 9, 9, 9]);
+
+        let mut red = [0_u16; 4];
+        av_read_image_line(&mut red, &image, 0, 0, 0, false).unwrap();
+        assert_eq!(red, [0; 4], "writing G and B must not touch R");
+
+        // The pixel is three bytes wide, so a component's bytes are its own.
+        assert_eq!(storage, [0, 1, 9, 0, 2, 9, 0, 3, 9, 0, 4, 9]);
+    }
+
+    /// The bounds guard measures each component against *its own* plane, so a
+    /// chroma component of a subsampled format is checked against the halved
+    /// extents rather than the image's. This is the check that keeps C's
+    /// unchecked `data[plane] + y * linesize[plane] + x * step` inside the
+    /// buffer `av_image_fill_arrays` sized.
+    #[test]
+    fn chroma_components_are_bounded_by_their_subsampled_plane() {
+        let mut storage = [0_u8; 12];
+        {
+            let mut image = image_planes_mut(&mut storage, AVPixelFormat::YUV420P, 4, 2, 1)
+                .expect("a 4x2 planar image fits twelve bytes");
+            // Luma spans the full 4x2 geometry.
+            av_write_image_line(&[1, 2, 3, 4], &mut image, 0, 1, 0).unwrap();
+            // Chroma is one 2x1 line, and a fifth luma column does not exist.
+            av_write_image_line(&[5, 6], &mut image, 0, 0, 1).unwrap();
+            assert_eq!(
+                av_write_image_line(&[0; 3], &mut image, 0, 0, 1),
+                Err(ImageLineError::OutOfBounds),
+                "three chroma samples exceed the halved plane width"
+            );
+            assert_eq!(
+                av_write_image_line(&[0; 2], &mut image, 0, 1, 1),
+                Err(ImageLineError::OutOfBounds),
+                "a second chroma row exceeds the halved plane height"
+            );
+            assert_eq!(
+                av_write_image_line(&[0; 1], &mut image, 4, 0, 0),
+                Err(ImageLineError::OutOfBounds),
+                "x + w is what must fit, not x alone"
+            );
+        }
+
+        let image = av_image_fill_arrays(&storage, AVPixelFormat::YUV420P, 4, 2, 1).unwrap();
+        let mut luma = [0_u16; 4];
+        av_read_image_line(&mut luma, &image, 0, 1, 0, false).unwrap();
+        assert_eq!(luma, [1, 2, 3, 4]);
+        let mut chroma = [0_u16; 2];
+        av_read_image_line(&mut chroma, &image, 0, 0, 1, false).unwrap();
+        assert_eq!(chroma, [5, 6]);
+        assert_eq!(
+            av_read_image_line(&mut [0; 2], &image, 0, 1, 2, false),
+            Err(ImageLineError::OutOfBounds)
+        );
+
+        // The component index is bounded by the descriptor's own count.
+        assert_eq!(
+            av_read_image_line(&mut [0; 1], &image, 0, 0, 3, false),
+            Err(ImageLineError::OutOfBounds)
+        );
+        assert_eq!(
+            av_read_image_line(&mut [0; 1], &image, -1, 0, 0, false),
+            Err(ImageLineError::NegativeGeometry)
+        );
+    }
+
+    /// The palette component only exists for PAL8, whose second plane is the
+    /// 1024-byte table C indexes with `data[1][4 * val + c]`. Asking any other
+    /// format for it would send C into a plane that was never filled.
+    #[test]
+    fn a_palette_read_is_confined_to_the_paletted_format() {
+        let mut storage = [0_u8; 12];
+        {
+            let mut image = image_planes_mut(&mut storage, AVPixelFormat::RGB24, 4, 1, 1).unwrap();
+            av_write_image_line(&[1, 2, 3, 4], &mut image, 0, 0, 0).unwrap();
+        }
+        let image = av_image_fill_arrays(&storage, AVPixelFormat::RGB24, 4, 1, 1).unwrap();
+        assert_eq!(
+            av_read_image_line(&mut [0; 4], &image, 0, 0, 0, true),
+            Err(ImageLineError::PaletteRequestedForNonPaletteFormat)
+        );
+        assert_eq!(
+            av_read_image_line2(&mut [0; 4], &image, 0, 0, 0, true),
+            Err(ImageLineError::PaletteRequestedForNonPaletteFormat)
+        );
+
+        // PAL8 sizes plane 0 plus the palette, and every index the guard lets
+        // through addresses a real entry of it.
+        let mut paletted = [0_u8; 4 + 1024];
+        {
+            let mut image = image_planes_mut(&mut paletted, AVPixelFormat::PAL8, 4, 1, 1).unwrap();
+            av_write_image_line(&[0, 1, 254, 255], &mut image, 0, 0, 0).unwrap();
+        }
+        paletted[4 + 4 * 255] = 42;
+        let image = av_image_fill_arrays(&paletted, AVPixelFormat::PAL8, 4, 1, 1).unwrap();
+        let mut indices = [0_u16; 4];
+        av_read_image_line(&mut indices, &image, 0, 0, 0, false).unwrap();
+        assert_eq!(indices, [0, 1, 254, 255]);
+        let mut components = [0_u16; 4];
+        av_read_image_line(&mut components, &image, 0, 0, 0, true).unwrap();
+        assert_eq!(components, [0, 0, 0, 42]);
     }
 }

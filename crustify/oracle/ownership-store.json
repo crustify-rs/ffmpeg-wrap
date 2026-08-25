@@ -4384,8 +4384,8 @@
       "lifetime": "arg:data"
      },
      "nullable": false,
-     "mutable": false,
-     "note": "Returned metadata/subobject borrow remains live with its source object and is not owned."
+     "mutable": true,
+     "note": "Embedded color record aliases the metadata allocation at color_offset and remains live only with it. The inline helper casts away data's const and hands back a writable pointer, and callers do write through it: libavcodec/dovi_rpudec.c:49 memcpy's the decoded color metadata INTO av_dovi_get_color(dovi) -- the same evidence, in the same COPY block, that made av_dovi_get_mapping mutable. Read-only callers exist too (fftools/ffprobe.c:581, libavfilter/vf_showinfo.c:560, libavutil/tests/dovi_meta.c:73), so safe Rust needs split shared and exclusive-borrow variants rather than deriving mutation from a shared metadata handle."
     }
    }
   },
@@ -9138,9 +9138,9 @@
      "borrowed": {
       "lifetime": "arg:obj"
      },
-     "nullable": false,
+     "nullable": true,
      "mutable": false,
-     "note": "Returned metadata/subobject borrow remains live with its source object and is not owned."
+     "note": "NULL is the ordinary no-match result, not an error path: av_opt_find delegates to av_opt_find2, whose body returns NULL for a null obj, a null class, and -- the common case -- for falling off the end of the option-table walk. Every caller tests it (set_string_number's `o_named && o_named->type == AV_OPT_TYPE_CONST`, av_opt_query_ranges_default's `if (!field) ret = AVERROR(ENOMEM)`). A non-null result is immutable class metadata that lives as long as obj's class hierarchy."
     }
    }
   },
@@ -10260,9 +10260,9 @@
       "borrowed": {
        "lifetime": "arg:last"
       },
-      "nullable": false,
+      "nullable": true,
       "mutable": false,
-      "note": "Observed call-only borrow; C retains no input pointer."
+      "note": "The iteration cursor, and NULL is its documented start value: av_opt_next's body branches on `if (!last ...) return class->option;` before ever dereferencing it, and every caller opens the loop with NULL (set_string_number's `for (o_named = NULL; o_named = av_opt_next(target_obj, o_named); )`, opt_set_defaults, av_opt_serialize, av_opt_show2). A non-null cursor is read (`last[1].name`, `++last`) and must therefore be an element of THIS obj's class option array, not merely any AVOption -- which is why the safe surface is an iterator that owns the cursor rather than a one-step call."
      }
     },
     {
@@ -10294,9 +10294,9 @@
      "borrowed": {
       "lifetime": "arg:obj"
      },
-     "nullable": false,
+     "nullable": true,
      "mutable": false,
-     "note": "Returned metadata/subobject borrow remains live with its source object and is not owned."
+     "note": "NULL terminates the iteration and is what every caller loops on (`while (o = av_opt_next(obj, o))`). The body returns it for a null obj, for a class with no option table or an immediately NUL-named first entry, and for a cursor whose successor entry has a NULL name -- the table's own sentinel. A non-null result is the next element of that class's immutable option array, live as long as obj's class."
     }
    }
   },

@@ -288,12 +288,18 @@ pub fn image_planes_mut<'a>(
     if required > storage.len() {
         return Err(ImageError::BufferTooSmall { required });
     }
+    // C takes the base as `const uint8_t *`, but every plane pointer it derives
+    // from it is what `av_write_image_line` later writes through. Deriving them
+    // from a shared reborrow (`storage.as_ptr()`) would give the whole table
+    // read-only provenance, so the base comes off the exclusive borrow and only
+    // then loses its `mut` at the signature.
+    let base = storage.as_mut_ptr().cast_const();
     // SAFETY: the checked mutable slice exclusively supplies the complete extent.
     size_result(unsafe {
         ffi::av_image_fill_arrays(
             data.as_mut_ptr(),
             linesizes.as_mut_ptr(),
-            storage.as_ptr(),
+            base,
             format.as_raw(),
             width,
             height,

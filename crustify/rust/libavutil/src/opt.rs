@@ -3605,15 +3605,27 @@ pub fn av_opt_find<'a>(
     Ok(unsafe { AVOptionRef::from_ptr(option.cast_mut()) })
 }
 
+/// Walks one object's option table.
+///
+/// C's cursor argument is the previous entry, and it must be an element of
+/// *this* object's table — `av_opt_next` reads `last[1]` and increments it.
+/// No safe one-step signature can state that, so the cursor lives here and is
+/// only ever fed back the result of the preceding step.
 pub struct AVOptionIter<'a> {
     object: OptionObjectRef<'a>,
     previous: Option<AVOptionRef<'a>>,
+    exhausted: bool,
 }
 
 impl<'a> Iterator for AVOptionIter<'a> {
     type Item = AVOptionRef<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // C's null cursor means "start over", so a spent iterator has to
+        // remember that it finished rather than restart the table.
+        if self.exhausted {
+            return None;
+        }
         let previous = self
             .previous
             .map_or(core::ptr::null(), |option| option.as_ptr());
@@ -3622,15 +3634,22 @@ impl<'a> Iterator for AVOptionIter<'a> {
         let next = unsafe { ffi::av_opt_next(self.object.as_ptr(), previous) };
         // SAFETY: C returns null or immutable class metadata live with object.
         self.previous = unsafe { AVOptionRef::from_ptr(next.cast_mut()) };
+        self.exhausted = self.previous.is_none();
         self.previous
     }
 }
 
+impl core::iter::FusedIterator for AVOptionIter<'_> {}
+
 /// Wraps: av_opt_next
+///
+/// Starts a fresh walk of `object`'s option table. The table ends at its first
+/// NUL-named entry, which C reports as a null result.
 pub fn av_opt_next(object: OptionObjectRef<'_>) -> AVOptionIter<'_> {
     AVOptionIter {
         object,
         previous: None,
+        exhausted: false,
     }
 }
 
@@ -3695,6 +3714,415 @@ pub fn av_opt_query_ranges_default(
 /// Wraps: av_opt_freep_ranges
 pub fn av_opt_freep_ranges(ranges: Option<CBox<AVOptionRanges>>) {
     drop(ranges);
+}
+
+#[cfg(test)]
+mod scheduled_eval_tests {
+    use core::mem::offset_of;
+
+    use super::*;
+
+    /// One field per evaluated option type, behind the class pointer every
+    /// AVClass-bearing object starts with.
+    #[repr(C)]
+    struct EvalObject {
+        class: *const ffi::AVClass,
+        flags: i32,
+        number: i32,
+        big: i64,
+        counted: c_uint,
+        ratio: ffi::AVRational,
+        small: f32,
+        large: f64,
+        text: *mut c_char,
+    }
+
+    const OPTION_COUNT: usize = 11;
+
+    fn numeric(
+        name: &'static CStr,
+        offset: usize,
+        option_type: AVOptionType,
+        unit: Option<&'static CStr>,
+    ) -> ffi::AVOption {
+        ffi::AVOption {
+            name: name.as_ptr(),
+            help: core::ptr::null(),
+            offset: i32::try_from(offset).expect("field offsets are small"),
+            type_: option_type.as_raw(),
+            default_val: ffi::AVOption__bindgen_ty_1 { i64_: 0 },
+            min: -1.0e18,
+            max: 1.0e18,
+            flags: 1,
+            unit: unit.map_or(core::ptr::null(), CStr::as_ptr),
+        }
+    }
+
+    fn constant(name: &'static CStr, value: i64) -> ffi::AVOption {
+        ffi::AVOption {
+            name: name.as_ptr(),
+            help: core::ptr::null(),
+            offset: 0,
+            type_: AVOptionType::CONST.as_raw(),
+            default_val: ffi::AVOption__bindgen_ty_1 { i64_: value },
+            min: 0.0,
+            max: 0.0,
+            flags: 1,
+            unit: c"flavour".as_ptr(),
+        }
+    }
+
+    fn options() -> [ffi::AVOption; OPTION_COUNT] {
+        [
+            numeric(
+                c"flags",
+                offset_of!(EvalObject, flags),
+                AVOptionType::FLAGS,
+                Some(c"flavour"),
+            ),
+            numeric(
+                c"number",
+                offset_of!(EvalObject, number),
+                AVOptionType::INT,
+                None,
+            ),
+            numeric(
+                c"big",
+                offset_of!(EvalObject, big),
+                AVOptionType::INT64,
+                None,
+            ),
+            ffi::AVOption {
+                min: 0.0,
+                ..numeric(
+                    c"counted",
+                    offset_of!(EvalObject, counted),
+                    AVOptionType::UINT,
+                    None,
+                )
+            },
+            numeric(
+                c"ratio",
+                offset_of!(EvalObject, ratio),
+                AVOptionType::RATIONAL,
+                None,
+            ),
+            numeric(
+                c"small",
+                offset_of!(EvalObject, small),
+                AVOptionType::FLOAT,
+                None,
+            ),
+            numeric(
+                c"large",
+                offset_of!(EvalObject, large),
+                AVOptionType::DOUBLE,
+                None,
+            ),
+            ffi::AVOption {
+                default_val: ffi::AVOption__bindgen_ty_1 {
+                    str_: core::ptr::null(),
+                },
+                min: 0.0,
+                max: 0.0,
+                ..numeric(
+                    c"text",
+                    offset_of!(EvalObject, text),
+                    AVOptionType::STRING,
+                    None,
+                )
+            },
+            constant(c"spicy", 7),
+            constant(c"mild", 8),
+            // `av_opt_next` stops at the first entry with a NULL name.
+            ffi::AVOption {
+                name: core::ptr::null(),
+                ..numeric(c"", 0, AVOptionType::INT, None)
+            },
+        ]
+    }
+
+    fn class(options: &[ffi::AVOption; OPTION_COUNT]) -> ffi::AVClass {
+        ffi::AVClass {
+            class_name: c"crustify-eval-test".as_ptr(),
+            item_name: None,
+            option: options.as_ptr(),
+            version: 0,
+            log_level_offset_offset: 0,
+            parent_log_context_offset: 0,
+            category: 0,
+            get_category: None,
+            query_ranges: None,
+            child_next: None,
+            child_class_iterate: None,
+            state_flags_offset: 0,
+        }
+    }
+
+    fn object(class: &ffi::AVClass) -> EvalObject {
+        EvalObject {
+            class: core::ptr::from_ref(class),
+            flags: 0,
+            number: 0,
+            big: 0,
+            counted: 0,
+            ratio: ffi::AVRational { num: 0, den: 0 },
+            small: 0.0,
+            large: 0.0,
+            text: core::ptr::null_mut(),
+        }
+    }
+
+    /// Every `av_opt_eval_*` variant writes the caller's slot and never the
+    /// object field the option describes — the ownership fact that lets these
+    /// wrappers take a *shared* object handle. Each parse also has to land in
+    /// the right C `dst` width, so drive one value per variant and check both.
+    #[test]
+    fn every_eval_variant_writes_its_own_slot_and_leaves_the_object_alone() {
+        let options = options();
+        let class = class(&options);
+        let mut object = object(&class);
+        let address = NonNull::from(&mut object).cast::<c_void>();
+        // SAFETY: `object` is live, initialized, starts with a valid class
+        // pointer, and every option offset above names one of its fields. The
+        // handle is the only access to it for this block.
+        let shared = unsafe { OptionObjectRef::from_raw(address) };
+
+        let find = |name: &CStr| {
+            av_opt_find(shared, name, None, 0, 0)
+                .expect("a normal search")
+                .expect("the option is in the table")
+        };
+
+        assert_eq!(av_opt_eval_int(shared, find(c"number"), c"42"), Ok(42));
+        assert_eq!(
+            av_opt_eval_int64(shared, find(c"big"), c"1234567890123"),
+            Ok(1_234_567_890_123)
+        );
+        assert_eq!(av_opt_eval_uint(shared, find(c"counted"), c"4000000000"), Ok(4_000_000_000));
+        assert_eq!(av_opt_eval_float(shared, find(c"small"), c"1.5"), Ok(1.5));
+        assert_eq!(av_opt_eval_double(shared, find(c"large"), c"2.25"), Ok(2.25));
+
+        let ratio = av_opt_eval_q(shared, find(c"ratio"), c"3/4").expect("a parsable rational");
+        assert_eq!(ratio.as_ref().num(), 3);
+        assert_eq!(ratio.as_ref().den(), 4);
+
+        // Not one of the writes above touched the object.
+        assert_eq!(object.number, 0);
+        assert_eq!(object.big, 0);
+        assert_eq!(object.counted, 0);
+        assert_eq!(object.small, 0.0);
+        assert_eq!(object.large, 0.0);
+        assert_eq!(object.ratio.den, 0);
+    }
+
+    /// The flags variant is the one that reads its output slot before writing
+    /// it: C folds `+name` into whatever `*dst` already holds. The wrapper
+    /// always starts from a zeroed slot, so a `+`-joined list accumulates from
+    /// zero and never from uninitialized storage.
+    #[test]
+    fn flags_evaluation_resolves_named_constants_from_a_zeroed_slot() {
+        let options = options();
+        let class = class(&options);
+        let mut object = object(&class);
+        // SAFETY: as above — a live, initialized object reached only here.
+        let shared = unsafe { OptionObjectRef::from_raw(NonNull::from(&mut object).cast()) };
+        let flags = av_opt_find(shared, c"flags", None, 0, 0)
+            .expect("a normal search")
+            .expect("the flags option is in the table");
+
+        assert_eq!(av_opt_eval_flags(shared, flags, c"spicy"), Ok(7));
+        assert_eq!(av_opt_eval_flags(shared, flags, c"spicy+mild"), Ok(15));
+        assert_eq!(av_opt_eval_flags(shared, flags, c"mild"), Ok(8));
+        assert_eq!(object.flags, 0);
+    }
+
+    /// C's first act in every `av_opt_eval_*` is to compare the entry's type
+    /// against the one the variant names, so a mismatch is a plain EINVAL
+    /// rather than a reinterpretation of the output slot.
+    #[test]
+    fn a_variant_refuses_an_option_of_another_type() {
+        let options = options();
+        let class = class(&options);
+        let mut object = object(&class);
+        // SAFETY: as above.
+        let shared = unsafe { OptionObjectRef::from_raw(NonNull::from(&mut object).cast()) };
+        let number = av_opt_find(shared, c"number", None, 0, 0)
+            .expect("a normal search")
+            .expect("the int option is in the table");
+
+        assert_eq!(av_opt_eval_double(shared, number, c"1"), Err(-22));
+        assert_eq!(av_opt_eval_q(shared, number, c"1/2").err(), Some(-22));
+        assert_eq!(av_opt_eval_int(shared, number, c"1"), Ok(1));
+    }
+
+    /// A miss is C's null return, which the wrapper reports as `Ok(None)`
+    /// rather than an error — and a fake-object search is refused before the
+    /// call because that flag needs the other input shape entirely.
+    #[test]
+    fn a_missing_name_is_a_null_result_not_a_failure() {
+        let options = options();
+        let class = class(&options);
+        let mut object = object(&class);
+        // SAFETY: as above.
+        let shared = unsafe { OptionObjectRef::from_raw(NonNull::from(&mut object).cast()) };
+
+        assert!(
+            av_opt_find(shared, c"absent", None, 0, 0)
+                .expect("a normal search")
+                .is_none()
+        );
+        // A named constant needs its unit; without one it is skipped.
+        assert!(
+            av_opt_find(shared, c"spicy", None, 0, 0)
+                .expect("a normal search")
+                .is_none()
+        );
+        assert!(
+            av_opt_find(shared, c"spicy", Some(c"flavour"), 0, 0)
+                .expect("a normal search")
+                .is_some()
+        );
+        assert_eq!(
+            av_opt_find(
+                shared,
+                c"number",
+                None,
+                0,
+                ffi::AV_OPT_SEARCH_FAKE_OBJ as i32
+            )
+            .err(),
+            Some(OptFindError::FakeObjectSearch)
+        );
+    }
+
+    /// `av_opt_next`'s cursor is C's own: a NULL one restarts the table. The
+    /// iterator therefore has to remember that it finished, or a spent one
+    /// would hand out the whole table again.
+    #[test]
+    fn the_option_walk_ends_and_stays_ended() {
+        let options = options();
+        let class = class(&options);
+        let mut object = object(&class);
+        // SAFETY: as above.
+        let shared = unsafe { OptionObjectRef::from_raw(NonNull::from(&mut object).cast()) };
+
+        // The terminator is not visited; everything before it is, in order.
+        let names: heapless_names::Names = av_opt_next(shared)
+            .map(|option| option.name().expect("every visited entry is named"))
+            .collect();
+        assert_eq!(names.len(), OPTION_COUNT - 1);
+        assert_eq!(names.as_slice()[0], c"flags");
+        assert_eq!(names.as_slice()[OPTION_COUNT - 2], c"mild");
+
+        let mut walk = av_opt_next(shared);
+        assert_eq!(walk.by_ref().count(), OPTION_COUNT - 1);
+        assert!(walk.next().is_none(), "a spent walk must not restart");
+        assert!(walk.next().is_none());
+    }
+
+    /// A fixed-capacity collector, because this crate is `no_std` and the walk
+    /// above is worth checking in order rather than only by count.
+    mod heapless_names {
+        use core::ffi::CStr;
+
+        pub struct Names {
+            entries: [Option<&'static CStr>; super::OPTION_COUNT],
+            len: usize,
+        }
+
+        impl Names {
+            pub fn len(&self) -> usize {
+                self.len
+            }
+
+            pub fn as_slice(&self) -> [&'static CStr; super::OPTION_COUNT] {
+                self.entries.map(|entry| entry.unwrap_or(c""))
+            }
+        }
+
+        impl FromIterator<&'static CStr> for Names {
+            fn from_iter<I: IntoIterator<Item = &'static CStr>>(iter: I) -> Self {
+                let mut names = Self {
+                    entries: [None; super::OPTION_COUNT],
+                    len: 0,
+                };
+                for name in iter {
+                    names.entries[names.len] = Some(name);
+                    names.len += 1;
+                }
+                names
+            }
+        }
+    }
+
+    /// The default check reads the object field at the entry's offset, which
+    /// is exactly why it takes a match rather than a loose object/option pair.
+    #[test]
+    fn default_detection_follows_the_matched_field() {
+        let options = options();
+        let class = class(&options);
+        let mut object = object(&class);
+        // SAFETY: `object` is live and exclusively borrowed through this handle
+        // for the rest of the test; its one owned field is a valid NULL `char *`.
+        let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+
+        {
+            let found = av_opt_find2(&mut handle, c"number", None, 0, 0)
+                .expect("a normal search")
+                .expect("the int option is in the table");
+            assert_eq!(av_opt_is_set_to_default(&found), Ok(true));
+        }
+        av_opt_set_int(&mut handle, c"number", 3, 0).expect("set the int option");
+        let found = av_opt_find2(&mut handle, c"number", None, 0, 0)
+            .expect("a normal search")
+            .expect("the int option is in the table");
+        assert_eq!(av_opt_is_set_to_default(&found), Ok(false));
+    }
+
+    /// Both range entry points allocate the same aggregate, and the default
+    /// callback shapes it per option type. Reading the shape back through the
+    /// wrapper is what says the table indexing and the owner agree with C.
+    #[test]
+    fn range_queries_return_a_typed_owned_aggregate() {
+        let options = options();
+        let class = class(&options);
+        let mut object = object(&class);
+        // SAFETY: as above — a live object read through this handle only.
+        let shared = unsafe { OptionObjectRef::from_raw(NonNull::from(&mut object).cast()) };
+
+        // The class installs no `query_ranges`, so the dispatcher falls back
+        // to the default callback and both must agree.
+        for ranges in [
+            av_opt_query_ranges(shared, c"number", 0).expect("a numeric range"),
+            av_opt_query_ranges_default(shared, c"number", 0).expect("a numeric range"),
+        ] {
+            let view = ranges.as_ref();
+            assert_eq!(view.nb_ranges(), 1);
+            assert_eq!(view.nb_components(), 1);
+            let range = view.range(0, 0).expect("the only range");
+            assert_eq!(range.value_min(), -1.0e18);
+            assert_eq!(range.value_max(), 1.0e18);
+            assert!(view.range(1, 0).is_none());
+            assert!(view.range(0, 1).is_none());
+            av_opt_freep_ranges(Some(ranges));
+        }
+
+        // A string option takes the callback's other branch, so the component
+        // bounds come out as the unicode span rather than the numeric one.
+        let ranges = av_opt_query_ranges_default(shared, c"text", 0).expect("a string range");
+        let range = ranges.as_ref().range(0, 0).expect("the only range");
+        assert_eq!(range.value_min(), -1.0);
+        assert_eq!(range.component_max(), f64::from(0x0010_FFFF));
+        drop(ranges);
+
+        // An unknown key has no option to describe, so nothing is allocated.
+        assert!(av_opt_query_ranges_default(shared, c"absent", 0).is_err());
+        assert_eq!(
+            av_opt_query_ranges(shared, c"number", ffi::AV_OPT_SEARCH_FAKE_OBJ as i32).err(),
+            Some(-22)
+        );
+    }
 }
 
 /// Iterator produced by [`av_opt_child_class_iterate`].
