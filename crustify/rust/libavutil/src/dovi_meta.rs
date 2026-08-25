@@ -2771,7 +2771,18 @@ pub enum AVDOVIDmDataActiveMut<'a> {
     Unknown(u8),
 }
 
-impl AVDOVIDmDataRef<'_> {
+impl AVDOVIDmData {
+    /// Creates a zero-initialized extension block in owned inline storage.
+    ///
+    /// The zero tag selects no union member, so the block reads back as
+    /// `AVDOVIDmDataActiveRef::Unknown(0)` until a level is selected.
+    #[must_use]
+    pub fn new() -> CVal<Self> {
+        CVal::new(Self::zeroed())
+    }
+}
+
+impl<'a> AVDOVIDmDataRef<'a> {
     /// Field: AVDOVIDmData.level
     #[must_use]
     pub fn level(&self) -> u8 {
@@ -2784,7 +2795,7 @@ impl AVDOVIDmDataRef<'_> {
     ///
     /// Interprets the anonymous union according to its public level tag.
     #[must_use]
-    pub fn active(&self) -> AVDOVIDmDataActiveRef<'_> {
+    pub fn active(&self) -> AVDOVIDmDataActiveRef<'a> {
         match self.level() {
             1 => AVDOVIDmDataActiveRef::Level1(self.l1().expect("level was checked")),
             2 => AVDOVIDmDataActiveRef::Level2(self.l2().expect("level was checked")),
@@ -2993,6 +3004,20 @@ mod dm_data_tests {
             data.as_ref().active(),
             AVDOVIDmDataActiveRef::Unknown(42)
         ));
+    }
+
+    #[test]
+    fn borrowed_views_outlive_the_temporary_shared_handle() {
+        let mut data = AVDOVIDmData::new();
+        data.as_mut().select_l6().set_max_cll(1_000);
+
+        // Every shared projection borrows the block, not the handle copy it
+        // was reached through, so these outlive the temporary `as_ref()`.
+        let active = data.as_ref().active();
+        let level6 = data.as_ref().l6().expect("level 6 is active");
+        assert!(matches!(active, AVDOVIDmDataActiveRef::Level6(_)));
+        assert_eq!(level6.max_cll(), 1_000);
+        assert_eq!(data.as_ref().level(), 6);
     }
 }
 

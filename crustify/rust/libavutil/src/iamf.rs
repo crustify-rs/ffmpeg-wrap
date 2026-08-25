@@ -2331,8 +2331,20 @@ ffibox::define_ctype!(
     /// Wraps: AVIAMFSubmix
     ///
     /// Layout-compatible view of a submix owned by an enclosing
-    /// `AVIAMFMixPresentation`. Its pointer tables and their elements remain
-    /// parent-owned and are exposed only through lifetime-bound handles.
+    /// `AVIAMFMixPresentation`. Libavutil creates these values through
+    /// `av_iamf_mix_presentation_add_submix` and releases the submix, its two
+    /// pointer tables, every entry in them, and its optional output mix
+    /// definition with that parent, so this type deliberately has no
+    /// independent owning handle.
+    ///
+    /// A valid value carries non-null immutable static `AVClass` metadata; an
+    /// `elements` / `layouts` table that is non-null whenever the matching
+    /// `nb_elements` / `nb_layouts` count is nonzero and whose counted entries
+    /// are distinct, non-null, live child allocations; and an
+    /// `output_mix_config` that is null or a uniquely owned `av_malloc`-family
+    /// mix-gain parameter definition. Only libavutil's add helpers may change
+    /// a table or its count, so the accessors below expose the entries through
+    /// lifetime-bound handles and never the container itself.
     AVIAMFSubmix,
     AVIAMFSubmixRef,
     AVIAMFSubmixMut,
@@ -2714,6 +2726,39 @@ mod submix_tests {
         let submix = unsafe { AVIAMFSubmixRef::from_ptr(addr_of_mut!(raw)) }.unwrap();
         assert_eq!(submix.elements().count(), 0);
         assert_eq!(submix.layouts().count(), 0);
+    }
+
+    #[test]
+    fn shared_projections_outlive_the_temporary_handle_they_came_from() {
+        let class = test_class();
+        // SAFETY: zero is the documented empty channel-layout state.
+        let mut layout: ffi::AVIAMFSubmixLayout = unsafe { core::mem::zeroed() };
+        layout.av_class = &class;
+        layout.layout_type = AVIAMFSubmixLayoutType::BINAURAL.as_raw();
+        layout.true_peak = ffi::AVRational { num: -3, den: 1 };
+        let mut layouts = [addr_of_mut!(layout)];
+        let mut raw = ffi::AVIAMFSubmix {
+            av_class: &class,
+            elements: core::ptr::null_mut(),
+            nb_elements: 0,
+            layouts: layouts.as_mut_ptr(),
+            nb_layouts: 1,
+            output_mix_config: core::ptr::null_mut(),
+            default_mix_gain: ffi::AVRational { num: 1, den: 2 },
+        };
+        // SAFETY: the submix and its single distinct child are initialized and
+        // reached only through this exclusive handle.
+        let submix = unsafe { AVIAMFSubmixMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+
+        // Each shared projection borrows the submix itself, not the temporary
+        // `as_ref()` copy it was reached through, so all three outlive it.
+        let gain = submix.as_ref().default_mix_gain();
+        let class_handle = submix.as_ref().av_class();
+        let first = submix.as_ref().layouts().next().expect("one layout");
+        assert_eq!(gain.den(), 2);
+        assert_eq!(class_handle.as_ptr(), addr_of!(class));
+        assert_eq!(first.layout_type(), AVIAMFSubmixLayoutType::BINAURAL);
+        assert_eq!(first.true_peak().num(), -3);
     }
 }
 
