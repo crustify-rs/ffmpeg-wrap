@@ -215,42 +215,55 @@ fn output_size(output: &[u8]) -> Result<i32, i32> {
 }
 
 /// Wraps: av_hash_final
-pub fn av_hash_final(mut context: CBox<AVHashContext>, output: &mut [u8]) -> Result<usize, i32> {
+///
+/// The context is borrowed, not consumed: C finalizes the algorithm state in
+/// place and leaves the allocation to its owner, so the same context serves
+/// another message after [`av_hash_init`] resets it.
+pub fn av_hash_final(context: &mut AVHashContextMut<'_>, output: &mut [u8]) -> Result<usize, i32> {
     let required = av_hash_get_size(context.as_ref());
     if output.len() < required {
         return Err(-22);
     }
-    // SAFETY: output has at least the algorithm's full digest size. Consuming
-    // the owner prevents safe code from updating or finalizing this state again.
-    unsafe { ffi::av_hash_final(context.as_mut().as_mut_ptr(), output.as_mut_ptr()) }
+    // SAFETY: output has at least the algorithm's full digest size, which is
+    // what C writes, and the exclusive handle permits finalizing in place.
+    unsafe { ffi::av_hash_final(context.as_mut_ptr(), output.as_mut_ptr()) }
     Ok(required)
 }
 
 /// Wraps: av_hash_final_bin
-pub fn av_hash_final_bin(mut context: CBox<AVHashContext>, output: &mut [u8]) -> Result<(), i32> {
+///
+/// Borrows the context, as [`av_hash_final`] does.
+pub fn av_hash_final_bin(context: &mut AVHashContextMut<'_>, output: &mut [u8]) -> Result<(), i32> {
     let size = output_size(output)?;
-    // SAFETY: output supplies `size` writable bytes. The owner is consumed so
-    // this finalized state cannot be reused through the safe surface.
-    unsafe { ffi::av_hash_final_bin(context.as_mut().as_mut_ptr(), output.as_mut_ptr(), size) }
+    // SAFETY: output supplies the `size` writable bytes C fills, truncating or
+    // zero-padding the digest to exactly that width.
+    unsafe { ffi::av_hash_final_bin(context.as_mut_ptr(), output.as_mut_ptr(), size) }
     Ok(())
 }
 
 /// Wraps: av_hash_final_hex
-pub fn av_hash_final_hex(mut context: CBox<AVHashContext>, output: &mut [u8]) -> Result<(), i32> {
+///
+/// Borrows the context, as [`av_hash_final`] does.
+pub fn av_hash_final_hex(context: &mut AVHashContextMut<'_>, output: &mut [u8]) -> Result<(), i32> {
     let size = output_size(output)?;
-    // SAFETY: output supplies `size` writable bytes and the context is consumed.
-    unsafe { ffi::av_hash_final_hex(context.as_mut().as_mut_ptr(), output.as_mut_ptr(), size) }
+    // SAFETY: output supplies `size` writable bytes, which bound every
+    // `snprintf` C writes into it.
+    unsafe { ffi::av_hash_final_hex(context.as_mut_ptr(), output.as_mut_ptr(), size) }
     Ok(())
 }
 
 /// Wraps: av_hash_final_b64
-pub fn av_hash_final_b64(mut context: CBox<AVHashContext>, output: &mut [u8]) -> Result<(), i32> {
+///
+/// Borrows the context, as [`av_hash_final`] does.
+pub fn av_hash_final_b64(context: &mut AVHashContextMut<'_>, output: &mut [u8]) -> Result<(), i32> {
     let size = output_size(output)?;
     if size == 0 {
         return Err(-22);
     }
-    // SAFETY: output supplies `size` writable bytes and the context is consumed.
-    unsafe { ffi::av_hash_final_b64(context.as_mut().as_mut_ptr(), output.as_mut_ptr(), size) }
+    // SAFETY: output supplies `size` writable bytes, and `size >= 1` keeps C
+    // away from the `dst[size - 1] = 0` truncation it performs for a buffer
+    // shorter than the encoded digest.
+    unsafe { ffi::av_hash_final_b64(context.as_mut_ptr(), output.as_mut_ptr(), size) }
     Ok(())
 }
 
@@ -258,26 +271,89 @@ pub fn av_hash_final_b64(mut context: CBox<AVHashContext>, output: &mut [u8]) ->
 mod hashing_tests {
     use super::*;
 
+    const ABC_MD5: [u8; 16] = [
+        0x90, 0x01, 0x50, 0x98, 0x3c, 0xd2, 0x4f, 0xb0, 0xd6, 0x96, 0x3f, 0x7d, 0x28, 0xe1, 0x7f,
+        0x72,
+    ];
+
     #[test]
-    fn hashes_and_finalizes_without_reusable_state() {
+    fn hashes_and_finalizes_in_place() {
         let mut context = av_hash_alloc(c"MD5").unwrap();
         assert_eq!(av_hash_get_name(context.as_ref()), c"MD5");
         assert_eq!(av_hash_get_size(context.as_ref()), 16);
         av_hash_update(&mut context.as_mut(), b"abc");
         let mut digest = [0; 16];
-        assert_eq!(av_hash_final(context, &mut digest), Ok(16));
+        assert_eq!(av_hash_final(&mut context.as_mut(), &mut digest), Ok(16));
+        assert_eq!(digest, ABC_MD5);
+    }
+
+    #[test]
+    fn a_reset_context_hashes_another_message() {
+        // C borrows the context for the whole hash lifecycle, so one owner
+        // covers any number of messages.
+        let mut context = av_hash_alloc(c"MD5").unwrap();
+        let mut first = [0; 16];
+        av_hash_update(&mut context.as_mut(), b"abc");
+        assert_eq!(av_hash_final(&mut context.as_mut(), &mut first), Ok(16));
+
+        av_hash_init(&mut context.as_mut());
+        let mut second = [0; 16];
+        av_hash_update(&mut context.as_mut(), b"a");
+        av_hash_update(&mut context.as_mut(), b"bc");
+        assert_eq!(av_hash_final(&mut context.as_mut(), &mut second), Ok(16));
+
+        assert_eq!(first, ABC_MD5);
+        assert_eq!(second, ABC_MD5);
+    }
+
+    #[test]
+    fn shorter_and_longer_outputs_are_written_to_their_exact_width() {
+        let mut context = av_hash_alloc(c"MD5").unwrap();
+        av_hash_update(&mut context.as_mut(), b"abc");
+
+        // A digest wider than the algorithm's is zero-padded, a narrower one
+        // truncated; both stay inside the slice.
+        let mut wide = [0xff; 20];
+        assert_eq!(av_hash_final_bin(&mut context.as_mut(), &mut wide), Ok(()));
+        assert_eq!(wide[..16], ABC_MD5);
+        assert_eq!(wide[16..], [0; 4]);
+
+        av_hash_init(&mut context.as_mut());
+        av_hash_update(&mut context.as_mut(), b"abc");
+        let mut narrow = [0xff; 4];
         assert_eq!(
-            digest,
-            [
-                0x90, 0x01, 0x50, 0x98, 0x3c, 0xd2, 0x4f, 0xb0, 0xd6, 0x96, 0x3f, 0x7d, 0x28, 0xe1,
-                0x7f, 0x72
-            ]
+            av_hash_final_bin(&mut context.as_mut(), &mut narrow),
+            Ok(())
         );
+        assert_eq!(narrow, ABC_MD5[..4]);
+
+        av_hash_init(&mut context.as_mut());
+        av_hash_update(&mut context.as_mut(), b"abc");
+        let mut hex = [0; 33];
+        assert_eq!(av_hash_final_hex(&mut context.as_mut(), &mut hex), Ok(()));
+        assert_eq!(&hex[..6], b"900150");
+
+        av_hash_init(&mut context.as_mut());
+        av_hash_update(&mut context.as_mut(), b"abc");
+        let mut base64 = [0; 25];
+        assert_eq!(
+            av_hash_final_b64(&mut context.as_mut(), &mut base64),
+            Ok(())
+        );
+        assert_eq!(&base64[..6], b"kAFQmD");
+    }
+
+    #[test]
+    fn full_digest_output_must_fit() {
+        let mut context = av_hash_alloc(c"MD5").unwrap();
+        // `av_hash_final` writes the algorithm's full width and takes no size.
+        assert_eq!(av_hash_final(&mut context.as_mut(), &mut [0; 15]), Err(-22));
     }
 
     #[test]
     fn base64_requires_space_for_its_terminator() {
-        let context = av_hash_alloc(c"MD5").unwrap();
-        assert_eq!(av_hash_final_b64(context, &mut []), Err(-22));
+        let mut context = av_hash_alloc(c"MD5").unwrap();
+        // C truncates with `dst[size - 1] = 0`, which underflows at size 0.
+        assert_eq!(av_hash_final_b64(&mut context.as_mut(), &mut []), Err(-22));
     }
 }

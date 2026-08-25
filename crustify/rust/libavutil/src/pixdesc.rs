@@ -1030,6 +1030,15 @@ pub fn av_get_pix_fmt_loss(
 }
 
 /// Wraps: av_get_pix_fmt_string
+///
+/// A negative format requests the column header, which is the only value C
+/// handles without a descriptor. For every other value the wrapper resolves
+/// the descriptor first: unlike the rest of this module, C indexes
+/// `av_pix_fmt_descriptors` directly here instead of going through
+/// [`av_pix_fmt_desc_get`], so a non-negative format at or above
+/// `AV_PIX_FMT_NB` reads past the end of that static table and formats
+/// whatever pointer it finds as the name. `AVPixelFormat` is an open integer
+/// newtype, so safe code can name such a value.
 pub fn av_get_pix_fmt_string(
     buffer: &mut [u8],
     format: crate::pixfmt::AVPixelFormat,
@@ -1038,7 +1047,11 @@ pub fn av_get_pix_fmt_string(
     if size == 0 {
         return Err(-22);
     }
-    // SAFETY: `buffer` provides `size` writable bytes and C returns the same
+    if format.as_raw() >= 0 && av_pix_fmt_desc_get(format).is_none() {
+        return Err(-22);
+    }
+    // SAFETY: `buffer` provides `size` writable bytes, `format` is negative or
+    // addresses an entry of C's descriptor table, and C returns the same
     // buffer after writing a bounded terminated description.
     unsafe { ffi::av_get_pix_fmt_string(buffer.as_mut_ptr().cast(), size, format.as_raw()) };
     CStr::from_bytes_until_nul(buffer).map_err(|_| -22)
@@ -1120,6 +1133,43 @@ mod format_utility_tests {
             av_pix_fmt_swap_endianness(AVPixelFormat::YUV420P16LE),
             AVPixelFormat::YUV420P16BE
         );
+    }
+
+    #[test]
+    fn describing_a_format_outside_the_table_reports_an_error() {
+        let mut buffer = [0; 64];
+
+        // A negative value is the documented header request and stays inside
+        // C's descriptor-free branch.
+        assert!(
+            av_get_pix_fmt_string(&mut buffer, AVPixelFormat::NONE)
+                .unwrap()
+                .to_bytes()
+                .starts_with(b"name")
+        );
+
+        // These have no descriptor, and C would index its static table with
+        // them anyway; ASan reports the read as a global-buffer-overflow.
+        for format in [
+            AVPixelFormat::NB,
+            AVPixelFormat::from_raw(AVPixelFormat::NB.as_raw() + 1),
+            AVPixelFormat::from_raw(i32::MAX),
+        ] {
+            assert!(av_pix_fmt_desc_get(format).is_none());
+            assert_eq!(av_get_pix_fmt_string(&mut buffer, format), Err(-22));
+        }
+    }
+
+    #[test]
+    fn every_format_below_the_count_has_a_describable_descriptor() {
+        // The guard above rejects exactly the formats C cannot describe, so
+        // it must not reject any format the table does define.
+        let mut buffer = [0; 64];
+        for raw in 0..AVPixelFormat::NB.as_raw() {
+            let format = AVPixelFormat::from_raw(raw);
+            assert!(av_pix_fmt_desc_get(format).is_some(), "{raw} has no entry");
+            assert!(av_get_pix_fmt_string(&mut buffer, format).is_ok());
+        }
     }
 }
 
