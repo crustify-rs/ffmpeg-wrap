@@ -9,13 +9,13 @@
 - **`api_headers`** — the published `libavutil` headers (see `crustify/oracle/targets/libavutil/oracle-config.json`)
 - **agent backend** — `codex`
 - **model** — `openai/gpt-5.6-sol`
-- **`--billing`** — `subscription`
+- **`--billing`** — `api`
 - **`--max-types`** — `4`
 - **`--max-syms`** — `50`
 - **`--max-loc`** — `1000`
 - **`--min-fields`** — `20`
 - **`--parallel-max`** — `16`
-- **branch** — `crustify/libavutil-gpt-5.6-sol`, tip `87c1577231`
+- **branch** — `crustify/libavutil-gpt-5.6-sol`, last code commit `c26528d27c`
 - **deps** — crustify-cli `d756ae6` (`docs/results-template-ub`), ffibox `600399f` (`main`)
 
 ## Review pass
@@ -30,8 +30,8 @@
 - **`--max-loc`** — `3000`
 - **`--min-fields`** — `60`
 - **`--parallel-max`** — `16`
-- **branch** — `crustify/session/review-2026-08-23_22-14-28_82c3`, tip `414ff93355`
-- **agents** — `28`, over `3` session(s)
+- **branch** — `crustify/session/review-2026-08-25_20-43-14_3d6e`, tip `c26528d27c`
+- **agents** — `44` over `5` session(s) — `28` in the first pass, `16` in the second
 
 `rv`-prefixed columns below carry the review pass; the unprefixed ones remain
 the campaign's.
@@ -85,15 +85,15 @@ in Notes.
 
 ## Overview
 
-- **Rust LoC, non-test** — `5,088`
-- **Rust LoC, tests** — `4,740`
-- **C LoC** — `3,135`
+- **Rust LoC, non-test** — `12,252`
+- **Rust LoC, tests** — `8,201`
+- **C LoC** — `6,072`
 - **ported types** — `0`
 - **ported symbols** — `0`
-- **wrapped types** — `32` (`18%` of API)
-- **wrapped symbols** — `164` (`24%` of API)
-- **remaining types** — `149`
-- **remaining symbols** — `507`
+- **wrapped types** — `101` (`56%` of API)
+- **wrapped symbols** — `334` (`50%` of API)
+- **remaining types** — `80`
+- **remaining symbols** — `337`
 
 Implementation `openai/gpt-5.6-sol` via `codex`; review
 `anthropic/claude-opus-5` via `claude`. Each row names the model that produced
@@ -107,8 +107,10 @@ it.
 | `review-string` | review | `0` | `2` | `12m00s` | `$4.93` (`anthropic/claude-opus-5`) | — | `$2.46` | — | — |
 | `libavutil-wrap` | wrap | `32` | `164` | `1h05m44s` | `$124.06` (`openai/gpt-5.6-sol`) | `$3.88` | `$0.76` | `1h11m30s` | `$54.40` (`anthropic/claude-opus-5`) |
 | `review-final + review-final-continuation` | review | `32` | `164` | `2h11m17s` | `$230.95` (`anthropic/claude-opus-5`) | `$7.22` | `$1.41` | — | — |
-| orchestrator | orchestration | `32` | `164` | — | not recorded | — | — | — | — |
-| **Σ recorded agents** | | **`64`** | **`336`** | **`4h19m22s`** | **`$384.33`** | **`$6.01`** | **`$1.14`** | | **`$54.40`** |
+| `api-50pct-wrap` | wrap | `69` | `171` | `1h35m39s` | `$185.59` (`openai/gpt-5.6-sol`) | `$2.69` | `$1.09` | — | — |
+| `api-50pct-review` | review | `69` | `167` | `1h46m49s` | `$132.17` (`anthropic/claude-opus-5`) | `$1.92` | `$0.79` | — | — |
+| orchestrator | orchestration | `101` | `335` | — | not recorded | — | — | — | — |
+| **Σ recorded agents** | | **`202`** | **`674`** | **`7h41m50s`** | **`$702.09`** | **`$3.48`** | **`$1.04`** | | **`$54.40`** |
 
 ## Raw lifetime discovery
 
@@ -166,7 +168,32 @@ None ran; see Notes.
 | `1` | `7` | `0` | `$2.61` | `5m35s` | `$2.61` | `$0.37` |
 | `2` | `11` | `2` | `$4.43` | `8m51s` | `$2.21` | `$0.40` |
 | `1` | `40` | `4` | `$5.89` | `13m02s` | `$5.89` | `$0.15` |
-| **Σ `32`** | **`91`** | **`10`** | **`$91.87`** | — | **`$2.87`** | **`$1.01`** |
+| `4` | `12` | `0` | `$3.93` | `7m43s` | `$0.98` | `$0.33` |
+| `4` | `21` | `0` | `$7.91` | `14m01s` | `$1.98` | `$0.38` |
+| `4` | `13` | `0` | `$5.90` | `12m15s` | `$1.48` | `$0.45` |
+| `4` | `17` | `0` | `$7.99` | `12m57s` | `$2.00` | `$0.47` |
+| `2` | `21` | `0` | `$5.86` | `10m18s` | `$2.93` | `$0.28` |
+| `1` | `21` | `0` | `$5.77` | `15m35s` | `$5.77` | `$0.27` |
+| `3` | `16` | `0` | `$6.96` | `11m36s` | `$2.32` | `$0.43` |
+| `4` | `9` | `0` | `$5.40` | `9m30s` | `$1.35` | `$0.60` |
+| `4` | `0` | `0` | `$2.26` | `5m23s` | `$0.57` | — |
+| `4` | `6` | `0` | `$6.81` | `11m00s` | `$1.70` | `$1.14` |
+| `3` | `0` | `0` | `$4.08` | `8m58s` | `$1.36` | — |
+| `3` | `24` | `0` | `$4.55` | `10m28s` | `$1.52` | `$0.19` |
+| `2` | `23` | `0` | `$4.96` | `7m59s` | `$2.48` | `$0.22` |
+| `4` | `14` | `0` | `$3.63` | `7m13s` | `$0.91` | `$0.26` |
+| `1` | `7` | `0` | `$3.17` | `5m27s` | `$3.17` | `$0.45` |
+| `2` | `21` | `0` | `$5.70` | `11m02s` | `$2.85` | `$0.27` |
+| `1` | `23` | `0` | `$2.33` | `4m04s` | `$2.33` | `$0.10` |
+| `2` | `18` | `0` | `$3.49` | `6m25s` | `$1.74` | `$0.19` |
+| `3` | `25` | `0` | `$8.11` | `9m40s` | `$2.70` | `$0.32` |
+| `4` | `27` | `0` | `$8.65` | `11m33s` | `$2.16` | `$0.32` |
+| `2` | `11` | `0` | `$7.97` | `13m56s` | `$3.99` | `$0.72` |
+| `4` | `17` | `0` | `$6.09` | `11m32s` | `$1.52` | `$0.36` |
+| `1` | `6` | `0` | `$3.83` | `6m52s` | `$3.83` | `$0.64` |
+| `2` | `21` | `0` | `$5.35` | `9m33s` | `$2.68` | `$0.25` |
+| `1` | `4` | `0` | `$4.29` | `7m43s` | `$4.29` | `$1.07` |
+| **Σ `101`** | **`468`** | **`10`** | **`$226.86`** | — | **`$2.25`** | **`$0.48`** |
 
 ### Batches — types, port
 
@@ -200,7 +227,17 @@ None ran; this is a wrap campaign. See Notes.
 | `1` | `+186/-25` | `$6.15` | `11m40s` | `$6.15` |
 | `2` | `+524/-64` | `$17.78` | `22m36s` | `$8.89` |
 | `1` | `+526/-41` | `$17.51` | `24m37s` | `$17.51` |
-| **Σ `32`** | **`+2729/-331`** | **`$135.79`** | — | **`$4.24`** |
+| `15` | `+0/-0` | `$11.65` | `15m14s` | `$0.78` |
+| `7` | `+88/-16` | `$8.69` | `12m48s` | `$1.24` |
+| `15` | `+362/-29` | `$9.98` | `13m53s` | `$0.67` |
+| `9` | `+1257/-11` | `$14.90` | `21m39s` | `$1.66` |
+| `1` | `+217/-13` | `$6.40` | `11m32s` | `$6.40` |
+| `5` | `+187/-0` | `$5.40` | `8m57s` | `$1.08` |
+| `9` | `+653/-2` | `$9.49` | `13m17s` | `$1.05` |
+| `5` | `+186/-87` | `$4.64` | `9m02s` | `$0.93` |
+| `2` | `+67/-1` | `$4.45` | `8m28s` | `$2.23` |
+| `1` | `+74/-4` | `$3.99` | `7m16s` | `$3.99` |
+| **Σ `101`** | **`+5820/-494`** | **`$215.39`** | — | **`$2.13`** |
 
 ### Batches — symbols
 
@@ -214,7 +251,14 @@ None ran; this is a wrap campaign. See Notes.
 | wrap | `21` | `685` | `$7.64` | `11m50s` | `$0.36` | `$0.011` |
 | wrap | `16` | `322` | `$3.60` | `7m43s` | `$0.22` | `$0.011` |
 | wrap | `14` | `250` | `$2.85` | `6m12s` | `$0.20` | `$0.011` |
-| **Σ** | **`164`** | **`4225`** | **`$32.19`** | | **`$0.20`** | **`$0.008`** |
+| wrap | `50` | `1270` | `$11.89` | `18m41s` | `$0.24` | `$0.009` |
+| wrap | `36` | `765` | `$8.93` | `18m43s` | `$0.25` | `$0.012` |
+| wrap | `49` | `1228` | `$11.35` | `18m31s` | `$0.23` | `$0.009` |
+| wrap | `31` | `894` | `$7.59` | `15m26s` | `$0.24` | `$0.008` |
+| wrap | `3` | `210` | `$4.12` | `7m08s` | `$1.37` | `$0.020` |
+| wrap | `1` | `209` | `$3.44` | `8m41s` | `$3.44` | `$0.016` |
+| wrap | `1` | `97` | `$3.28` | `7m07s` | `$3.28` | `$0.034` |
+| **Σ** | **`335`** | **`8,898`** | **`$82.79`** | | **`$0.25`** | **`$0.009`** |
 
 ### Batches — review symbols
 
@@ -228,7 +272,13 @@ None ran; this is a wrap campaign. See Notes.
 | `21` | `+128/-9` | `$9.18` | `15m38s` | `$0.44` |
 | `16` | `+355/-23` | `$12.95` | `19m31s` | `$0.81` |
 | `14` | `+329/-15` | `$11.54` | `16m37s` | `$0.82` |
-| **Σ `164`** | **`+1870/-100`** | **`$84.40`** | — | **`$0.51`** |
+| `86` | `+210/-6` | `$21.10` | `30m13s` | `$0.25` |
+| `47` | `+150/-24` | `$11.22` | `17m11s` | `$0.24` |
+| `29` | `+119/-8` | `$11.66` | `16m48s` | `$0.40` |
+| `3` | `+133/-0` | `$3.68` | `8m07s` | `$1.23` |
+| `1` | `+43/-18` | `$2.37` | `6m09s` | `$2.37` |
+| `1` | `+75/-1` | `$2.54` | `5m47s` | `$2.54` |
+| **Σ `331`** | **`+2600/-157`** | **`$136.98`** | — | **`$0.41`** |
 
 ## Safety audit
 
@@ -236,17 +286,17 @@ Deterministic `crustify-audit unsafe`; no model.
 
 ### Snapshots
 
-| | before review (`5fd5c3a7d7`) | after review (`414ff93355`) |
+| | before review (`704fc88898`) | after review (`c26528d27c`) |
 |---|---|---|
-| unsafe loc | `1016` | `1056` |
-| % of loc | `24.7%` | `24.2%` |
-| blocks | `501` | `519` |
-| % in `impl T` | `58.5%` | `59.3%` |
-| `unsafe fn` | `103` | `111` |
-| ...of which not sanctioned | `26` | `33` |
-| raw-ptr smell | `10` | `8` |
-| void-ptr smell | `1` | `1` |
-| FFI calls | `184` | `188` |
+| unsafe loc | `3638` | `3780` |
+| % of loc | `36.0%` | `35.6%` |
+| blocks | `1818` | `1891` |
+| % in `impl T` | `77.3%` | `75.7%` |
+| `unsafe fn` | `421` | `429` |
+| ...of which not sanctioned | `76` | `84` |
+| raw-ptr smell | `10` | `10` |
+| void-ptr smell | `2` | `2` |
+| FFI calls | `336` | `374` |
 | `&`/`&mut` on a wrapper | `0` | `0` |
 | field proj outside an accessor | `0` | `0` |
 
@@ -254,38 +304,38 @@ Deterministic `crustify-audit unsafe`; no model.
 
 | metric | before | after | Δ | reading |
 |---|---|---|---|---|
-| `code_lines` | `4114` | `4372` | `+258` | union of HIR definition spans (denominator); `cfg`-disabled items excluded |
-| `total_stmts` | `554` | `663` | `+109` | statements |
-| `unsafe_blocks` | `501` | `519` | `+18` | count of `unsafe { }` blocks, macro-expanded included |
-| `unsafe_block_stmts` | `9` | `10` | `+1` | statements inside them |
-| `unsafe_block_lines` | `1016` | `1057` | `+41` | their lines, every outermost block |
-| `unsafe_block_code_lines` | `1016` | `1056` | `+40` | **24.7% → 24.2%** |
-| `unsafe_blocks_wrapper_impl` | `293` | `308` | `+15` | inside `impl <wrapper T>` |
-| `unsafe_blocks_ffi_export` | `0` | `0` | `0` | inside the C-ABI gateway |
-| `unsafe_fns` | `103` | `111` | `+8` | `unsafe fn` declarations, post-expansion |
-| `unsafe_fns_seam` | `77` | `78` | `+1` | ...the sanctioned subset |
-| **`unsafe fn` smell** | **`26`** | **`33`** | **`+7`** | the remainder — read each and accept or fix it |
-| `unsafe_fns_pub` | `102` | `109` | `+7` | ...of `unsafe_fns`, exported from the crate |
-| `unsafe_impls` / `unsafe_traits` | `34` / `0` | `35` / `0` | `+1` | lifecycle contracts asserted once per type |
-| `ffi_calls` | `184` | `188` | `+4` | calls to a foreign item — the unsafe-FFI-call surface |
-| `wrapper_newtypes` | `15` | `15` | `0` | LAYOUT newtypes — `repr(transparent)` over a `repr(C)` type by value, detected structurally |
-| `wrapper_newtypes_declared` | `15` | `15` | `0` | the `CCell`-declared count, for comparison |
+| `code_lines` | `10101` | `10616` | `+515` | union of HIR definition spans (denominator); `cfg`-disabled items excluded |
+| `total_stmts` | `1567` | `1658` | `+91` | statements |
+| `unsafe_blocks` | `1818` | `1891` | `+73` | count of `unsafe { }` blocks, macro-expanded included |
+| `unsafe_block_stmts` | `124` | `123` | `-1` | statements inside them |
+| `unsafe_block_lines` | `3639` | `3781` | `+142` | their lines, every outermost block |
+| `unsafe_block_code_lines` | `3638` | `3780` | `+142` | **36.0% → 35.6%** |
+| `unsafe_blocks_wrapper_impl` | `1405` | `1431` | `+26` | inside `impl <wrapper T>` |
+| `unsafe_blocks_ffi_export` | `8` | `8` | `0` | inside the C-ABI gateway |
+| `unsafe_fns` | `421` | `429` | `+8` | `unsafe fn` declarations, post-expansion |
+| `unsafe_fns_seam` | `345` | `345` | `0` | ...the sanctioned subset |
+| **`unsafe fn` smell** | **`76`** | **`84`** | **`+8`** | the remainder — read each and accept or fix it |
+| `unsafe_fns_pub` | `417` | `425` | `+8` | ...of `unsafe_fns`, exported from the crate |
+| `unsafe_impls` / `unsafe_traits` | `130` / `0` | `136` / `0` | `+6` | lifecycle contracts asserted once per type |
+| `ffi_calls` | `336` | `374` | `+38` | calls to a foreign item — the unsafe-FFI-call surface |
+| `wrapper_newtypes` | `68` | `68` | `0` | LAYOUT newtypes — `repr(transparent)` over a `repr(C)` type by value, detected structurally |
+| `wrapper_newtypes_declared` | `68` | `68` | `0` | the `CCell`-declared count, for comparison |
 | `wrapper_declared_nonconformant` | `0` | `0` | `0` | declared but failing the structural test — **target 0** |
 | `wrapper_newtypes_undeclared` | `0` | `0` | `0` | structural but undeclared — a hand-written layout newtype |
-| `raw_ptr_args` | `53` | `53` | `0` | raw-ptr positions in arguments |
-| `raw_ptr_rets` | `63` | `61` | `-2` | raw-ptr positions in returns |
-| **total positions** | **`116`** | **`114`** | `-2` | args + rets; disjoint, so this is the surface |
-| `raw_ptr_seam` | `106` | `106` | `0` | sanctioned: seam fn / `mod ffi_export` / `extern "C"` / ptr-to-own-`Self` |
-| **smell (total − seam)** | **`10`** | **`8`** | `-2` | the non-seam remainder |
-| `raw_ptr_wrapped` | `2` | `0` | `-2` | **of the smell**: pointee is a C type that HAS a wrapper — the actionable defect |
+| `raw_ptr_args` | `219` | `219` | `0` | raw-ptr positions in arguments |
+| `raw_ptr_rets` | `272` | `272` | `0` | raw-ptr positions in returns |
+| **total positions** | **`491`** | **`491`** | `0` | args + rets; disjoint, so this is the surface |
+| `raw_ptr_seam` | `481` | `481` | `0` | sanctioned: seam fn / `mod ffi_export` / `extern "C"` / ptr-to-own-`Self` |
+| **smell (total − seam)** | **`10`** | **`10`** | `0` | the non-seam remainder |
+| `raw_ptr_wrapped` | `0` | `0` | `0` | **of the smell**: pointee is a C type that HAS a wrapper — the actionable defect |
 | `raw_ptr_in_wrapper` | `0` | `0` | `0` | **of the smell**: inside a wrapper impl — the least excusable placement |
-| `raw_ptr_derefs` | `164` | `170` | `+6` | `*p` on a raw pointer (volume) |
+| `raw_ptr_derefs` | `929` | `953` | `+24` | `*p` on a raw pointer (volume) |
 | `ref_to_type_wrapper` | `0` | `0` | `0` | `&`/`&mut` on a layout newtype — **target 0** |
-| `field_proj_wrapped` | `164` | `170` | `+6` | projection VOLUME — shares one HIR shape with `addr_of!`, not a violation |
+| `field_proj_wrapped` | `923` | `947` | `+24` | projection VOLUME — shares one HIR shape with `addr_of!`, not a violation |
 | `field_proj_outside_impl` | `0` | `0` | `0` | projections outside any accessor — **target 0** |
 | `field_ref_wrapped` | `0` | `0` | `0` | `&(*p).field` — forbidden by the translator playbook — **target 0** |
-| `void_ptr_sanctioned` | `45` | `45` | `0` | `*c_void` in a seam / `ffi_export` / `extern "C"` signature |
-| `void_ptr_smell` | `1` | `1` | `0` | `*c_void` elsewhere; `void_ptr_sites` names each one |
+| `void_ptr_sanctioned` | `206` | `206` | `0` | `*c_void` in a seam / `ffi_export` / `extern "C"` signature |
+| `void_ptr_smell` | `2` | `2` | `0` | `*c_void` elsewhere; `void_ptr_sites` names each one |
 
 ## Notes
 
@@ -341,105 +391,119 @@ said once rather than left as a field of em-dashes.
 
 **A review pass is a sub-campaign of its own.** The oracle re-batches the
 units it judges under the review schedule's own budgets, so review rows never
-line up with the wave underneath. This campaign is an unusual case worth
-stating: `review-final` was scheduled over exactly the `libavutil-wrap`
-selection and re-derived the same `24` batches across the same `5` layers, so
-the mapping happens to be `1:1` here. Do not read that as the general case —
-it is what identical budgets over an identical unit set produced, not a
-property of the pass.
+line up with the wave underneath. Both waves here demonstrate the two ends of
+that. `review-final` ran at the *same* budgets as `libavutil-wrap` and
+re-derived the identical `24` batches over the identical `5` layers — a `1:1`
+mapping that is an artifact of equal budgets over an equal unit set, not a
+property of the pass. `api-50pct-review` ran at the wide budgets and packed
+the same units into `16` batches against the wrap wave's `32`; its layer 0
+alone judged `123` units in `4` batches where writing them took `13`.
 
-**Which units the review schedule dropped: none.** All `196` units were
-scheduled and all `196` were judged, across three sessions. The `31` units of
-layers 3–4 were judged by `review-final-continuation` after the first session
-stopped; see the two notes below.
+**Units a review schedule dropped.** `api-50pct-review` judged `236` of the
+wave's `240`: `av_bprint_finalize`, `av_fifo_freep2`, `av_hash_freep` and
+`av_opt_freep_ranges` are lifecycle primitives the oracle emits with their
+owning type, so they are reviewed there rather than as units of their own.
+The first review pass dropped none of its `196`.
 
 **Sub-campaigns the Overview lists but no table details.**
 `review-void-correction` and `review-void-free-correction` are tracked wave
 plans that landed two focused ownership corrections — `av_memdup` and `free` —
-as agent branches with no session log directory. They therefore have no
-`usage.json`, no recorded cost and no wall, and they appear in no table,
-including the Overview. Their landed line delta is `+115/-37` and `+165/-11`
-respectively. The corresponding cost is unrecorded rather than zero.
+as agent branches with no session log directory. They have no `usage.json`, no
+recorded cost and no wall, and they appear in no table, including the
+Overview. Their landed line delta is `+115/-37` and `+165/-11`. The cost is
+unrecorded rather than zero.
 
-**The cost the Target set tables leave unaccounted.** `Batches — types, wrap`
-plus `Batches — symbols` sum to `$124.06`, which is the whole
-`libavutil-wrap` row. `Batches — review types` plus `Batches — review symbols`
-sum to `$220.19`, which is **`$10.75` short** of the `$230.95` on the review
-Overview row. That gap is the spend on agents whose output was discarded and
-redone; it is charged to no batch because no batch kept it. See *Two layer-3
-review agents were killed mid-flight*.
+**Cost the Target set tables leave unaccounted.** `Batches — types, wrap` plus
+`Batches — symbols` sum to `$309.65`, which is both wrap waves exactly
+(`$124.06` + `$185.59`). The review batch tables sum to `$352.37` against
+`$363.12` on the two review Overview rows — **`$10.75` short**, which is the
+spend on agents whose output was discarded and redone; it is charged to no
+batch because no batch kept it. See *Two layer-3 review agents were killed
+mid-flight*.
 
 **Columns this campaign could not fill.** `Batches — types, port` is empty:
-this is a wrap campaign, the objective never changed, and no unit was
-escalated. `Review, in-model` is empty for a different reason — every review
-in this campaign, including both raw tiers, ran under
+wrap-only campaign, no unit escalated. `Review, in-model` is empty for a
+different reason — every review here, both raw tiers included, ran under
 `anthropic/claude-opus-5` against an `openai/gpt-5.6-sol` implementation, so
-all of it is independent review and none of it is in-model. The `orchestrator`
-row carries no figure at all: the orchestrator session writes no `usage.json`,
-so its supervision cost is not recorded anywhere and is not estimated here.
-Every campaign total in this document is therefore agents-only.
+all of it is independent review and none is in-model. The `orchestrator` row
+carries no figure: that session writes no `usage.json`, so its supervision
+cost is not recorded anywhere and is not estimated here. Every total in this
+document is agents-only.
 
-### Where the LoC figures come from
+**One batch holds both kinds.** Layer 0's twelfth `api-50pct-wrap` batch is a
+symbol batch carrying the `AVFifoCB` callback beside `49` functions. Callbacks
+are scheduled in symbol batches and counted with symbols, which is why the
+wave reads `69` types and `171` symbols against `240` units while its
+`plan_items` split `69`/`170`.
 
-All of them exclude comments and blank lines.
+### The wide review budgets, and what they bought
 
-**`C LoC` — `3,135`.** From
-`crustify-oracle query dag --name <every scheduled entity> --loc`: the
-oracle's translated-LoC view, a function seed valued at its body LoC and a
-type seed at its field and op count. Types account for `120` of it and symbols
-for `3,015`. It reports the seeds only, with no closure expansion, so it is the
-C this campaign translated rather than the surface it was drawn from. For
-scale: the `35` files those entities are defined in hold `13,885` raw SLOC,
-and `libavutil/` as a whole is `268` files and `54,961` raw SLOC. The
-campaign's `196` units are therefore about `6%` of the library by raw source.
+The second review is the first test of the split budgets: wrap at `4` types
+per agent, review at `15`. The mechanical effect is exactly as intended —
+`236` units in `16` batches instead of `32`, with layer 0 judging `123` units
+in `4` agents where the wrap wave needed `13`.
 
-One trap worth recording: `query dag --loc` appends a `TOTAL` row to its own
-output. Summing every row it prints double-counts, and the first figure this
-report carried was exactly `2×` the truth until the row was noticed.
+The trade is parallelism for context. The same layer 0 took `18m49s` to write
+across `13` concurrent agents and `30m14s` to judge across `4`; the review
+wave ran `1h46m49s` against the wrap wave's `1h35m39s` despite doing strictly
+less work, because fewer, longer agents cannot fill a `parallel-max` of `16`.
+Per unit it is cheaper than the narrow pass — `$0.56` against `$1.18` — since
+one agent amortises its context load over fifteen types rather than two.
 
-**`Rust LoC` — `5,088` non-test and `4,740` tests.** Counted from source over
-the `41` authored `.rs` files under `crustify/rust`, excluding anything
-generated into `target/`, and split by `#[cfg(test)]` module. Nearly half the
-Rust written is test code, which is the shape a wrap campaign should have: the
-tests are where a layout assertion or a lifetime claim becomes falsifiable.
+What it did **not** buy, on this evidence, is a visible defect-finding
+advantage. The pass reported `0` failures over `16` batches and moved
+`+3,879/-234` lines of Rust; the narrow pass over a comparable unit count
+moved `+6,682/-809`. Whether the wider window catches cross-type
+inconsistencies the narrow one missed is not answerable from batch counts, and
+this campaign has no instrument that would settle it. Recorded as an open
+question rather than a result.
 
-**That non-test figure is not the Safety audit's `code_lines` (`4,381`), and
-the two must not be added.** The audit measures the union of HIR definition
-spans, so it counts only what sits inside an item — no `use`, `mod` or
-free-standing attribute lines — and by construction cannot see `cfg`-disabled
-code, which is why it yields no test figure at all. Its number is the right
-denominator for the unsafe ratios in that section and the wrong one for how
-much Rust was written.
+### The second wave, and where the coverage went
 
-**The Rust-to-C ratio is not like-for-like in any measure.** `9,828` Rust
-against `3,135` C is not a `3.1×` expansion of the same work: the Rust carries
-tests, `// SAFETY:` justifications, `ffi_export` gateways and scaffolding with
-no C counterpart, while the C figure is seeds only. Quote it as a size, never
-as an expansion factor.
+`api-50pct-wrap` took the public API closure from `18%`/`24%` to `56%`/`50%`:
+`240` units, `69` types and `171` symbols, `32` batches over `7` layers,
+`1h35m39s`, `0` failures, `$185.59`.
 
-**The four unit counts are de-duplicated over entities, not scheduled units.**
-An entity appears once, under the last objective it ran. This campaign makes
-that trivial: it is wrap-only, no unit was ever escalated, so `0` types and `0`
-symbols are ported and no entity took both paths. Callbacks count with
-symbols; the oracle scheduled none separately here.
+The selection is composed rather than swept, because the remaining types and
+symbols do not live together. Nearly every unwrapped **type** sat in a
+metadata header family and nearly every unwrapped **symbol** in a `.c` module,
+so neither a deepen-what-we-have nor an add-new-families selection reaches
+`50%` on both axes: deepening alone gets `22%`/`53%`, the metadata families
+alone `65%`/`30%`. Types therefore come from `dovi_meta`, `iamf`, the two HDR
+dynamic-metadata headers, `stereo3d`, `film_grain_params` and `csp`; symbols
+from `opt`, `common`, `avstring`, `mem`, `fifo`, `pixdesc`, `imgutils`, `hash`
+and `bprint`.
 
-**The API percentages and the remaining counts are against the public API
-closure**, which is what `api_headers` publishes: `181` types (`132` struct,
-`49` enum) and `671` linkable symbols (`589` exported functions, `67`
-header-inline functions, `10` `extern` globals, `5` callbacks). The `374`
-macros the headers also publish are excluded — they become generated constants
-in the `-sys` crate and are never scheduled as units. That closure is
-self-contained: taking the transitive dependency closure of all `181` types and
-`671` symbols adds exactly one node, the macro `FF_PAD_STRUCTURE`.
+Five public-API dependencies the first pass had left behind were pulled in —
+`AVBPrint`, `AVClass`, `AVOptionRanges`, `tm` and the `AVFifoCB` callback —
+and scheduling those surfaced two more, `AVClassCategory` and `AVOptionRange`.
+Only `FF_PAD_STRUCTURE` remains unsatisfied, and it is a macro: a generated
+`-sys` constant, never a schedulable unit. `AVClass` was the load-bearing one,
+since `opt.c`'s `40` symbols sit on top of it.
 
-Every scheduled unit sits inside that set, so coverage is a clean subset rather
-than an overlap. What remains is `149` types and `507` symbols, spread over
-`124` headers; the heaviest single cluster is the rest of the `AVOption` system
-in `opt.c` (`40`), followed by the Dolby Vision and IAMF metadata families
-(`56` between them). Note also that the API closure is itself a slice of the
-library: `libavutil/` implements `228` targeted types and `2,014` targeted
-symbols, so most of what it contains is internal and out of scope by
-construction.
+### A landed wave failed clippy, and the fix was placement not reasoning
+
+`api-50pct-wrap` landed with an `unsafe` block in `opt.rs` whose `// SAFETY:`
+comment sat above the `assert_eq!` wrapper rather than immediately above the
+block inside it. `clippy::undocumented_unsafe_blocks` is **denied** by the
+workspace lints, so the wave did not pass its own gate.
+
+The justification was already written and correct; only its position was
+wrong. Moving it is an integration fix, which is the orchestrator's to make —
+as against retranslating a scheduled worklist, which is not. It landed as its
+own commit (`704fc88898`) so it reads as orchestrator work rather than
+agent output. Worth noting that a translator's own gate did not catch it:
+clippy's rule is positional, and prose that reads correctly to a human sits in
+the wrong place for the lint.
+
+### The agents adopted the new anchor convention unprompted
+
+`conventions.md` gained `/// Field: <name>.<field>` between the two waves, and
+the first wave's anchors were migrated to it mechanically. The second wave's
+agents emitted `Field:` correctly without being told, because they read the
+current conventions at run time. The tree now carries `404` whole-item
+`Wraps:`, `471` `Field:` and `4` `Replaces:` over `455` distinct `type.field`
+paths.
 
 ### The agentic UB pass found four soundness bugs the deterministic pass cannot see
 
@@ -555,7 +619,12 @@ aliasing violation would not be caught by it — the four classic wrapper shapes
 the largest module at 2,462 lines, is clean only because it is unreachable:
 every constructor of an `OptionObjectMut` is a `pub unsafe fn`.
 
-### What the review moved
+### What the first review moved
+
+The Safety audit table above brackets the **second** review
+(`704fc88898` → `c26528d27c`). This note is about the first
+(`5fd5c3a7d7` → `414ff93355`), whose snapshots are not in that table.
+
 
 **The one metric that is a defect count went to zero.** `raw_ptr_wrapped` —
 a raw pointer whose pointee is a C type that already has a wrapper — was `2`
@@ -593,6 +662,18 @@ because `av_freep` takes `void**` and needs a real pointer slot to null out.
 The safe surface over it is `AvFreepTarget::free_with_av_freep`, implemented
 only for `CVoidBox<AvFree>` and `CVec<T, AvFree>`. A necessary seam, left in
 place with its justification, which is what the playbook asks for.
+
+**The second review moved almost nothing measurable, and that is the finding.**
+Across `704fc88898` → `c26528d27c` every target-`0` metric held at `0` —
+`ref_to_type_wrapper` against `68` layout newtypes now, `field_ref_wrapped`,
+`field_proj_outside_impl`, `wrapper_declared_nonconformant`,
+`raw_ptr_wrapped`. Raw-pointer smell held at `10` and void-pointer smell at
+`2`, both unchanged. What grew — `unsafe_blocks` `1818` → `1891`,
+`unsafe_fns` `421` → `429`, `ffi_calls` `336` → `374` — grew because the pass
+added accessors and falsifiable assertions, not because it loosened anything;
+the unsafe ratio fell, `36.0%` → `35.6%`. A review that finds no defect and
+still adds `+3,879` lines of tests and justification is doing the job the
+deterministic pass cannot.
 
 ### The review branch named in the recovery snapshot was the wrong one
 
@@ -694,28 +775,70 @@ No public function taking `search_flags` reaches C unguarded.
 This is the review pass behaving as designed: a cross-batch defect surfaced by
 the agent that could see it and repaired by the agent that owned it.
 
-### Gate results, and what the deterministic scan is evidence of
+### Where the LoC figures come from
 
-On the promoted tree (`414ff93355`): `crates validate` clean; `cargo build
---workspace` clean; `cargo clippy --workspace --all-targets` clean with zero
-warnings under a workspace lint that **denies** `clippy::undocumented_unsafe_blocks`,
-so every one of the `519` unsafe blocks carries a `SAFETY:` comment; `211`
-libavutil tests and `8` `ffibox` tests pass, `0` failures, with the
-ASan+UBSan-built `libavutil.so` loaded and `detect_leaks=1`; `0` surviving
-`crustify:todo` anchors.
+All of them exclude comments and blank lines.
 
-`make -j64 fate-libavutil` returns `60/60`, exit `0`, matching the recorded
-baseline of *60/60 under ASan+UBSan, disabled tests: none*. The review changed
-no C file, so this gate was expected to hold and does; it is evidence that the
-wrapper tree does not perturb the C library, not that the wrappers are correct.
+**`C LoC` — `6,072`.** From
+`crustify-oracle query dag --name <every scheduled entity> --loc`: the
+oracle's translated-LoC view, a function seed valued at its body LoC and a
+type seed at its field and op count. It reports the seeds only, with no closure
+expansion, so it is the C this campaign translated rather than the surface it
+was drawn from. For scale: the `51` files the `436` seeds are defined in hold
+`15,747` raw SLOC, and `libavutil/` as a whole is `268` files and `54,961` raw
+SLOC — so the campaign has translated roughly `11%` of the library by raw
+source while covering half its published API.
 
-Two environment notes for anyone re-running these. The Rust tests need the
-ASan runtime preloaded (`LD_PRELOAD=$(gcc -print-file-name=libasan.so)`,
-`ASAN_OPTIONS=verify_asan_link_order=0`) because they load an instrumented
-`libavutil.so`; that preload makes non-instrumented host binaries — `rustdoc`,
-and the zero-test placeholder `-sys` harnesses — die with repeated
-`AddressSanitizer:DEADLYSIGNAL`. Run the `libavutil` crate with the preload and
-the rest without it. The crate has `0` doctests, so nothing is lost.
+One trap worth recording: `query dag --loc` appends a `TOTAL` row to its own
+output. Summing every row it prints double-counts, and the first figure this
+report carried was exactly `2×` the truth until the row was noticed.
+
+**`Rust LoC` — `12,252` non-test and `8,201` tests.** Counted from source over
+the `53` authored `.rs` files under `crustify/rust`, excluding anything
+generated into `target/`, and split by `#[cfg(test)]` module. Nearly half the
+Rust written is test code, which is the shape a wrap campaign should have: the
+tests are where a layout assertion or a lifetime claim becomes falsifiable.
+
+**That non-test figure is not the Safety audit's `code_lines` (`10,616`), and
+the two must not be added.** The audit measures the union of HIR definition
+spans, so it counts only what sits inside an item — no `use`, `mod` or
+free-standing attribute lines — and by construction cannot see `cfg`-disabled
+code, which is why it yields no test figure at all. Its number is the right
+denominator for the unsafe ratios in that section and the wrong one for how
+much Rust was written.
+
+**The Rust-to-C ratio is not like-for-like in any measure.** `20,453` Rust
+against `6,072` C is not a `3.4×` expansion of the same work: the Rust carries
+tests, `// SAFETY:` justifications, `ffi_export` gateways and scaffolding with
+no C counterpart, while the C figure is seeds only. Quote it as a size, never
+as an expansion factor.
+
+**The four unit counts are de-duplicated over entities, not scheduled units.**
+An entity appears once, under the last objective it ran. This campaign makes
+that trivial: it is wrap-only, no unit was ever escalated, so `0` types and `0`
+symbols are ported and no entity took both paths. Callbacks count with
+symbols; the oracle scheduled none separately here.
+
+**The API percentages and the remaining counts are against the public API
+closure**, which is what `api_headers` publishes: `181` types (`132` struct,
+`49` enum) and `671` linkable symbols (`589` exported functions, `67`
+header-inline functions, `10` `extern` globals, `5` callbacks). The `374`
+macros the headers also publish are excluded — they become generated constants
+in the `-sys` crate and are never scheduled as units. That closure is
+self-contained: taking the transitive dependency closure of all `181` types and
+`671` symbols adds exactly one node, the macro `FF_PAD_STRUCTURE`.
+
+Every scheduled unit sits inside that set, so coverage is a clean subset rather
+than an overlap. After both waves what remains is `80` types and `336` symbols
+over `106` headers, and the shape has changed: the first wave left the big
+type families and the `AVOption` system standing, and the second took them, so
+the tail is now flat — the heaviest cluster is `iamf.c` at `12`, then
+`timecode.c`, `refstruct.c`, `threadmessage.c` and `aes_ctr.c` at `10`-`11`
+each. There is no third wave that reaches a further `25` points as cheaply as
+the second did. Note also that the API closure is itself a slice of the
+library: `libavutil/` implements `228` targeted types and `2,014` targeted
+symbols, so most of what it contains is internal and out of scope by
+construction.
 
 ### The tree was migrated to the current schemas after the campaign ran
 
