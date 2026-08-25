@@ -47,6 +47,7 @@ int crustify_av_isxdigit(int value);
 AVDOVIRpuDataHeader *crustify_av_dovi_get_header(const AVDOVIMetadata *data);
 AVDOVIDataMapping *crustify_av_dovi_get_mapping(const AVDOVIMetadata *data);
 AVDOVIColorMetadata *crustify_av_dovi_get_color(const AVDOVIMetadata *data);
+AVDOVIDmData *crustify_av_dovi_get_ext(const AVDOVIMetadata *data, int index);
 void crustify_av_bprintf_string(AVBPrint *buf, const char *text);
 void crustify_av_vbprintf_string(AVBPrint *buf, const char *text);
 void *crustify_av_iamf_param_definition_get_subblock(const AVIAMFParamDefinition *par,

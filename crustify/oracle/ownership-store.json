@@ -4146,6 +4146,45 @@
    }
   },
   {
+   "name": "av_dovi_get_ext",
+   "defined_in": "libavutil/dovi_meta.h",
+   "ptr_args": [
+    {
+     "name": "data",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:data"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "The inline accessor reads offset and stride fields for the duration of the call and does not retain or modify data."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:data"
+     },
+     "nullable": false,
+     "mutable": false,
+     "note": "The result is a non-null interior extension-block borrow within data's contiguous allocation; mutation requires exclusive access to data."
+    }
+   }
+  },
+  {
    "name": "av_dovi_get_header",
    "defined_in": "libavutil/dovi_meta.h",
    "ptr_args": [

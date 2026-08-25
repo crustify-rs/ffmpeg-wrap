@@ -2724,3 +2724,99 @@ mod dm_data_tests {
         ));
     }
 }
+
+/// Wraps: av_dovi_get_ext
+///
+/// Borrows extension block `index` from the metadata allocation. Returns
+/// `None` when `index` is outside the initialized extension-block range.
+#[must_use]
+pub fn av_dovi_get_ext<'a>(
+    metadata: AVDOVIMetadataRef<'a>,
+    index: usize,
+) -> Option<AVDOVIDmDataRef<'a>> {
+    let count = usize::try_from(metadata.num_ext_blocks()).unwrap_or(0);
+    if index >= count {
+        return None;
+    }
+    let index = i32::try_from(index).ok()?;
+
+    // SAFETY: `index` was checked against the allocation's initialized block
+    // count. The metadata handle keeps the complete offset-based allocation
+    // live, and the returned shared handle is tied to that borrow.
+    unsafe { AVDOVIDmDataRef::from_ptr(ffi::crustify_av_dovi_get_ext(metadata.as_ptr(), index)) }
+}
+
+/// Wraps: av_dovi_get_ext
+///
+/// Exclusively borrows extension block `index`. This separate variant exposes
+/// C's writable result only when the complete metadata allocation is borrowed
+/// exclusively. Returns `None` when `index` is out of range.
+#[must_use]
+pub fn av_dovi_get_ext_mut<'a>(
+    mut metadata: AVDOVIMetadataMut<'a>,
+    index: usize,
+) -> Option<AVDOVIDmDataMut<'a>> {
+    let count = usize::try_from(metadata.as_ref().num_ext_blocks()).unwrap_or(0);
+    if index >= count {
+        return None;
+    }
+    let index = i32::try_from(index).ok()?;
+
+    // SAFETY: consuming the exclusive metadata handle preserves its exclusive
+    // borrow for `'a`; the checked index selects one initialized block inside
+    // the live allocation, so the result cannot outlive or alias its parent.
+    unsafe {
+        AVDOVIDmDataMut::from_ptr(ffi::crustify_av_dovi_get_ext(metadata.as_mut_ptr(), index))
+    }
+}
+
+#[cfg(test)]
+mod get_ext_tests {
+    use super::*;
+
+    #[repr(C)]
+    struct MetadataWithExtensions {
+        metadata: ffi::AVDOVIMetadata,
+        extensions: [ffi::AVDOVIDmData; 3],
+    }
+
+    fn storage() -> MetadataWithExtensions {
+        // SAFETY: the metadata header and extension blocks contain only
+        // integer-backed, resource-free fields for which zero is initialized.
+        let mut storage: MetadataWithExtensions = unsafe { core::mem::zeroed() };
+        storage.metadata.ext_block_offset =
+            core::mem::offset_of!(MetadataWithExtensions, extensions);
+        storage.metadata.ext_block_size = core::mem::size_of::<ffi::AVDOVIDmData>();
+        storage.metadata.num_ext_blocks = 3;
+        storage
+    }
+
+    #[test]
+    fn shared_borrow_checks_bounds_and_uses_the_c_stride() {
+        let mut storage = storage();
+        // SAFETY: the live aggregate has the initialized extension-block
+        // layout described by its metadata header.
+        let metadata = unsafe { AVDOVIMetadataRef::from_ptr(&mut storage.metadata) }.unwrap();
+
+        let second = av_dovi_get_ext(metadata, 1).expect("index 1 is initialized");
+        assert_eq!(second.as_ptr(), &raw const storage.extensions[1]);
+        assert!(av_dovi_get_ext(metadata, 3).is_none());
+        assert!(av_dovi_get_ext(metadata, usize::MAX).is_none());
+    }
+
+    #[test]
+    fn exclusive_borrow_updates_only_the_selected_block() {
+        let mut storage = storage();
+        // SAFETY: the live aggregate is exclusively accessed and its header
+        // describes all three initialized extension blocks.
+        let metadata = unsafe { AVDOVIMetadataMut::from_ptr(&mut storage.metadata) }.unwrap();
+        av_dovi_get_ext_mut(metadata, 1)
+            .expect("index 1 is initialized")
+            .select_l5()
+            .set_left_offset(17);
+
+        assert_eq!(storage.extensions[0].level, 0);
+        assert_eq!(storage.extensions[1].level, 5);
+        assert_eq!(storage.extensions[2].level, 0);
+    }
+}
