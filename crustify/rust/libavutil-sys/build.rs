@@ -33,6 +33,7 @@ fn main() {
         .allowlist_type("^(AVMD5|AVMediaType)$")
         .allowlist_type("^(AVDictionaryEntry|AVFrameSideDataType)$")
         .allowlist_type("^AV(AlphaMode|AudioFifo)$")
+        .allowlist_type("^AVStereo3D(Type|View)$")
         .allowlist_type("^AVOption(ArrayDef|Type)?$")
         // Needed to build an option-bearing object at all: every av_opt_set*
         // target is a struct whose first field is a `const AVClass *`.

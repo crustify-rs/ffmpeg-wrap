@@ -670,6 +670,28 @@
      }
     }
    ]
+  },
+  {
+   "name": "tm",
+   "defined_in": "/usr/include/x86_64-linux-gnu/bits/types/struct_tm.h",
+   "_comment_agent": "struct tm is a by-value system ABI type with no lifecycle operation. Its timezone string, when present, is borrowed external state rather than storage owned by the struct.",
+   "fields": [
+    {
+     "name": "__tm_zone",
+     "ptr": {
+      "scalar": null,
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "other"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "A struct tm does not own or free its timezone-abbreviation string. libc-produced values normally point into timezone state whose validity is external to the struct and may change after timezone operations; user-initialized or zeroed values may contain an application-managed pointer or NULL. The const pointee is read-only through this field."
+     }
+    }
+   ]
   }
  ],
  "symbols": [

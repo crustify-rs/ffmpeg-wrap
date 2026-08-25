@@ -19,4 +19,5 @@
 #include <libavutil/rational.h>
 #include <libavutil/samplefmt.h>
 #include <libavutil/pixfmt.h>
+#include <libavutil/stereo3d.h>
 #include <libavutil/time.h>
