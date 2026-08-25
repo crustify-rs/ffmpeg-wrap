@@ -351,6 +351,12 @@
    ]
   },
   {
+   "name": "AVDynamicHDRSmpte2094App5",
+   "defined_in": "libavutil/hdr_dynamic_metadata.h",
+   "_comment_agent": "Reviewed: this public POD struct has no pointer or refcount fields.",
+   "fields": []
+  },
+  {
    "name": "AVEscapeMode",
    "defined_in": "libavutil/avstring.h",
    "_comment_agent": "Integer-backed C enum with no pointer fields or lifecycle operations; values cross the ABI by value.",
