@@ -844,6 +844,77 @@
    ]
   },
   {
+   "name": "AVIAMFAudioElement",
+   "defined_in": "libavutil/iamf.h",
+   "fields": [
+    {
+     "name": "av_class",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "av_iamf_audio_element_alloc installs the translation-unit static audio_element_class; the pointee is immutable and process-lived."
+     }
+    },
+    {
+     "name": "demixing_info",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "The field receives a standalone av_malloc-family AVIAMFParamDefinition allocation and av_iamf_audio_element_free releases it with av_free."
+     }
+    },
+    {
+     "name": "layers",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "A nb_layers-length growable container owns each AVIAMFLayer pointer; add_layer allocates elements and the parent destructor disposes and frees every element and the container."
+     }
+    },
+    {
+     "name": "recon_gain_info",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "The field receives a standalone av_malloc-family AVIAMFParamDefinition allocation and av_iamf_audio_element_free releases it with av_free."
+     }
+    }
+   ]
+  },
+  {
    "name": "AVIAMFDemixingInfo",
    "defined_in": "libavutil/iamf.h",
    "_comment_agent": "The av_class slot is initialized from a file-scope static const AVClass in libavutil/iamf.c and only identifies the option-bearing concrete layout.",
@@ -4287,6 +4358,82 @@
    ]
   },
   {
+   "name": "av_dynamic_hdr_vivid_alloc",
+   "defined_in": "libavutil/hdr_dynamic_vivid_metadata.c",
+   "ptr_args": [
+    {
+     "name": "size",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:size"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Optional write-only size output used only during the call."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns a fresh av_mallocz allocation released with av_freep/av_free."
+    }
+   }
+  },
+  {
+   "name": "av_dynamic_hdr_vivid_create_side_data",
+   "defined_in": "libavutil/hdr_dynamic_vivid_metadata.c",
+   "ptr_args": [
+    {
+     "name": "frame",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:frame"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Mutably borrows the frame to append side data."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:frame"
+     },
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns a mutable view into the newly appended side-data buffer, whose storage remains owned by the frame."
+    }
+   }
+  },
+  {
    "name": "av_dynarray2_add",
    "defined_in": "libavutil/mem.c",
    "ptr_args": [
@@ -6959,6 +7106,95 @@
       "nullable": false,
       "mutable": false,
       "note": "Borrowed initialized frame-context reference used only during the query."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_iamf_audio_element_add_layer",
+   "defined_in": "libavutil/iamf.c",
+   "ptr_args": [
+    {
+     "name": "audio_element",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:audio_element"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Mutably borrows the parent while growing its layer container."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:audio_element"
+     },
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns a nullable mutable borrow of the newly allocated layer, which remains owned by the audio element."
+    }
+   }
+  },
+  {
+   "name": "av_iamf_audio_element_alloc",
+   "defined_in": "libavutil/iamf.c",
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "Returns a fresh zeroed audio element that the caller must release with av_iamf_audio_element_free."
+    }
+   }
+  },
+  {
+   "name": "av_iamf_audio_element_free",
+   "defined_in": "libavutil/iamf.c",
+   "lifetime": {
+    "for": "paudio_element",
+    "is_dropper": true,
+    "is_disposer": false,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "paudio_element",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": {
+       "lifetime": "arg:paudio_element"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Transfers ownership of the nullable inner audio-element pointer while transiently borrowing the non-null outer slot; frees the pointee and clears the slot."
      }
     }
    ]

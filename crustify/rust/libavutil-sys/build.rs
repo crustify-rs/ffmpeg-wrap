@@ -24,8 +24,8 @@ fn main() {
         .allowlist_type(
             "^(AVBPrint|AVCIExy|AVColorPrimariesDesc|AVDOVIColorMetadata|AVPrimaryCoefficients)$",
         )
-        .allowlist_type("^AVDOVIDmLevel[3-6]$")
-        .allowlist_type("^AVDynamicHDR(Plus|Smpte2094App5)$")
+        .allowlist_type("^AVDOVIDmLevel(9|10|[3-6])$")
+        .allowlist_type("^AVDynamicHDR(Plus|Smpte2094App5|Vivid)$")
         .allowlist_type(
             "^(AVHDRPlusPercentile|AVHDRVivid3SplineParams|AVHDRVividColorToneMappingParams|AVHDRVividColorTransformParams|AVLumaCoefficients|AVOptionRanges)$",
         )
@@ -39,6 +39,8 @@ fn main() {
         .allowlist_type(
             "^AVIAMF(AmbisonicsMode|AnimationType|AudioElementType|DemixingInfo|HeadphonesMode|Layer|MixGain|ParamDefinition)$",
         )
+        .allowlist_type("^AVIAMFAudioElement$")
+        .allowlist_function("^av_iamf_audio_element_free$")
         .allowlist_type("^(AVPictureType|AVPixelFormat)$")
         .allowlist_type("^AVColor(Space|TransferCharacteristic)$")
         .allowlist_type("^AVSampleFormat$")

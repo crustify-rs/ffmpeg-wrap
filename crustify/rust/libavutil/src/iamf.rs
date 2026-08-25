@@ -1,6 +1,7 @@
 //! Wrappers for `libavutil/iamf.c`.
 
 use core::ffi::c_void;
+use core::marker::PhantomData;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
 use ffibox::{CBox, CDropped, CSlice, CSliceMut};
@@ -1771,5 +1772,433 @@ mod subblock_tests {
             align_of::<ffi::AVIAMFMixGain>(),
         );
         assert!(av_iamf_param_definition_get_subblock(unknown.as_ref(), 0).is_none());
+    }
+}
+
+ffibox::define_ctype!(
+    /// Wraps: AVIAMFAudioElement
+    ///
+    /// Layout-compatible IAMF audio element. Values allocated by libavutil can
+    /// be adopted into [`CBox<AVIAMFAudioElement>`], which releases the layer
+    /// container, its layers, and both optional parameter definitions.
+    AVIAMFAudioElement,
+    AVIAMFAudioElementRef,
+    AVIAMFAudioElementMut,
+    ffi::AVIAMFAudioElement
+);
+
+// SAFETY: a value adopted into `CBox` must be the allocation returned by
+// `av_iamf_audio_element_alloc`, together with only the owned children allowed
+// by the public API. The matching destructor accepts its address as an owning
+// in/out slot, releases every child exactly once, and clears that local slot.
+unsafe impl CDropped for AVIAMFAudioElement {
+    unsafe fn c_drop(audio_element: NonNull<Self>) {
+        let mut pointer = audio_element.as_ptr().cast::<ffi::AVIAMFAudioElement>();
+        // SAFETY: the trait contract transfers the unique live allocation to
+        // its matching destructor exactly once. The local slot is non-null and
+        // writable for the duration of the call.
+        unsafe { ffi::av_iamf_audio_element_free(addr_of_mut!(pointer)) }
+    }
+}
+
+/// Borrowed random-access view of an audio element's owned layer pointers.
+///
+/// The view never exposes the pointer container itself; each successful lookup
+/// returns a handle tied to the audio element's shared borrow.
+#[derive(Clone, Copy)]
+pub struct AVIAMFLayers<'a> {
+    data: Option<NonNull<*mut ffi::AVIAMFLayer>>,
+    len: usize,
+    _borrow: PhantomData<&'a ()>,
+}
+
+impl AVIAMFLayers<'_> {
+    /// Returns the number of layer pointers in the parent-owned container.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns whether the audio element contains no layers.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl<'a> AVIAMFLayers<'a> {
+    /// Borrows one layer, or returns `None` when `index` is out of bounds.
+    #[must_use]
+    pub fn get(&self, index: usize) -> Option<AVIAMFLayerRef<'a>> {
+        if index >= self.len {
+            return None;
+        }
+        let data = self.data?;
+        // SAFETY: a valid audio element owns a `len`-entry pointer container;
+        // the bounds check makes this pointer read valid. Each counted entry
+        // is a live layer owned by the parent for `'a`.
+        let layer = unsafe { data.as_ptr().add(index).read() };
+        // SAFETY: the layer remains owned and live with the shared parent, and
+        // this result grants shared access only. Null is handled as `None`.
+        unsafe { AVIAMFLayerRef::from_ptr(layer) }
+    }
+}
+
+impl<'a> AVIAMFAudioElementRef<'a> {
+    /// Field: AVIAMFAudioElement.av_class
+    ///
+    /// Returns the immutable process-lifetime option metadata installed by
+    /// libavutil's constructor.
+    #[must_use]
+    pub fn av_class(&self) -> AVClassRef<'a> {
+        // SAFETY: the audio-element invariant makes this a non-null pointer to
+        // immutable static class metadata. Copying it forms no reference.
+        let class = unsafe { addr_of!((*self.as_ptr()).av_class).read() };
+        // SAFETY: the static pointee is immutable and outlives the returned
+        // handle. Construction through libavutil establishes non-nullness.
+        unsafe { AVClassRef::from_ptr(class.cast_mut()) }
+            .expect("AVIAMFAudioElement has a non-null AVClass")
+    }
+
+    /// Field: AVIAMFAudioElement.recon_gain_info
+    ///
+    /// Borrows the optional reconstruction-gain definition owned by the audio
+    /// element.
+    #[must_use]
+    pub fn recon_gain_info(&self) -> Option<AVIAMFParamDefinitionRef<'a>> {
+        // SAFETY: raw projection copies the nullable owned pointer without
+        // forming a reference; the parent keeps a non-null pointee live.
+        let definition = unsafe { addr_of!((*self.as_ptr()).recon_gain_info).read() };
+        // SAFETY: any non-null definition is owned by and live with the parent
+        // and the result provides shared access only.
+        unsafe { AVIAMFParamDefinitionRef::from_ptr(definition) }
+    }
+
+    /// Field: AVIAMFAudioElement.demixing_info
+    ///
+    /// Borrows the optional demixing definition owned by the audio element.
+    #[must_use]
+    pub fn demixing_info(&self) -> Option<AVIAMFParamDefinitionRef<'a>> {
+        // SAFETY: raw projection copies the nullable owned pointer without
+        // forming a reference; the parent keeps a non-null pointee live.
+        let definition = unsafe { addr_of!((*self.as_ptr()).demixing_info).read() };
+        // SAFETY: any non-null definition is owned by and live with the parent
+        // and the result provides shared access only.
+        unsafe { AVIAMFParamDefinitionRef::from_ptr(definition) }
+    }
+
+    /// Field: AVIAMFAudioElement.nb_layers
+    #[must_use]
+    pub fn nb_layers(&self) -> u32 {
+        // SAFETY: raw-place projection copies one initialized scalar and forms
+        // no reference to C-visible storage.
+        unsafe { addr_of!((*self.as_ptr()).nb_layers).read() }
+    }
+
+    /// Field: AVIAMFAudioElement.layers
+    ///
+    /// Borrows the complete parent-owned layer pointer container.
+    #[must_use]
+    pub fn layers(&self) -> AVIAMFLayers<'a> {
+        // SAFETY: raw-place projection copies the container pointer only.
+        let data = unsafe { addr_of!((*self.as_ptr()).layers).read() };
+        AVIAMFLayers {
+            data: NonNull::new(data),
+            len: self.nb_layers() as usize,
+            _borrow: PhantomData,
+        }
+    }
+}
+
+scalar_field!(
+    /// Field: AVIAMFAudioElement.default_w
+    AVIAMFAudioElementRef,
+    AVIAMFAudioElementMut,
+    default_w,
+    set_default_w,
+    u32
+);
+
+enum_field!(
+    /// Field: AVIAMFAudioElement.audio_element_type
+    AVIAMFAudioElementRef,
+    AVIAMFAudioElementMut,
+    audio_element_type,
+    set_audio_element_type,
+    audio_element_type,
+    AVIAMFAudioElementType
+);
+
+impl AVIAMFAudioElementMut<'_> {
+    /// Exclusively borrows the optional reconstruction-gain definition.
+    #[must_use]
+    pub fn recon_gain_info_mut(&mut self) -> Option<AVIAMFParamDefinitionMut<'_>> {
+        // SAFETY: raw projection copies the nullable pointer from an exclusive
+        // parent handle; a non-null result is uniquely reborrowed from it.
+        let definition = unsafe { addr_of!((*self.as_mut_ptr()).recon_gain_info).read() };
+        // SAFETY: the exclusive parent reborrow prevents competing access and
+        // the parent owns the pointee for the returned handle's lifetime.
+        unsafe { AVIAMFParamDefinitionMut::from_ptr(definition) }
+    }
+
+    /// Exclusively borrows the optional demixing definition.
+    #[must_use]
+    pub fn demixing_info_mut(&mut self) -> Option<AVIAMFParamDefinitionMut<'_>> {
+        // SAFETY: raw projection copies the nullable pointer from an exclusive
+        // parent handle; a non-null result is uniquely reborrowed from it.
+        let definition = unsafe { addr_of!((*self.as_mut_ptr()).demixing_info).read() };
+        // SAFETY: the exclusive parent reborrow prevents competing access and
+        // the parent owns the pointee for the returned handle's lifetime.
+        unsafe { AVIAMFParamDefinitionMut::from_ptr(definition) }
+    }
+
+    /// Replaces the owned reconstruction-gain definition, dropping the old
+    /// value. A mismatched definition is returned unchanged.
+    pub fn set_recon_gain_info(
+        &mut self,
+        definition: Option<CBox<AVIAMFParamDefinition>>,
+    ) -> Result<(), CBox<AVIAMFParamDefinition>> {
+        if definition.as_ref().is_some_and(|definition| {
+            definition.as_ref().parameter_type() != AVIAMFParamDefinitionType::RECON_GAIN
+        }) {
+            return Err(definition.expect("the checked option is populated"));
+        }
+        let replacement = definition.map_or(core::ptr::null_mut(), CBox::into_raw);
+        // SAFETY: the exclusive handle owns this pointer slot. The replacement
+        // transfers one compatible owner to the parent, and the prior pointer
+        // is cleared from the field before being adopted and dropped once.
+        let old = unsafe {
+            let slot = addr_of_mut!((*self.as_mut_ptr()).recon_gain_info);
+            let old = slot.read();
+            slot.write(replacement);
+            CBox::<AVIAMFParamDefinition>::from_raw(old)
+        };
+        drop(old);
+        Ok(())
+    }
+
+    /// Replaces the owned demixing definition, dropping the old value. A
+    /// mismatched definition is returned unchanged.
+    pub fn set_demixing_info(
+        &mut self,
+        definition: Option<CBox<AVIAMFParamDefinition>>,
+    ) -> Result<(), CBox<AVIAMFParamDefinition>> {
+        if definition.as_ref().is_some_and(|definition| {
+            definition.as_ref().parameter_type() != AVIAMFParamDefinitionType::DEMIXING
+        }) {
+            return Err(definition.expect("the checked option is populated"));
+        }
+        let replacement = definition.map_or(core::ptr::null_mut(), CBox::into_raw);
+        // SAFETY: as `set_recon_gain_info`, for the demixing owner slot.
+        let old = unsafe {
+            let slot = addr_of_mut!((*self.as_mut_ptr()).demixing_info);
+            let old = slot.read();
+            slot.write(replacement);
+            CBox::<AVIAMFParamDefinition>::from_raw(old)
+        };
+        drop(old);
+        Ok(())
+    }
+
+    /// Removes and returns the owned reconstruction-gain definition.
+    #[must_use]
+    pub fn take_recon_gain_info(&mut self) -> Option<CBox<AVIAMFParamDefinition>> {
+        // SAFETY: the exclusive handle owns the slot. Clearing it before
+        // adoption transfers the unique pointee owner out of the parent.
+        unsafe {
+            let slot = addr_of_mut!((*self.as_mut_ptr()).recon_gain_info);
+            let definition = slot.read();
+            slot.write(core::ptr::null_mut());
+            CBox::from_raw(definition)
+        }
+    }
+
+    /// Removes and returns the owned demixing definition.
+    #[must_use]
+    pub fn take_demixing_info(&mut self) -> Option<CBox<AVIAMFParamDefinition>> {
+        // SAFETY: as `take_recon_gain_info`, for the demixing owner slot.
+        unsafe {
+            let slot = addr_of_mut!((*self.as_mut_ptr()).demixing_info);
+            let definition = slot.read();
+            slot.write(core::ptr::null_mut());
+            CBox::from_raw(definition)
+        }
+    }
+
+    /// Exclusively borrows one parent-owned layer.
+    #[must_use]
+    pub fn layer_mut(&mut self, index: usize) -> Option<AVIAMFLayerMut<'_>> {
+        let len = self.as_ref().nb_layers() as usize;
+        if index >= len {
+            return None;
+        }
+        // SAFETY: raw-place projection copies the container pointer only.
+        let data = NonNull::new(unsafe { addr_of!((*self.as_mut_ptr()).layers).read() })?;
+        // SAFETY: the index is within the valid `len`-entry container. The
+        // exclusive parent handle uniquely reborrows the counted live child.
+        let layer = unsafe { data.as_ptr().add(index).read() };
+        // SAFETY: the non-null child remains owned by the exclusively borrowed
+        // parent for the returned handle's lifetime.
+        unsafe { AVIAMFLayerMut::from_ptr(layer) }
+    }
+}
+
+#[cfg(test)]
+mod audio_element_tests {
+    use core::mem::{align_of, size_of};
+
+    use super::*;
+
+    fn test_class() -> ffi::AVClass {
+        // SAFETY: all callback pointers are optional and every all-zero scalar
+        // value is representable in this synthetic immutable class record.
+        unsafe { core::mem::zeroed() }
+    }
+
+    fn definition(kind: AVIAMFParamDefinitionType) -> CBox<AVIAMFParamDefinition> {
+        // SAFETY: this requests a finite header-sized allocation from the
+        // allocator paired with `AVIAMFParamDefinition`'s drop implementation.
+        let pointer = unsafe { ffi::av_malloc(size_of::<ffi::AVIAMFParamDefinition>()) }
+            .cast::<ffi::AVIAMFParamDefinition>();
+        assert!(!pointer.is_null());
+        // SAFETY: the allocation is suitably aligned and large enough, and
+        // this write initializes every field before ownership is adopted.
+        unsafe {
+            pointer.write(ffi::AVIAMFParamDefinition {
+                av_class: core::ptr::null(),
+                subblocks_offset: size_of::<ffi::AVIAMFParamDefinition>(),
+                subblock_size: 0,
+                nb_subblocks: 0,
+                type_: kind.as_raw(),
+                parameter_id: 0,
+                parameter_rate: 0,
+                duration: 0,
+                constant_subblock_duration: 0,
+            });
+            CBox::from_raw(pointer).expect("av_malloc returned non-null")
+        }
+    }
+
+    #[test]
+    fn layout_scalars_and_layer_views_match_c() {
+        assert_eq!(
+            size_of::<AVIAMFAudioElement>(),
+            size_of::<ffi::AVIAMFAudioElement>()
+        );
+        assert_eq!(
+            align_of::<AVIAMFAudioElement>(),
+            align_of::<ffi::AVIAMFAudioElement>()
+        );
+
+        let class = test_class();
+        // SAFETY: the all-zero layers have valid scalar representations and no
+        // owned allocations. They remain live throughout the parent views.
+        let mut first = unsafe { core::mem::zeroed::<ffi::AVIAMFLayer>() };
+        // SAFETY: as `first`, for an independent second layer.
+        let mut second = unsafe { core::mem::zeroed::<ffi::AVIAMFLayer>() };
+        first.flags = 1;
+        second.flags = 2;
+        let mut layer_pointers = [addr_of_mut!(first), addr_of_mut!(second)];
+        let mut raw = ffi::AVIAMFAudioElement {
+            av_class: addr_of!(class),
+            layers: layer_pointers.as_mut_ptr(),
+            nb_layers: 2,
+            demixing_info: core::ptr::null_mut(),
+            recon_gain_info: core::ptr::null_mut(),
+            audio_element_type: AVIAMFAudioElementType::CHANNEL.as_raw(),
+            default_w: 7,
+        };
+
+        // SAFETY: the parent, class, container, and children remain live, and
+        // this is the only access path while the exclusive handle exists.
+        let mut element = unsafe { AVIAMFAudioElementMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        assert_eq!(element.as_ref().av_class().as_ptr(), addr_of!(class));
+        assert_eq!(element.as_ref().default_w(), 7);
+        assert_eq!(
+            element.as_ref().audio_element_type(),
+            AVIAMFAudioElementType::CHANNEL
+        );
+        assert_eq!(element.as_ref().layers().len(), 2);
+        assert_eq!(element.as_ref().layers().get(1).unwrap().flags(), 2);
+        assert!(element.as_ref().layers().get(2).is_none());
+        element.layer_mut(0).unwrap().set_flags(9);
+        element.set_default_w(11);
+        element.set_audio_element_type(AVIAMFAudioElementType::SCENE);
+        assert_eq!(element.as_ref().layers().get(0).unwrap().flags(), 9);
+        assert_eq!(element.as_ref().default_w(), 11);
+        assert_eq!(
+            element.as_ref().audio_element_type(),
+            AVIAMFAudioElementType::SCENE
+        );
+    }
+
+    #[test]
+    fn owned_definition_fields_validate_replace_and_take() {
+        let class = test_class();
+        let mut raw = ffi::AVIAMFAudioElement {
+            av_class: addr_of!(class),
+            layers: core::ptr::null_mut(),
+            nb_layers: 0,
+            demixing_info: core::ptr::null_mut(),
+            recon_gain_info: core::ptr::null_mut(),
+            audio_element_type: AVIAMFAudioElementType::CHANNEL.as_raw(),
+            default_w: 0,
+        };
+        // SAFETY: `raw` is initialized and exclusively accessed through this
+        // handle. Every transferred child is taken back before the stack
+        // parent leaves scope.
+        let mut element = unsafe { AVIAMFAudioElementMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+
+        let wrong = definition(AVIAMFParamDefinitionType::DEMIXING);
+        let wrong = element.set_recon_gain_info(Some(wrong)).unwrap_err();
+        assert!(element.as_ref().recon_gain_info().is_none());
+        drop(wrong);
+
+        element
+            .set_demixing_info(Some(definition(AVIAMFParamDefinitionType::DEMIXING)))
+            .unwrap();
+        element
+            .set_recon_gain_info(Some(definition(AVIAMFParamDefinitionType::RECON_GAIN)))
+            .unwrap();
+        assert_eq!(
+            element.as_ref().demixing_info().unwrap().parameter_type(),
+            AVIAMFParamDefinitionType::DEMIXING
+        );
+        assert_eq!(
+            element
+                .recon_gain_info_mut()
+                .unwrap()
+                .as_ref()
+                .parameter_type(),
+            AVIAMFParamDefinitionType::RECON_GAIN
+        );
+        drop(element.take_demixing_info().unwrap());
+        drop(element.take_recon_gain_info().unwrap());
+        assert!(element.as_ref().demixing_info().is_none());
+        assert!(element.as_ref().recon_gain_info().is_none());
+    }
+
+    #[test]
+    fn cbox_uses_the_published_audio_element_destructor() {
+        let class = test_class();
+        // SAFETY: request one correctly aligned audio-element allocation.
+        let pointer = unsafe { ffi::av_malloc(size_of::<ffi::AVIAMFAudioElement>()) }
+            .cast::<ffi::AVIAMFAudioElement>();
+        assert!(!pointer.is_null());
+        // SAFETY: initialize every field according to the destructor's empty
+        // element contract, then transfer the allocation exactly once.
+        let owner = unsafe {
+            pointer.write(ffi::AVIAMFAudioElement {
+                av_class: addr_of!(class),
+                layers: core::ptr::null_mut(),
+                nb_layers: 0,
+                demixing_info: core::ptr::null_mut(),
+                recon_gain_info: core::ptr::null_mut(),
+                audio_element_type: AVIAMFAudioElementType::CHANNEL.as_raw(),
+                default_w: 0,
+            });
+            CBox::<AVIAMFAudioElement>::from_raw(pointer).unwrap()
+        };
+        drop(owner);
     }
 }

@@ -5,6 +5,7 @@ use core::ptr::{NonNull, addr_of, addr_of_mut};
 
 use ffibox::{CDropped, CSlice, CSliceMut, CVal, CValued, define_ctype};
 
+use crate::csp::{AVColorPrimariesDescMut, AVColorPrimariesDescRef};
 use crate::ffi;
 use crate::rational::AVRational;
 
@@ -2249,5 +2250,196 @@ mod mapping_borrow_tests {
         let metadata = unsafe { AVDOVIMetadataMut::from_ptr(&mut storage.metadata) }.unwrap();
         av_dovi_get_mapping_mut(metadata).set_vdr_rpu_id(9);
         assert_eq!(storage.mapping.vdr_rpu_id, 9);
+    }
+}
+
+define_ctype!(
+    /// Wraps: AVDOVIDmLevel10
+    ///
+    /// ABI-compatible inline Dolby Vision target-display metadata. The value
+    /// owns no resources and is normally embedded in an extension block.
+    AVDOVIDmLevel10,
+    AVDOVIDmLevel10Ref,
+    AVDOVIDmLevel10Mut,
+    ffi::AVDOVIDmLevel10
+);
+
+define_ctype!(
+    /// Wraps: AVDOVIDmLevel9
+    ///
+    /// ABI-compatible inline Dolby Vision source-display metadata. The value
+    /// owns no resources and is normally embedded in an extension block.
+    AVDOVIDmLevel9,
+    AVDOVIDmLevel9Ref,
+    AVDOVIDmLevel9Mut,
+    ffi::AVDOVIDmLevel9
+);
+
+// SAFETY: level 10 metadata contains only integers and one resource-free
+// inline color-primaries description, so inline disposal is a no-op.
+unsafe impl CValued for AVDOVIDmLevel10 {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+// SAFETY: level 9 metadata contains only an integer and one resource-free
+// inline color-primaries description, so inline disposal is a no-op.
+unsafe impl CValued for AVDOVIDmLevel9 {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+impl AVDOVIDmLevel10 {
+    /// Creates zero-initialized target-display metadata in owned inline storage.
+    #[must_use]
+    pub fn new() -> CVal<Self> {
+        CVal::new(Self::zeroed())
+    }
+}
+
+impl AVDOVIDmLevel9 {
+    /// Creates zero-initialized source-display metadata in owned inline storage.
+    #[must_use]
+    pub fn new() -> CVal<Self> {
+        CVal::new(Self::zeroed())
+    }
+}
+
+impl<'a> AVDOVIDmLevel10Ref<'a> {
+    /// Field: AVDOVIDmLevel10.target_display_primaries
+    #[must_use]
+    pub fn target_display_primaries(&self) -> AVColorPrimariesDescRef<'a> {
+        // SAFETY: raw-place projection locates the initialized inline gamut
+        // description, which remains live for the parent handle's lifetime.
+        unsafe {
+            AVColorPrimariesDescRef::from_ptr(
+                addr_of!((*self.as_ptr()).target_display_primaries).cast_mut(),
+            )
+        }
+        .expect("an inline field address is non-null")
+    }
+}
+
+impl AVDOVIDmLevel10Mut<'_> {
+    /// Exclusively borrows the inline target-display primaries.
+    #[must_use]
+    pub fn target_display_primaries_mut(&mut self) -> AVColorPrimariesDescMut<'_> {
+        // SAFETY: the exclusive parent handle supplies write provenance to the
+        // initialized inline field for the duration of this reborrow.
+        unsafe {
+            AVColorPrimariesDescMut::from_ptr(addr_of_mut!(
+                (*self.as_mut_ptr()).target_display_primaries
+            ))
+        }
+        .expect("an inline field address is non-null")
+    }
+}
+
+scalar_accessors! {
+    AVDOVIDmLevel10Ref, AVDOVIDmLevel10Mut, u8;
+    /// Field: AVDOVIDmLevel10.target_primary_index
+    target_primary_index, set_target_primary_index, target_primary_index;
+    /// Field: AVDOVIDmLevel10.target_display_index
+    target_display_index, set_target_display_index, target_display_index;
+}
+
+scalar_accessors! {
+    AVDOVIDmLevel10Ref, AVDOVIDmLevel10Mut, u16;
+    /// Field: AVDOVIDmLevel10.target_min_pq
+    target_min_pq, set_target_min_pq, target_min_pq;
+    /// Field: AVDOVIDmLevel10.target_max_pq
+    target_max_pq, set_target_max_pq, target_max_pq;
+}
+
+impl<'a> AVDOVIDmLevel9Ref<'a> {
+    /// Field: AVDOVIDmLevel9.source_display_primaries
+    #[must_use]
+    pub fn source_display_primaries(&self) -> AVColorPrimariesDescRef<'a> {
+        // SAFETY: raw-place projection locates the initialized inline gamut
+        // description, which remains live for the parent handle's lifetime.
+        unsafe {
+            AVColorPrimariesDescRef::from_ptr(
+                addr_of!((*self.as_ptr()).source_display_primaries).cast_mut(),
+            )
+        }
+        .expect("an inline field address is non-null")
+    }
+}
+
+impl AVDOVIDmLevel9Mut<'_> {
+    /// Exclusively borrows the inline source-display primaries.
+    #[must_use]
+    pub fn source_display_primaries_mut(&mut self) -> AVColorPrimariesDescMut<'_> {
+        // SAFETY: the exclusive parent handle supplies write provenance to the
+        // initialized inline field for the duration of this reborrow.
+        unsafe {
+            AVColorPrimariesDescMut::from_ptr(addr_of_mut!(
+                (*self.as_mut_ptr()).source_display_primaries
+            ))
+        }
+        .expect("an inline field address is non-null")
+    }
+}
+
+scalar_accessors! {
+    AVDOVIDmLevel9Ref, AVDOVIDmLevel9Mut, u8;
+    /// Field: AVDOVIDmLevel9.source_primary_index
+    source_primary_index, set_source_primary_index, source_primary_index;
+}
+
+#[cfg(test)]
+mod dm_level_9_10_tests {
+    use core::mem::{align_of, size_of};
+
+    use super::*;
+
+    #[test]
+    fn layouts_and_nested_primaries_match_c() {
+        assert_eq!(
+            size_of::<AVDOVIDmLevel9>(),
+            size_of::<ffi::AVDOVIDmLevel9>()
+        );
+        assert_eq!(
+            align_of::<AVDOVIDmLevel9>(),
+            align_of::<ffi::AVDOVIDmLevel9>()
+        );
+        assert_eq!(
+            size_of::<AVDOVIDmLevel10>(),
+            size_of::<ffi::AVDOVIDmLevel10>()
+        );
+        assert_eq!(
+            align_of::<AVDOVIDmLevel10>(),
+            align_of::<ffi::AVDOVIDmLevel10>()
+        );
+
+        let mut level9 = AVDOVIDmLevel9::new();
+        level9.as_mut().set_source_primary_index(2);
+        level9
+            .as_mut()
+            .source_display_primaries_mut()
+            .wp_mut()
+            .x_mut()
+            .set_num(31_270);
+        assert_eq!(level9.as_ref().source_primary_index(), 2);
+        assert_eq!(
+            level9.as_ref().source_display_primaries().wp().x().num(),
+            31_270
+        );
+
+        let mut level10 = AVDOVIDmLevel10::new();
+        let mut view = level10.as_mut();
+        view.set_target_display_index(3);
+        view.set_target_primary_index(4);
+        view.set_target_min_pq(16);
+        view.set_target_max_pq(3_072);
+        view.target_display_primaries_mut()
+            .prim_mut()
+            .r_mut()
+            .x_mut()
+            .set_num(64);
+        let view = level10.as_ref();
+        assert_eq!(view.target_display_index(), 3);
+        assert_eq!(view.target_primary_index(), 4);
+        assert_eq!(view.target_min_pq(), 16);
+        assert_eq!(view.target_max_pq(), 3_072);
+        assert_eq!(view.target_display_primaries().prim().r().x().num(), 64);
     }
 }

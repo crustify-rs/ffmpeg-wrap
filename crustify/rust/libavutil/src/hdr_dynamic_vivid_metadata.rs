@@ -1,8 +1,9 @@
 //! Wrappers for `libavutil/hdr_dynamic_vivid_metadata.c`.
 
+use core::ffi::c_void;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::{CSlice, CSliceMut, CVal, CValued};
+use ffibox::{CDropped, CSlice, CSliceMut, CVal, CValued};
 
 use crate::ffi;
 use crate::rational::{AVRationalMut, AVRationalRef};
@@ -716,5 +717,137 @@ mod color_transform_tests {
         assert_eq!(view.color_saturation_gain().get(7).unwrap().num(), 6);
         assert!(view.tm_params().get(2).is_none());
         assert!(view.color_saturation_gain().get(8).is_none());
+    }
+}
+
+ffibox::define_ctype!(
+    /// Wraps: AVDynamicHDRVivid
+    ///
+    /// ABI-compatible HDR Vivid payload. A standalone value returned by
+    /// `av_dynamic_hdr_vivid_alloc` can be adopted by
+    /// [`ffibox::CBox<AVDynamicHDRVivid>`]. Values returned as frame side data
+    /// must instead remain borrowed from their frame owner.
+    AVDynamicHDRVivid,
+    AVDynamicHDRVividRef,
+    AVDynamicHDRVividMut,
+    ffi::AVDynamicHDRVivid
+);
+
+// SAFETY: an `AVDynamicHDRVivid` adopted into `CBox` must be the standalone
+// allocation returned by `av_dynamic_hdr_vivid_alloc`, whose documented
+// releaser is the av_free family. Frame-owned side-data pointers are borrowed
+// and therefore never enter this ownership implementation.
+unsafe impl CDropped for AVDynamicHDRVivid {
+    unsafe fn c_drop(vivid: NonNull<Self>) {
+        // SAFETY: the trait contract transfers the allocation base exactly
+        // once and `av_free` matches the allocator used by the constructor.
+        unsafe { ffi::av_free(vivid.as_ptr().cast::<c_void>()) }
+    }
+}
+
+impl<'a> AVDynamicHDRVividRef<'a> {
+    /// Field: AVDynamicHDRVivid.params
+    ///
+    /// Borrows all three inline processing-window parameter slots.
+    #[must_use]
+    pub fn params(&self) -> CSlice<'a, AVHDRVividColorTransformParams> {
+        // SAFETY: raw-place projection locates the three initialized inline
+        // values without forming a reference. They remain live for the parent
+        // handle's lifetime and the result supplies shared access only.
+        unsafe {
+            let pointer = addr_of!((*self.as_ptr()).params)
+                .cast::<AVHDRVividColorTransformParams>()
+                .cast_mut();
+            CSlice::from_raw_parts(NonNull::new_unchecked(pointer), 3)
+        }
+    }
+
+    /// Field: AVDynamicHDRVivid.num_windows
+    #[must_use]
+    pub fn num_windows(&self) -> u8 {
+        // SAFETY: raw-place projection copies one initialized integer field
+        // from the live shared handle without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).num_windows).read() }
+    }
+
+    /// Field: AVDynamicHDRVivid.system_start_code
+    #[must_use]
+    pub fn system_start_code(&self) -> u8 {
+        // SAFETY: raw-place projection copies one initialized integer field
+        // from the live shared handle without forming a reference.
+        unsafe { addr_of!((*self.as_ptr()).system_start_code).read() }
+    }
+}
+
+impl AVDynamicHDRVividMut<'_> {
+    /// Exclusively borrows all three inline processing-window slots.
+    #[must_use]
+    pub fn params_mut(&mut self) -> CSliceMut<'_, AVHDRVividColorTransformParams> {
+        // SAFETY: the exclusive parent handle supplies write provenance to all
+        // three initialized inline elements for this reborrow.
+        unsafe {
+            let pointer =
+                addr_of_mut!((*self.as_mut_ptr()).params).cast::<AVHDRVividColorTransformParams>();
+            CSliceMut::from_raw_parts(NonNull::new_unchecked(pointer), 3)
+        }
+    }
+
+    /// Sets the number of processing windows.
+    pub fn set_num_windows(&mut self, value: u8) {
+        // SAFETY: the exclusive handle permits replacing this scalar and the
+        // raw-place projection forms no reference to C-visible storage.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).num_windows).write(value) }
+    }
+
+    /// Sets the system start code.
+    pub fn set_system_start_code(&mut self, value: u8) {
+        // SAFETY: the exclusive handle permits replacing this scalar and the
+        // raw-place projection forms no reference to C-visible storage.
+        unsafe { addr_of_mut!((*self.as_mut_ptr()).system_start_code).write(value) }
+    }
+}
+
+#[cfg(test)]
+mod vivid_payload_tests {
+    use core::mem::{align_of, size_of};
+
+    use super::*;
+
+    #[test]
+    fn layout_and_fields_match_c() {
+        assert_eq!(
+            size_of::<AVDynamicHDRVivid>(),
+            size_of::<ffi::AVDynamicHDRVivid>()
+        );
+        assert_eq!(
+            align_of::<AVDynamicHDRVivid>(),
+            align_of::<ffi::AVDynamicHDRVivid>()
+        );
+
+        // SAFETY: this C payload is entirely composed of integer-backed and
+        // rational fields, for which all-zero is a valid initialized state.
+        let mut raw = unsafe { core::mem::zeroed::<ffi::AVDynamicHDRVivid>() };
+        // SAFETY: `raw` remains live and is accessed only through this
+        // exclusive handle until the assertions finish.
+        let mut view = unsafe { AVDynamicHDRVividMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        view.set_system_start_code(1);
+        view.set_num_windows(1);
+        view.params_mut()
+            .get_mut(0)
+            .unwrap()
+            .set_tone_mapping_mode_flag(1);
+
+        assert_eq!(view.as_ref().system_start_code(), 1);
+        assert_eq!(view.as_ref().num_windows(), 1);
+        assert_eq!(view.as_ref().params().len(), 3);
+        assert_eq!(
+            view.as_ref()
+                .params()
+                .get(0)
+                .unwrap()
+                .tone_mapping_mode_flag(),
+            1
+        );
+        assert!(view.as_ref().params().get(3).is_none());
     }
 }
