@@ -844,6 +844,117 @@
    ]
   },
   {
+   "name": "AVIAMFDemixingInfo",
+   "defined_in": "libavutil/iamf.h",
+   "_comment_agent": "The av_class slot is initialized from a file-scope static const AVClass in libavutil/iamf.c and only identifies the option-bearing concrete layout.",
+   "fields": [
+    {
+     "name": "av_class",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Every published constructor stores the address of the matching static const AVClass before returning the object; the class is borrowed immutable process-lifetime metadata and is never freed."
+     }
+    }
+   ]
+  },
+  {
+   "name": "AVIAMFLayer",
+   "defined_in": "libavutil/iamf.h",
+   "_comment_agent": "AVIAMFLayer is owned as a child of AVIAMFAudioElement. Its class is static borrowed metadata; its demixing matrix is a nullable owned mutable counted array released with the parent.",
+   "fields": [
+    {
+     "name": "av_class",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "av_iamf_audio_element_add_layer stores &layer_class, a static const AVClass; callers and av_opt only borrow the immutable class metadata."
+     }
+    },
+    {
+     "name": "demixing_matrix",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "Layer owns an optional av_malloc-family array of nb_demixing_matrix AVRational values. AVOption and iamf_parse allocate/fill it; iamf readers and writers index it; av_iamf_audio_element_free releases it with av_free. It must be null outside projection mode."
+     }
+    }
+   ]
+  },
+  {
+   "name": "AVIAMFMixGain",
+   "defined_in": "libavutil/iamf.h",
+   "_comment_agent": "The av_class slot is initialized from a file-scope static const AVClass in libavutil/iamf.c and only identifies the option-bearing concrete layout.",
+   "fields": [
+    {
+     "name": "av_class",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Every published constructor stores the address of the matching static const AVClass before returning the object; the class is borrowed immutable process-lifetime metadata and is never freed."
+     }
+    }
+   ]
+  },
+  {
+   "name": "AVIAMFParamDefinition",
+   "defined_in": "libavutil/iamf.h",
+   "_comment_agent": "The av_class slot is initialized from a file-scope static const AVClass in libavutil/iamf.c and only identifies the option-bearing concrete layout.",
+   "fields": [
+    {
+     "name": "av_class",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Every published constructor stores the address of the matching static const AVClass before returning the object; the class is borrowed immutable process-lifetime metadata and is never freed."
+     }
+    }
+   ]
+  },
+  {
    "name": "AVOption",
    "defined_in": "libavutil/opt.h",
    "_comment_agent": "AVOption is immutable persistent AVClass metadata and has no destructor, disposer, or cloner. Its string and array-definition pointers are nullable read-only borrows into static metadata; the default union discriminator is AVOption.type.",

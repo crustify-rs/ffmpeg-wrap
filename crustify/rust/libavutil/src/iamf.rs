@@ -1,6 +1,14 @@
 //! Wrappers for `libavutil/iamf.c`.
 
+use core::ffi::c_void;
+use core::ptr::{NonNull, addr_of, addr_of_mut};
+
+use ffibox::{CDropped, CSlice, CSliceMut};
+
+use crate::channel_layout::{AVChannelLayoutMut, AVChannelLayoutRef};
 use crate::ffi;
+use crate::log::AVClassRef;
+use crate::rational::{AVRational, AVRationalMut, AVRationalRef};
 
 /// Wraps: AVIAMFAmbisonicsMode
 ///
@@ -159,7 +167,6 @@ impl From<AVIAMFHeadphonesMode> for ffi::AVIAMFHeadphonesMode {
         mode.as_raw()
     }
 }
-
 
 /// Wraps: AVIAMFParamDefinitionType
 ///
@@ -329,5 +336,591 @@ mod tests {
         assert_eq!(AVIAMFSubmixLayoutType::LOUDSPEAKERS.as_raw(), 2);
         assert_eq!(AVIAMFSubmixLayoutType::BINAURAL.as_raw(), 3);
         assert_eq!(AVIAMFSubmixLayoutType::from_raw(99).as_raw(), 99);
+    }
+}
+
+ffibox::define_ctype!(
+    /// Wraps: AVIAMFDemixingInfo
+    ///
+    /// Layout-compatible view of one demixing parameter subblock. Instances
+    /// returned by libavutil are embedded in the allocation owned by their
+    /// [`AVIAMFParamDefinition`], so this type has no independent destructor.
+    AVIAMFDemixingInfo,
+    AVIAMFDemixingInfoRef,
+    AVIAMFDemixingInfoMut,
+    ffi::AVIAMFDemixingInfo
+);
+
+ffibox::define_ctype!(
+    /// Wraps: AVIAMFLayer
+    ///
+    /// Layout-compatible IAMF audio-element layer. A layer is owned by its
+    /// parent audio element, which also releases the optional demixing matrix.
+    /// Borrowed matrix views are therefore tied to the layer handle.
+    AVIAMFLayer,
+    AVIAMFLayerRef,
+    AVIAMFLayerMut,
+    ffi::AVIAMFLayer
+);
+
+ffibox::define_ctype!(
+    /// Wraps: AVIAMFMixGain
+    ///
+    /// Layout-compatible view of one mix-gain parameter subblock. The value is
+    /// embedded after its parent [`AVIAMFParamDefinition`] header and does not
+    /// own storage independently of that allocation.
+    AVIAMFMixGain,
+    AVIAMFMixGainRef,
+    AVIAMFMixGainMut,
+    ffi::AVIAMFMixGain
+);
+
+ffibox::define_ctype!(
+    /// Wraps: AVIAMFParamDefinition
+    ///
+    /// Header for an IAMF parameter definition and its trailing subblock
+    /// array. A pointer returned by libavutil can be owned as
+    /// [`ffibox::CBox<AVIAMFParamDefinition>`]; dropping it releases the single
+    /// allocation with [`ffi::av_free`].
+    AVIAMFParamDefinition,
+    AVIAMFParamDefinitionRef,
+    AVIAMFParamDefinitionMut,
+    ffi::AVIAMFParamDefinition
+);
+
+// SAFETY: a definition adopted into `CBox` must be the allocation base returned
+// by `av_iamf_param_definition_alloc`. That routine obtains the header and its
+// trailing subblocks in one av_malloc-family allocation, and none of the
+// subblocks owns a separately disposed resource. `av_free` is its matching
+// one-shot releaser.
+unsafe impl CDropped for AVIAMFParamDefinition {
+    unsafe fn c_drop(definition: NonNull<Self>) {
+        // SAFETY: the trait contract transfers the uniquely owned allocation
+        // base exactly once, and `av_free` accepts that allocation family.
+        unsafe { ffi::av_free(definition.as_ptr().cast::<c_void>()) }
+    }
+}
+
+macro_rules! class_field {
+    ($(#[$meta:meta])* $shared:ident) => {
+        impl<'a> $shared<'a> {
+            $(#[$meta])*
+            ///
+            /// Libavutil-created values always contain their immutable static
+            /// class. `None` also represents inert zero-initialized storage.
+            #[must_use]
+            pub fn av_class(&self) -> Option<AVClassRef<'a>> {
+                // SAFETY: copying the const pointer through a raw projection
+                // forms no reference. A non-null value is immutable class
+                // metadata that remains live at least as long as this handle.
+                let class = unsafe { addr_of!((*self.as_ptr()).av_class).read() };
+                // SAFETY: the class pointer is borrowed and immutable for the
+                // returned handle's lifetime; null is represented as `None`.
+                unsafe { AVClassRef::from_ptr(class.cast_mut()) }
+            }
+        }
+    };
+}
+
+class_field!(
+    /// Field: AVIAMFDemixingInfo.av_class
+    AVIAMFDemixingInfoRef
+);
+class_field!(
+    /// Field: AVIAMFLayer.av_class
+    AVIAMFLayerRef
+);
+class_field!(
+    /// Field: AVIAMFMixGain.av_class
+    AVIAMFMixGainRef
+);
+class_field!(
+    /// Field: AVIAMFParamDefinition.av_class
+    AVIAMFParamDefinitionRef
+);
+
+macro_rules! scalar_field {
+    ($(#[$meta:meta])* $shared:ident, $exclusive:ident, $field:ident, $setter:ident, $ty:ty) => {
+        impl $shared<'_> {
+            $(#[$meta])*
+            #[must_use]
+            pub fn $field(&self) -> $ty {
+                // SAFETY: the shared handle keeps a live initialized value;
+                // raw projection copies one scalar and forms no reference to
+                // C-visible storage.
+                unsafe { addr_of!((*self.as_ptr()).$field).read() }
+            }
+        }
+
+        impl $exclusive<'_> {
+            #[doc = concat!("Sets [`", stringify!($field), "`](`", stringify!($shared), "::", stringify!($field), "`).")]
+            pub fn $setter(&mut self, value: $ty) {
+                // SAFETY: the exclusive handle supplies write provenance to
+                // the live field; raw projection writes only that scalar and
+                // forms no reference to C-visible storage.
+                unsafe { addr_of_mut!((*self.as_mut_ptr()).$field).write(value) }
+            }
+        }
+    };
+}
+
+macro_rules! readonly_scalar_field {
+    ($(#[$meta:meta])* $shared:ident, $field:ident, $ty:ty) => {
+        impl $shared<'_> {
+            $(#[$meta])*
+            #[must_use]
+            pub fn $field(&self) -> $ty {
+                // SAFETY: the shared handle keeps a live initialized value;
+                // raw projection copies one scalar and forms no reference.
+                unsafe { addr_of!((*self.as_ptr()).$field).read() }
+            }
+        }
+    };
+}
+
+macro_rules! enum_field {
+    ($(#[$meta:meta])* $shared:ident, $exclusive:ident, $getter:ident, $setter:ident, $field:ident, $wrapper:ty) => {
+        impl $shared<'_> {
+            $(#[$meta])*
+            #[must_use]
+            pub fn $getter(&self) -> $wrapper {
+                // SAFETY: bindgen represents the open C enum as an integer;
+                // copying it through a raw projection forms no reference.
+                <$wrapper>::from_raw(unsafe { addr_of!((*self.as_ptr()).$field).read() })
+            }
+        }
+
+        impl $exclusive<'_> {
+            #[doc = concat!("Sets [`", stringify!($getter), "`](`", stringify!($shared), "::", stringify!($getter), "`).")]
+            pub fn $setter(&mut self, value: $wrapper) {
+                // SAFETY: the exclusive handle permits replacing this integer
+                // field, and the wrapper preserves every possible C value.
+                unsafe { addr_of_mut!((*self.as_mut_ptr()).$field).write(value.as_raw()) }
+            }
+        }
+    };
+}
+
+macro_rules! rational_field {
+    ($(#[$meta:meta])* $shared:ident, $exclusive:ident, $field:ident, $field_mut:ident) => {
+        impl<'a> $shared<'a> {
+            $(#[$meta])*
+            #[must_use]
+            pub fn $field(&self) -> AVRationalRef<'a> {
+                // SAFETY: the projected by-value rational is initialized and
+                // remains live with its enclosing handle for `'a`. The helper
+                // forms only another pointer-carrying handle.
+                unsafe {
+                    AVRationalRef::from_ptr(addr_of!((*self.as_ptr()).$field).cast_mut())
+                        .expect("an embedded field address is non-null")
+                }
+            }
+        }
+
+        impl $exclusive<'_> {
+            #[doc = concat!("Exclusively borrows [`", stringify!($field), "`](`", stringify!($shared), "::", stringify!($field), "`).")]
+            #[must_use]
+            pub fn $field_mut(&mut self) -> AVRationalMut<'_> {
+                // SAFETY: raw projection locates the initialized embedded
+                // rational, and the mutable result is bound to this exclusive
+                // reborrow of its enclosing handle.
+                unsafe {
+                    AVRationalMut::from_ptr(addr_of_mut!((*self.as_mut_ptr()).$field))
+                        .expect("an embedded field address is non-null")
+                }
+            }
+        }
+    };
+}
+
+scalar_field!(
+    /// Field: AVIAMFDemixingInfo.subblock_duration
+    AVIAMFDemixingInfoRef,
+    AVIAMFDemixingInfoMut,
+    subblock_duration,
+    set_subblock_duration,
+    u32
+);
+scalar_field!(
+    /// Field: AVIAMFDemixingInfo.dmixp_mode
+    AVIAMFDemixingInfoRef,
+    AVIAMFDemixingInfoMut,
+    dmixp_mode,
+    set_dmixp_mode,
+    u32
+);
+
+scalar_field!(
+    /// Field: AVIAMFLayer.flags
+    AVIAMFLayerRef,
+    AVIAMFLayerMut,
+    flags,
+    set_flags,
+    u32
+);
+
+impl<'a> AVIAMFLayerRef<'a> {
+    /// Field: AVIAMFLayer.ch_layout
+    #[must_use]
+    pub fn ch_layout(&self) -> AVChannelLayoutRef<'a> {
+        // SAFETY: the by-value channel layout is live for `'a` with the layer.
+        // A libavutil-created layer contains a valid initialized layout, while
+        // the wrapper's zeroed value is the valid UNSPEC layout.
+        unsafe {
+            AVChannelLayoutRef::from_ptr(addr_of!((*self.as_ptr()).ch_layout).cast_mut())
+                .expect("an embedded field address is non-null")
+        }
+    }
+}
+
+impl AVIAMFLayerMut<'_> {
+    /// Exclusively borrows [`ch_layout`](AVIAMFLayerRef::ch_layout).
+    #[must_use]
+    pub fn ch_layout_mut(&mut self) -> AVChannelLayoutMut<'_> {
+        // SAFETY: the exclusive layer handle provides the only access to this
+        // initialized embedded layout for the duration of the returned view.
+        unsafe {
+            AVChannelLayoutMut::from_ptr(addr_of_mut!((*self.as_mut_ptr()).ch_layout))
+                .expect("an embedded field address is non-null")
+        }
+    }
+}
+
+readonly_scalar_field!(
+    /// Field: AVIAMFLayer.nb_demixing_matrix
+    AVIAMFLayerRef,
+    nb_demixing_matrix,
+    u32
+);
+
+impl<'a> AVIAMFLayerRef<'a> {
+    /// Field: AVIAMFLayer.demixing_matrix
+    ///
+    /// Borrows the optional owned matrix using `nb_demixing_matrix` as its
+    /// element count. Wrapped rational elements are exposed as handles rather
+    /// than as a Rust slice over storage C retains.
+    #[must_use]
+    pub fn demixing_matrix(&self) -> Option<CSlice<'a, AVRational>> {
+        let len = usize::try_from(self.nb_demixing_matrix()).ok()?;
+        // SAFETY: only the pointer value is copied through the raw projection.
+        let pointer = unsafe { addr_of!((*self.as_ptr()).demixing_matrix).read() };
+        NonNull::new(pointer.cast::<AVRational>()).map(|pointer| {
+            // SAFETY: a valid layer owns `len` contiguous initialized rational
+            // values at a non-null pointer. Its shared handle keeps the parent
+            // and therefore this allocation live and unmodified for `'a`.
+            unsafe { CSlice::from_raw_parts(pointer, len) }
+        })
+    }
+}
+
+impl AVIAMFLayerMut<'_> {
+    /// Exclusively borrows [`demixing_matrix`](AVIAMFLayerRef::demixing_matrix).
+    #[must_use]
+    pub fn demixing_matrix_mut(&mut self) -> Option<CSliceMut<'_, AVRational>> {
+        let len = usize::try_from(self.as_ref().nb_demixing_matrix()).ok()?;
+        // SAFETY: only the pointer value is copied from the live exclusive
+        // layer through a raw projection.
+        let pointer = unsafe { addr_of!((*self.as_mut_ptr()).demixing_matrix).read() };
+        NonNull::new(pointer.cast::<AVRational>()).map(|pointer| {
+            // SAFETY: a valid layer owns `len` contiguous initialized values,
+            // and the mutable layer reborrow makes this the exclusive access
+            // path to them for the returned view's lifetime.
+            unsafe { CSliceMut::from_raw_parts(pointer, len) }
+        })
+    }
+}
+
+enum_field!(
+    /// Field: AVIAMFLayer.ambisonics_mode
+    AVIAMFLayerRef,
+    AVIAMFLayerMut,
+    ambisonics_mode,
+    set_ambisonics_mode,
+    ambisonics_mode,
+    AVIAMFAmbisonicsMode
+);
+rational_field!(
+    /// Field: AVIAMFLayer.output_gain
+    AVIAMFLayerRef,
+    AVIAMFLayerMut,
+    output_gain,
+    output_gain_mut
+);
+scalar_field!(
+    /// Field: AVIAMFLayer.output_gain_flags
+    AVIAMFLayerRef,
+    AVIAMFLayerMut,
+    output_gain_flags,
+    set_output_gain_flags,
+    u32
+);
+
+scalar_field!(
+    /// Field: AVIAMFMixGain.subblock_duration
+    AVIAMFMixGainRef,
+    AVIAMFMixGainMut,
+    subblock_duration,
+    set_subblock_duration,
+    u32
+);
+rational_field!(
+    /// Field: AVIAMFMixGain.control_point_relative_time
+    AVIAMFMixGainRef,
+    AVIAMFMixGainMut,
+    control_point_relative_time,
+    control_point_relative_time_mut
+);
+rational_field!(
+    /// Field: AVIAMFMixGain.control_point_value
+    AVIAMFMixGainRef,
+    AVIAMFMixGainMut,
+    control_point_value,
+    control_point_value_mut
+);
+rational_field!(
+    /// Field: AVIAMFMixGain.end_point_value
+    AVIAMFMixGainRef,
+    AVIAMFMixGainMut,
+    end_point_value,
+    end_point_value_mut
+);
+rational_field!(
+    /// Field: AVIAMFMixGain.start_point_value
+    AVIAMFMixGainRef,
+    AVIAMFMixGainMut,
+    start_point_value,
+    start_point_value_mut
+);
+enum_field!(
+    /// Field: AVIAMFMixGain.animation_type
+    AVIAMFMixGainRef,
+    AVIAMFMixGainMut,
+    animation_type,
+    set_animation_type,
+    animation_type,
+    AVIAMFAnimationType
+);
+
+impl AVIAMFParamDefinitionRef<'_> {
+    /// Field: AVIAMFParamDefinition.type
+    #[must_use]
+    pub fn parameter_type(&self) -> AVIAMFParamDefinitionType {
+        // SAFETY: bindgen uses an integer for the open C enum. Copying it
+        // through a raw projection forms no reference to C-owned storage.
+        AVIAMFParamDefinitionType::from_raw(unsafe { addr_of!((*self.as_ptr()).type_).read() })
+    }
+}
+
+scalar_field!(
+    /// Field: AVIAMFParamDefinition.duration
+    AVIAMFParamDefinitionRef,
+    AVIAMFParamDefinitionMut,
+    duration,
+    set_duration,
+    u32
+);
+scalar_field!(
+    /// Field: AVIAMFParamDefinition.constant_subblock_duration
+    AVIAMFParamDefinitionRef,
+    AVIAMFParamDefinitionMut,
+    constant_subblock_duration,
+    set_constant_subblock_duration,
+    u32
+);
+scalar_field!(
+    /// Field: AVIAMFParamDefinition.parameter_rate
+    AVIAMFParamDefinitionRef,
+    AVIAMFParamDefinitionMut,
+    parameter_rate,
+    set_parameter_rate,
+    u32
+);
+scalar_field!(
+    /// Field: AVIAMFParamDefinition.parameter_id
+    AVIAMFParamDefinitionRef,
+    AVIAMFParamDefinitionMut,
+    parameter_id,
+    set_parameter_id,
+    u32
+);
+readonly_scalar_field!(
+    /// Field: AVIAMFParamDefinition.nb_subblocks
+    AVIAMFParamDefinitionRef,
+    nb_subblocks,
+    u32
+);
+readonly_scalar_field!(
+    /// Field: AVIAMFParamDefinition.subblock_size
+    AVIAMFParamDefinitionRef,
+    subblock_size,
+    usize
+);
+readonly_scalar_field!(
+    /// Field: AVIAMFParamDefinition.subblocks_offset
+    AVIAMFParamDefinitionRef,
+    subblocks_offset,
+    usize
+);
+
+#[cfg(test)]
+mod struct_tests {
+    use core::mem::{align_of, size_of};
+
+    use ffibox::CBox;
+
+    use super::*;
+
+    #[test]
+    fn wrapped_struct_layouts_match_bindgen() {
+        assert_eq!(
+            size_of::<AVIAMFDemixingInfo>(),
+            size_of::<ffi::AVIAMFDemixingInfo>()
+        );
+        assert_eq!(
+            align_of::<AVIAMFDemixingInfo>(),
+            align_of::<ffi::AVIAMFDemixingInfo>()
+        );
+        assert_eq!(size_of::<AVIAMFLayer>(), size_of::<ffi::AVIAMFLayer>());
+        assert_eq!(align_of::<AVIAMFLayer>(), align_of::<ffi::AVIAMFLayer>());
+        assert_eq!(size_of::<AVIAMFMixGain>(), size_of::<ffi::AVIAMFMixGain>());
+        assert_eq!(
+            align_of::<AVIAMFMixGain>(),
+            align_of::<ffi::AVIAMFMixGain>()
+        );
+        assert_eq!(
+            size_of::<AVIAMFParamDefinition>(),
+            size_of::<ffi::AVIAMFParamDefinition>()
+        );
+        assert_eq!(
+            align_of::<AVIAMFParamDefinition>(),
+            align_of::<ffi::AVIAMFParamDefinition>()
+        );
+    }
+
+    #[test]
+    fn demixing_scalar_handles_read_and_write() {
+        let mut raw = ffi::AVIAMFDemixingInfo {
+            av_class: core::ptr::null(),
+            subblock_duration: 1,
+            dmixp_mode: 2,
+        };
+        // SAFETY: `raw` remains live and this mutable handle is the only access
+        // path used until it is dropped.
+        let mut info = unsafe { AVIAMFDemixingInfoMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        assert!(info.as_ref().av_class().is_none());
+        assert_eq!(info.as_ref().subblock_duration(), 1);
+        assert_eq!(info.as_ref().dmixp_mode(), 2);
+        info.set_subblock_duration(7);
+        info.set_dmixp_mode(6);
+        assert_eq!(info.as_ref().subblock_duration(), 7);
+        assert_eq!(info.as_ref().dmixp_mode(), 6);
+    }
+
+    #[test]
+    fn mix_gain_projects_open_enum_and_embedded_rationals() {
+        let zero = ffi::AVRational { num: 0, den: 1 };
+        let mut raw = ffi::AVIAMFMixGain {
+            av_class: core::ptr::null(),
+            subblock_duration: 1,
+            animation_type: ffi::AVIAMFAnimationType_AV_IAMF_ANIMATION_TYPE_STEP,
+            start_point_value: zero,
+            end_point_value: zero,
+            control_point_value: zero,
+            control_point_relative_time: zero,
+        };
+        // SAFETY: `raw` remains live and exclusively accessed through `gain`.
+        let mut gain = unsafe { AVIAMFMixGainMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        gain.set_animation_type(AVIAMFAnimationType::from_raw(99));
+        gain.start_point_value_mut().set_num(-3);
+        gain.start_point_value_mut().set_den(2);
+        assert_eq!(gain.as_ref().animation_type().as_raw(), 99);
+        assert_eq!(gain.as_ref().start_point_value().num(), -3);
+        assert_eq!(gain.as_ref().start_point_value().den(), 2);
+    }
+
+    #[test]
+    fn layer_borrows_layout_and_matrix_without_forming_slices() {
+        let mut matrix = [
+            ffi::AVRational { num: 1, den: 2 },
+            ffi::AVRational { num: 3, den: 4 },
+        ];
+        let mut raw = ffi::AVIAMFLayer {
+            av_class: core::ptr::null(),
+            ch_layout: ffi::AVChannelLayout {
+                order: ffi::AVChannelOrder_AV_CHANNEL_ORDER_NATIVE,
+                nb_channels: 2,
+                u: ffi::AVChannelLayout__bindgen_ty_1 { mask: 3 },
+                opaque: core::ptr::null_mut(),
+            },
+            flags: 0,
+            output_gain_flags: 0,
+            output_gain: ffi::AVRational { num: 0, den: 1 },
+            ambisonics_mode: ffi::AVIAMFAmbisonicsMode_AV_IAMF_AMBISONICS_MODE_PROJECTION,
+            demixing_matrix: matrix.as_mut_ptr(),
+            nb_demixing_matrix: matrix.len() as u32,
+        };
+        // SAFETY: `raw` and its two initialized matrix entries remain live and
+        // are exclusively accessed through `layer` for this scope.
+        let mut layer = unsafe { AVIAMFLayerMut::from_ptr(addr_of_mut!(raw)) }.unwrap();
+        assert_eq!(layer.as_ref().ch_layout().nb_channels(), 2);
+        let matrix_view = layer.as_ref().demixing_matrix().unwrap();
+        assert_eq!(matrix_view.len(), 2);
+        assert_eq!(matrix_view.get(1).unwrap().num(), 3);
+        layer
+            .demixing_matrix_mut()
+            .unwrap()
+            .get_mut(0)
+            .unwrap()
+            .set_num(5);
+        assert_eq!(
+            layer
+                .as_ref()
+                .demixing_matrix()
+                .unwrap()
+                .get(0)
+                .unwrap()
+                .num(),
+            5
+        );
+    }
+
+    #[test]
+    fn parameter_definition_has_typed_ownership_and_readonly_extent() {
+        // SAFETY: the requested extent is finite; `av_malloc` either returns
+        // null or a fresh allocation with libavutil's maximum alignment.
+        let pointer = unsafe { ffi::av_malloc(size_of::<ffi::AVIAMFParamDefinition>()) }
+            .cast::<ffi::AVIAMFParamDefinition>();
+        assert!(!pointer.is_null());
+        // SAFETY: `av_malloc` returned a suitably aligned allocation large
+        // enough for this header; writing initializes every field before the
+        // allocation is adopted by `CBox`.
+        unsafe {
+            pointer.write(ffi::AVIAMFParamDefinition {
+                av_class: core::ptr::null(),
+                subblocks_offset: size_of::<ffi::AVIAMFParamDefinition>(),
+                subblock_size: size_of::<ffi::AVIAMFMixGain>(),
+                nb_subblocks: 0,
+                type_: ffi::AVIAMFParamDefinitionType_AV_IAMF_PARAMETER_DEFINITION_MIX_GAIN,
+                parameter_id: 4,
+                parameter_rate: 48_000,
+                duration: 0,
+                constant_subblock_duration: 0,
+            });
+        }
+        // SAFETY: the initialized pointer is the unique base of an
+        // av_malloc-family allocation, transferred exactly once to this owner.
+        let mut definition = unsafe { CBox::<AVIAMFParamDefinition>::from_raw(pointer) }.unwrap();
+        assert_eq!(
+            definition.as_ref().parameter_type(),
+            AVIAMFParamDefinitionType::MIX_GAIN
+        );
+        assert_eq!(definition.as_ref().nb_subblocks(), 0);
+        assert_eq!(
+            definition.as_ref().subblocks_offset(),
+            size_of::<ffi::AVIAMFParamDefinition>()
+        );
+        definition.as_mut().set_parameter_id(9);
+        assert_eq!(definition.as_ref().parameter_id(), 9);
+        // `CBox` drops through the allocator-matched `av_free` here.
     }
 }

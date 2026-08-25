@@ -37,7 +37,7 @@ fn main() {
         )
         .allowlist_type("^AVHW(DeviceType|FrameTransferDirection)$")
         .allowlist_type(
-            "^AVIAMF(AmbisonicsMode|AnimationType|AudioElementType|HeadphonesMode)$",
+            "^AVIAMF(AmbisonicsMode|AnimationType|AudioElementType|DemixingInfo|HeadphonesMode|Layer|MixGain|ParamDefinition)$",
         )
         .allowlist_type("^(AVPictureType|AVPixelFormat)$")
         .allowlist_type("^AVColor(Space|TransferCharacteristic)$")
