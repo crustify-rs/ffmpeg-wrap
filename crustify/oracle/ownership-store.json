@@ -3198,6 +3198,45 @@
    "defined_in": "libavutil/rational.c"
   },
   {
+   "name": "av_dovi_get_header",
+   "defined_in": "libavutil/dovi_meta.h",
+   "ptr_args": [
+    {
+     "name": "data",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:data"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:data"
+     },
+     "nullable": false,
+     "mutable": false,
+     "note": "Embedded header aliases the metadata allocation and remains live only with it."
+    }
+   }
+  },
+  {
    "name": "av_dovi_metadata_alloc",
    "defined_in": "libavutil/dovi_meta.c",
    "ptr_args": [
@@ -3441,6 +3480,66 @@
    ]
   },
   {
+   "name": "av_escape",
+   "defined_in": "libavutil/avstring.c",
+   "ptr_args": [
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Required borrowed output slot receiving a fresh av_malloc string on success."
+     }
+    },
+    {
+     "name": "special_chars",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:special_chars"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_fast_malloc",
    "defined_in": "libavutil/mem.c",
    "ptr_args": [
@@ -3597,6 +3696,121 @@
    }
   },
   {
+   "name": "av_fifo_auto_grow_limit",
+   "defined_in": "libavutil/fifo.c",
+   "ptr_args": [
+    {
+     "name": "f",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:f"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_fifo_can_read",
+   "defined_in": "libavutil/fifo.c",
+   "ptr_args": [
+    {
+     "name": "f",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:f"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_fifo_can_write",
+   "defined_in": "libavutil/fifo.c",
+   "ptr_args": [
+    {
+     "name": "f",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:f"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_fifo_drain2",
+   "defined_in": "libavutil/fifo.c",
+   "ptr_args": [
+    {
+     "name": "f",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:f"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_fifo_elem_size",
+   "defined_in": "libavutil/fifo.c",
+   "ptr_args": [
+    {
+     "name": "f",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:f"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_fifo_freep2",
    "defined_in": "libavutil/fifo.c",
    "lifetime": {
@@ -3624,6 +3838,394 @@
       "nullable": false,
       "mutable": true,
       "note": "Borrows the required outer slot, consumes its nullable owned AVFifo, frees its buffer and header, and writes NULL back. A NULL inner pointer is accepted."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_fifo_grow2",
+   "defined_in": "libavutil/fifo.c",
+   "ptr_args": [
+    {
+     "name": "f",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:f"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_fifo_peek",
+   "defined_in": "libavutil/fifo.c",
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Caller-provided output buffer spans nb_elems complete FIFO elements."
+     }
+    },
+    {
+     "name": "f",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:f"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_fifo_peek_to_cb",
+   "defined_in": "libavutil/fifo.c",
+   "ptr_args": [
+    {
+     "name": "f",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:f"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "nb_elems",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:nb_elems"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed in/out scalar element-count slot."
+     }
+    },
+    {
+     "name": "opaque",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:opaque"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Opaque callback state retained only for synchronous callback invocations."
+     }
+    },
+    {
+     "name": "write_cb",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:write_cb"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Callback function pointer invoked only synchronously during the call."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_fifo_read",
+   "defined_in": "libavutil/fifo.c",
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Caller-provided output buffer spans nb_elems complete FIFO elements."
+     }
+    },
+    {
+     "name": "f",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:f"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_fifo_read_to_cb",
+   "defined_in": "libavutil/fifo.c",
+   "ptr_args": [
+    {
+     "name": "f",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:f"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "nb_elems",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:nb_elems"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed in/out scalar element-count slot."
+     }
+    },
+    {
+     "name": "opaque",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:opaque"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Opaque callback state retained only for synchronous callback invocations."
+     }
+    },
+    {
+     "name": "write_cb",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:write_cb"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Callback function pointer invoked only synchronously during the call."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_fifo_reset2",
+   "defined_in": "libavutil/fifo.c",
+   "ptr_args": [
+    {
+     "name": "f",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:f"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_fifo_write",
+   "defined_in": "libavutil/fifo.c",
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Caller-provided input spans nb_elems complete FIFO elements."
+     }
+    },
+    {
+     "name": "f",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:f"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_fifo_write_from_cb",
+   "defined_in": "libavutil/fifo.c",
+   "ptr_args": [
+    {
+     "name": "f",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:f"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "nb_elems",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:nb_elems"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed in/out scalar element-count slot."
+     }
+    },
+    {
+     "name": "opaque",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:opaque"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Opaque callback state retained only for synchronous callback invocations."
+     }
+    },
+    {
+     "name": "read_cb",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:read_cb"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Callback function pointer invoked only synchronously during the call."
      }
     }
    ]
@@ -3728,6 +4330,29 @@
       "nullable": true,
       "mutable": false,
       "note": "Consumes the nullable counted byte mapping returned by av_file_map; size supplies its exact extent."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_find_best_pix_fmt_of_2",
+   "defined_in": "libavutil/pixdesc.c",
+   "ptr_args": [
+    {
+     "name": "loss_ptr",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:loss_ptr"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
      }
     }
    ]
@@ -4310,6 +4935,10 @@
    ]
   },
   {
+   "name": "av_get_pix_fmt_loss",
+   "defined_in": "libavutil/pixdesc.c"
+  },
+  {
    "name": "av_get_pix_fmt_name",
    "defined_in": "libavutil/pixdesc.c",
    "ptr_ret": {
@@ -4326,6 +4955,45 @@
      "nullable": true,
      "mutable": false,
      "note": "Returns a borrowed process-lifetime table string, or NULL for an unknown enum value."
+    }
+   }
+  },
+  {
+   "name": "av_get_pix_fmt_string",
+   "defined_in": "libavutil/pixdesc.c",
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable buf_size-byte output buffer."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": null,
+     "array": {
+      "by_val": true
+     },
+     "string": true,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:buf"
+     },
+     "nullable": false,
+     "mutable": true,
+     "note": "Returns the same caller buffer after writing a terminated string."
     }
    }
   },
@@ -4491,6 +5159,166 @@
    ]
   },
   {
+   "name": "av_hash_final",
+   "defined_in": "libavutil/hash.c",
+   "ptr_args": [
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ctx"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable full-digest output buffer sized by av_hash_get_size."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_hash_final_b64",
+   "defined_in": "libavutil/hash.c",
+   "ptr_args": [
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ctx"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable size-byte bounded output buffer."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_hash_final_bin",
+   "defined_in": "libavutil/hash.c",
+   "ptr_args": [
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ctx"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable size-byte bounded output buffer."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_hash_final_hex",
+   "defined_in": "libavutil/hash.c",
+   "ptr_args": [
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ctx"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable size-byte bounded output buffer."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_hash_freep",
    "defined_in": "libavutil/hash.c",
    "lifetime": {
@@ -4521,6 +5349,91 @@
    ]
   },
   {
+   "name": "av_hash_get_name",
+   "defined_in": "libavutil/hash.c",
+   "ptr_args": [
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ctx"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": true,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "static"
+     },
+     "nullable": false,
+     "mutable": false,
+     "note": "Immutable process-lifetime algorithm name."
+    }
+   }
+  },
+  {
+   "name": "av_hash_get_size",
+   "defined_in": "libavutil/hash.c",
+   "ptr_args": [
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ctx"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_hash_init",
+   "defined_in": "libavutil/hash.c",
+   "ptr_args": [
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ctx"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_hash_names",
    "defined_in": "libavutil/hash.c",
    "ptr_ret": {
@@ -4539,6 +5452,46 @@
      "note": ""
     }
    }
+  },
+  {
+   "name": "av_hash_update",
+   "defined_in": "libavutil/hash.c",
+   "ptr_args": [
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ctx"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Readable len-byte input, not retained."
+     }
+    }
+   ]
   },
   {
    "name": "av_hwdevice_ctx_alloc",
@@ -4979,6 +5932,10 @@
    "defined_in": "libavutil/imgutils.c"
   },
   {
+   "name": "av_image_check_sar",
+   "defined_in": "libavutil/imgutils.c"
+  },
+  {
    "name": "av_image_check_size",
    "defined_in": "libavutil/imgutils.c",
    "ptr_args": [
@@ -5000,6 +5957,33 @@
      }
     }
    ]
+  },
+  {
+   "name": "av_image_check_size2",
+   "defined_in": "libavutil/imgutils.c",
+   "ptr_args": [
+    {
+     "name": "log_ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:log_ctx"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Optional logging context borrowed only for the call."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_image_copy",
+   "defined_in": "libavutil/imgutils.c"
   },
   {
    "name": "av_image_copy_plane",
@@ -5105,6 +6089,10 @@
    ]
   },
   {
+   "name": "av_image_copy_uc_from",
+   "defined_in": "libavutil/imgutils.c"
+  },
+  {
    "name": "av_image_fill_arrays",
    "defined_in": "libavutil/imgutils.c",
    "ptr_args": [
@@ -5132,6 +6120,18 @@
    "defined_in": "libavutil/imgutils.c"
   },
   {
+   "name": "av_image_fill_color",
+   "defined_in": "libavutil/imgutils.c"
+  },
+  {
+   "name": "av_image_fill_linesizes",
+   "defined_in": "libavutil/imgutils.c"
+  },
+  {
+   "name": "av_image_fill_plane_sizes",
+   "defined_in": "libavutil/imgutils.c"
+  },
+  {
    "name": "av_image_fill_pointers",
    "defined_in": "libavutil/imgutils.c",
    "ptr_args": [
@@ -5156,6 +6156,10 @@
   },
   {
    "name": "av_image_get_buffer_size",
+   "defined_in": "libavutil/imgutils.c"
+  },
+  {
+   "name": "av_image_get_linesize",
    "defined_in": "libavutil/imgutils.c"
   },
   {
@@ -5969,6 +6973,63 @@
    ]
   },
   {
+   "name": "av_opt_get_array",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Live AVClass-bearing option object borrowed for the call."
+     }
+    },
+    {
+     "name": "out_val",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:out_val"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Zeroed caller output array of nb_elems values matching out_type."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_opt_get_array_size",
    "defined_in": "libavutil/opt.c",
    "ptr_args": [
@@ -6021,6 +7082,66 @@
       "nullable": false,
       "mutable": true,
       "note": ""
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_get_dict_val",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Live AVClass-bearing option object borrowed for the call."
+     }
+    },
+    {
+     "name": "out_val",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:out_val"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Required output slot receiving a newly allocated dictionary copy or null."
      }
     }
    ]
@@ -6311,6 +7432,234 @@
       "nullable": false,
       "mutable": true,
       "note": ""
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_get_pixel_fmt",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Live AVClass-bearing option object borrowed for the call."
+     }
+    },
+    {
+     "name": "out_fmt",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:out_fmt"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Required borrowed scalar output slot."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_get_q",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Live AVClass-bearing option object borrowed for the call."
+     }
+    },
+    {
+     "name": "out_val",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:out_val"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Required borrowed scalar output slot."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_get_sample_fmt",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Live AVClass-bearing option object borrowed for the call."
+     }
+    },
+    {
+     "name": "out_fmt",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:out_fmt"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Required borrowed scalar output slot."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_get_video_rate",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Live AVClass-bearing option object borrowed for the call."
+     }
+    },
+    {
+     "name": "out_val",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:out_val"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Required borrowed scalar output slot."
      }
     }
    ]
@@ -6629,6 +7978,108 @@
    ]
   },
   {
+   "name": "av_opt_set_dict2",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Live AVClass-bearing option object borrowed for the call."
+     }
+    },
+    {
+     "name": "options",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": {
+         "lifetime": "arg:options"
+        }
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:options"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Outer slot is borrowed; input dictionary is consumed on success and replaced by an owned unmatched remainder, while failure leaves the original owner in the slot."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_set_dict_val",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Live AVClass-bearing option object borrowed for the call."
+     }
+    },
+    {
+     "name": "val",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:val"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Optional dictionary borrowed for a deep copy and not retained."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_opt_set_double",
    "defined_in": "libavutil/opt.c",
    "ptr_args": [
@@ -6909,6 +8360,10 @@
    ]
   },
   {
+   "name": "av_pix_fmt_count_planes",
+   "defined_in": "libavutil/pixdesc.c"
+  },
+  {
    "name": "av_pix_fmt_desc_get",
    "defined_in": "libavutil/pixdesc.c",
    "ptr_ret": {
@@ -6989,6 +8444,50 @@
      "note": "Returns the next immutable process-lifetime descriptor table entry or NULL at the end."
     }
    }
+  },
+  {
+   "name": "av_pix_fmt_get_chroma_sub_sample",
+   "defined_in": "libavutil/pixdesc.c",
+   "ptr_args": [
+    {
+     "name": "h_shift",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:h_shift"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    },
+    {
+     "name": "v_shift",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:v_shift"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed only for the call and not retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_pix_fmt_swap_endianness",
+   "defined_in": "libavutil/pixdesc.c"
   },
   {
    "name": "av_q2d",

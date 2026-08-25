@@ -31,6 +31,9 @@ pub enum ImageError {
     /// destination by while copying). C never range-checks the parameter here
     /// either, so the wrappers do.
     AlignmentTooLarge,
+    /// The uncacheable-memory copy API requires cache-line-aligned plane
+    /// pointers and strides so architecture-specific loads remain valid.
+    UncacheableAlignment,
     /// A plane height was below 1.
     ///
     /// `av_image_fill_plane_sizes` divides `SIZE_MAX` by the height to test
@@ -865,5 +868,336 @@ mod scheduled_copy_tests {
             av_image_copy_plane(&mut [0; 4], 1, &[1; 4], 2, 2, 2),
             Err(ImageError::PlaneLayout)
         );
+    }
+}
+
+/// Wraps: av_image_check_sar
+pub fn av_image_check_sar(
+    width: u32,
+    height: u32,
+    aspect_ratio: crate::rational::AVRationalRef<'_>,
+) -> Result<(), ImageError> {
+    // SAFETY: the rational is copied by value and C retains no input.
+    let status = unsafe { ffi::av_image_check_sar(width, height, aspect_ratio.copy_ffi()) };
+    if status < 0 {
+        Err(ImageError::Library(status))
+    } else {
+        Ok(())
+    }
+}
+
+/// Wraps: av_image_check_size2
+pub fn av_image_check_size2(
+    width: u32,
+    height: u32,
+    maximum_pixels: i64,
+    format: AVPixelFormat,
+    log_offset: i32,
+    log_context: Option<crate::log::LogContextRef<'_>>,
+) -> Result<(), ImageError> {
+    // SAFETY: the optional handle carries a live logging object; all other
+    // inputs are copied values and none is retained.
+    let status = unsafe {
+        ffi::av_image_check_size2(
+            width,
+            height,
+            maximum_pixels,
+            format.as_raw(),
+            log_offset,
+            log_context.map_or(core::ptr::null_mut(), crate::log::LogContextRef::as_ptr),
+        )
+    };
+    if status < 0 {
+        Err(ImageError::Library(status))
+    } else {
+        Ok(())
+    }
+}
+
+fn packed_layout(
+    buffer: *mut u8,
+    buffer_len: usize,
+    format: AVPixelFormat,
+    width: i32,
+    height: i32,
+    align: i32,
+) -> Result<([*mut u8; 4], [i32; 4]), ImageError> {
+    check_alignment(align)?;
+    let mut data = [core::ptr::null_mut(); 4];
+    let mut linesizes = [0; 4];
+    // SAFETY: null requests a size preflight and both output tables have four slots.
+    let required = size_result(unsafe {
+        ffi::av_image_fill_arrays(
+            data.as_mut_ptr(),
+            linesizes.as_mut_ptr(),
+            core::ptr::null(),
+            format.as_raw(),
+            width,
+            height,
+            align,
+        )
+    })?;
+    if required > buffer_len {
+        return Err(ImageError::BufferTooSmall { required });
+    }
+    // SAFETY: the preflight proved the complete derived layout fits in the
+    // caller-provided allocation beginning at `buffer`.
+    size_result(unsafe {
+        ffi::av_image_fill_arrays(
+            data.as_mut_ptr(),
+            linesizes.as_mut_ptr(),
+            buffer,
+            format.as_raw(),
+            width,
+            height,
+            align,
+        )
+    })?;
+    Ok((data, linesizes))
+}
+
+/// Wraps: av_image_copy
+pub fn av_image_copy(
+    destination: &mut [u8],
+    source: &[u8],
+    format: AVPixelFormat,
+    width: i32,
+    height: i32,
+    align: i32,
+) -> Result<(), ImageError> {
+    let (destination_data, destination_linesizes) = packed_layout(
+        destination.as_mut_ptr(),
+        destination.len(),
+        format,
+        width,
+        height,
+        align,
+    )?;
+    let (source_data, source_linesizes) = packed_layout(
+        source.as_ptr().cast_mut(),
+        source.len(),
+        format,
+        width,
+        height,
+        align,
+    )?;
+    // SAFETY: both tables were derived with identical validated geometry and
+    // their full extents fit the disjoint source and destination slices.
+    unsafe {
+        ffi::av_image_copy(
+            destination_data.as_ptr(),
+            destination_linesizes.as_ptr(),
+            source_data.as_ptr().cast(),
+            source_linesizes.as_ptr(),
+            format.as_raw(),
+            width,
+            height,
+        )
+    }
+    Ok(())
+}
+
+/// Wraps: av_image_copy_uc_from
+pub fn av_image_copy_uc_from(
+    destination: &mut [u8],
+    source: &[u8],
+    format: AVPixelFormat,
+    width: i32,
+    height: i32,
+    align: i32,
+) -> Result<(), ImageError> {
+    const CACHE_LINE: usize = 64;
+    if align < CACHE_LINE as i32
+        || !(align as u32).is_power_of_two()
+        || !(destination.as_ptr() as usize).is_multiple_of(CACHE_LINE)
+        || !(source.as_ptr() as usize).is_multiple_of(CACHE_LINE)
+    {
+        return Err(ImageError::UncacheableAlignment);
+    }
+    let (destination_data, destination_linesizes) = packed_layout(
+        destination.as_mut_ptr(),
+        destination.len(),
+        format,
+        width,
+        height,
+        align,
+    )?;
+    let (source_data, source_linesizes) = packed_layout(
+        source.as_ptr().cast_mut(),
+        source.len(),
+        format,
+        width,
+        height,
+        align,
+    )?;
+    if destination_linesizes
+        .iter()
+        .chain(&source_linesizes)
+        .any(|&stride| stride != 0 && !(stride as usize).is_multiple_of(CACHE_LINE))
+    {
+        return Err(ImageError::UncacheableAlignment);
+    }
+    let destination_linesizes = destination_linesizes.map(|value| value as isize);
+    let source_linesizes = source_linesizes.map(|value| value as isize);
+    // SAFETY: both layouts fit their slices and share identical validated
+    // geometry. Ordinary memory is a supported fallback for this C routine.
+    unsafe {
+        ffi::av_image_copy_uc_from(
+            destination_data.as_ptr(),
+            destination_linesizes.as_ptr(),
+            source_data.as_ptr().cast(),
+            source_linesizes.as_ptr(),
+            format.as_raw(),
+            width,
+            height,
+        )
+    }
+    Ok(())
+}
+
+/// Wraps: av_image_fill_color
+pub fn av_image_fill_color(
+    destination: &mut [u8],
+    format: AVPixelFormat,
+    color: [u32; 4],
+    width: i32,
+    height: i32,
+    align: i32,
+) -> Result<(), ImageError> {
+    let (data, linesizes) = packed_layout(
+        destination.as_mut_ptr(),
+        destination.len(),
+        format,
+        width,
+        height,
+        align,
+    )?;
+    let linesizes = linesizes.map(|value| value as isize);
+    // SAFETY: the derived destination layout fits the exclusive slice; color
+    // has four readable components and the currently defined flags value is 0.
+    let status = unsafe {
+        ffi::av_image_fill_color(
+            data.as_ptr(),
+            linesizes.as_ptr(),
+            format.as_raw(),
+            color.as_ptr(),
+            width,
+            height,
+            0,
+        )
+    };
+    if status < 0 {
+        Err(ImageError::Library(status))
+    } else {
+        Ok(())
+    }
+}
+
+/// Wraps: av_image_fill_linesizes
+pub fn av_image_fill_linesizes(format: AVPixelFormat, width: i32) -> Result<[i32; 4], ImageError> {
+    let mut linesizes = [0; 4];
+    // SAFETY: the output table has four writable integers and C validates the format.
+    let status =
+        unsafe { ffi::av_image_fill_linesizes(linesizes.as_mut_ptr(), format.as_raw(), width) };
+    if status < 0 {
+        Err(ImageError::Library(status))
+    } else {
+        Ok(linesizes)
+    }
+}
+
+/// Wraps: av_image_fill_plane_sizes
+pub fn av_image_fill_plane_sizes(
+    format: AVPixelFormat,
+    height: i32,
+    linesizes: [isize; 4],
+) -> Result<[usize; 4], ImageError> {
+    if height <= 0 {
+        return Err(ImageError::NonPositiveHeight);
+    }
+    let mut sizes = [0; 4];
+    // SAFETY: both tables have four elements; positive height avoids C's
+    // division-by-zero path and C checks size arithmetic for overflow.
+    let status = unsafe {
+        ffi::av_image_fill_plane_sizes(
+            sizes.as_mut_ptr(),
+            format.as_raw(),
+            height,
+            linesizes.as_ptr(),
+        )
+    };
+    if status < 0 {
+        Err(ImageError::Library(status))
+    } else {
+        Ok(sizes)
+    }
+}
+
+/// Wraps: av_image_get_linesize
+pub fn av_image_get_linesize(
+    format: AVPixelFormat,
+    width: i32,
+    plane: i32,
+) -> Result<usize, ImageError> {
+    // SAFETY: all arguments are scalar values which C validates.
+    size_result(unsafe { ffi::av_image_get_linesize(format.as_raw(), width, plane) })
+}
+
+#[cfg(test)]
+mod scheduled_image_utility_tests {
+    use super::*;
+    use crate::rational::AVRational;
+
+    #[test]
+    fn computes_and_uses_packed_plane_layouts() {
+        assert_eq!(
+            av_image_fill_linesizes(AVPixelFormat::RGB24, 2).unwrap()[0],
+            6
+        );
+        assert_eq!(av_image_get_linesize(AVPixelFormat::RGB24, 2, 0), Ok(6));
+        assert_eq!(
+            av_image_fill_plane_sizes(AVPixelFormat::RGB24, 2, [6, 0, 0, 0]).unwrap()[0],
+            12
+        );
+
+        let source = [1_u8; 12];
+        let mut destination = [0_u8; 12];
+        av_image_copy(&mut destination, &source, AVPixelFormat::RGB24, 2, 2, 1).unwrap();
+        assert_eq!(destination, source);
+        #[repr(align(64))]
+        struct Aligned([u8; 128]);
+        let source_uc = Aligned([1; 128]);
+        let mut destination_uc = Aligned([0; 128]);
+        av_image_copy_uc_from(
+            &mut destination_uc.0,
+            &source_uc.0,
+            AVPixelFormat::RGB24,
+            2,
+            2,
+            64,
+        )
+        .unwrap();
+        assert_eq!(&destination_uc.0[..6], &source_uc.0[..6]);
+        av_image_fill_color(
+            &mut destination,
+            AVPixelFormat::RGB24,
+            [9, 8, 7, 0],
+            2,
+            2,
+            1,
+        )
+        .unwrap();
+        assert_eq!(&destination[..3], &[9, 8, 7]);
+    }
+
+    #[test]
+    fn validates_geometry_and_aspect_ratio() {
+        let square = AVRational::new(1, 1);
+        assert_eq!(av_image_check_sar(16, 16, square.as_ref()), Ok(()));
+        assert_eq!(
+            av_image_check_size2(16, 16, 256, AVPixelFormat::RGB24, 0, None),
+            Ok(())
+        );
+        assert!(av_image_check_size2(17, 17, 256, AVPixelFormat::RGB24, 0, None).is_err());
     }
 }

@@ -995,3 +995,130 @@ mod scheduled_name_tests {
         assert!(av_color_range_from_name(c"missing").is_err());
     }
 }
+
+/// Wraps: av_find_best_pix_fmt_of_2
+#[must_use]
+pub fn av_find_best_pix_fmt_of_2(
+    first: crate::pixfmt::AVPixelFormat,
+    second: crate::pixfmt::AVPixelFormat,
+    source: crate::pixfmt::AVPixelFormat,
+    has_alpha: bool,
+) -> (crate::pixfmt::AVPixelFormat, i32) {
+    let mut loss = 0;
+    // SAFETY: all formats are passed by value and `loss` is one writable int.
+    let format = unsafe {
+        ffi::av_find_best_pix_fmt_of_2(
+            first.as_raw(),
+            second.as_raw(),
+            source.as_raw(),
+            i32::from(has_alpha),
+            &raw mut loss,
+        )
+    };
+    (crate::pixfmt::AVPixelFormat::from_raw(format), loss)
+}
+
+/// Wraps: av_get_pix_fmt_loss
+#[must_use]
+pub fn av_get_pix_fmt_loss(
+    destination: crate::pixfmt::AVPixelFormat,
+    source: crate::pixfmt::AVPixelFormat,
+    has_alpha: bool,
+) -> i32 {
+    // SAFETY: all arguments are scalar ABI values.
+    unsafe { ffi::av_get_pix_fmt_loss(destination.as_raw(), source.as_raw(), i32::from(has_alpha)) }
+}
+
+/// Wraps: av_get_pix_fmt_string
+pub fn av_get_pix_fmt_string(
+    buffer: &mut [u8],
+    format: crate::pixfmt::AVPixelFormat,
+) -> Result<&CStr, i32> {
+    let size = i32::try_from(buffer.len()).map_err(|_| -22)?;
+    if size == 0 {
+        return Err(-22);
+    }
+    // SAFETY: `buffer` provides `size` writable bytes and C returns the same
+    // buffer after writing a bounded terminated description.
+    unsafe { ffi::av_get_pix_fmt_string(buffer.as_mut_ptr().cast(), size, format.as_raw()) };
+    CStr::from_bytes_until_nul(buffer).map_err(|_| -22)
+}
+
+/// Wraps: av_pix_fmt_count_planes
+pub fn av_pix_fmt_count_planes(format: crate::pixfmt::AVPixelFormat) -> Result<usize, i32> {
+    // SAFETY: the format is an open scalar value which C validates.
+    let count = unsafe { ffi::av_pix_fmt_count_planes(format.as_raw()) };
+    if count < 0 {
+        Err(count)
+    } else {
+        Ok(count as usize)
+    }
+}
+
+/// Wraps: av_pix_fmt_get_chroma_sub_sample
+pub fn av_pix_fmt_get_chroma_sub_sample(
+    format: crate::pixfmt::AVPixelFormat,
+) -> Result<(i32, i32), i32> {
+    let (mut horizontal, mut vertical) = (0, 0);
+    // SAFETY: both outputs are writable ints and C validates the scalar format.
+    let status = unsafe {
+        ffi::av_pix_fmt_get_chroma_sub_sample(
+            format.as_raw(),
+            &raw mut horizontal,
+            &raw mut vertical,
+        )
+    };
+    if status < 0 {
+        Err(status)
+    } else {
+        Ok((horizontal, vertical))
+    }
+}
+
+/// Wraps: av_pix_fmt_swap_endianness
+#[must_use]
+pub fn av_pix_fmt_swap_endianness(
+    format: crate::pixfmt::AVPixelFormat,
+) -> crate::pixfmt::AVPixelFormat {
+    // SAFETY: the function accepts and returns scalar open enum values.
+    crate::pixfmt::AVPixelFormat::from_raw(unsafe {
+        ffi::av_pix_fmt_swap_endianness(format.as_raw())
+    })
+}
+
+#[cfg(test)]
+mod format_utility_tests {
+    use super::*;
+    use crate::pixfmt::AVPixelFormat;
+
+    #[test]
+    fn reports_layout_loss_and_names() {
+        assert_eq!(av_pix_fmt_count_planes(AVPixelFormat::YUV420P), Ok(3));
+        assert_eq!(
+            av_pix_fmt_get_chroma_sub_sample(AVPixelFormat::YUV420P),
+            Ok((1, 1))
+        );
+        assert_eq!(
+            av_get_pix_fmt_loss(AVPixelFormat::GRAY8, AVPixelFormat::RGB24, false) & 4,
+            4
+        );
+        let (best, _) = av_find_best_pix_fmt_of_2(
+            AVPixelFormat::GRAY8,
+            AVPixelFormat::YUV420P,
+            AVPixelFormat::RGB24,
+            false,
+        );
+        assert_eq!(best, AVPixelFormat::YUV420P);
+        let mut buffer = [0; 64];
+        assert!(
+            av_get_pix_fmt_string(&mut buffer, AVPixelFormat::RGB24)
+                .unwrap()
+                .to_bytes()
+                .starts_with(b"rgb24")
+        );
+        assert_eq!(
+            av_pix_fmt_swap_endianness(AVPixelFormat::YUV420P16LE),
+            AVPixelFormat::YUV420P16BE
+        );
+    }
+}

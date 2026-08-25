@@ -4,7 +4,7 @@ use core::ffi::{CStr, c_char, c_uint, c_void};
 use core::marker::PhantomData;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::{CBox, CDropped, CrustifyStr};
+use ffibox::{CBox, CDropped, CrustifyStr, CVal};
 
 use crate::channel_layout::AVChannelLayoutRef;
 use crate::dict::AVDictionary;
@@ -2297,6 +2297,56 @@ mod scheduled_set_tests {
 
         object.release_owned_options();
     }
+    #[test]
+    fn typed_getters_and_array_getter_copy_option_values() {
+        let options = options();
+        let class = class(&options);
+        let mut object = TestObject::new(&class);
+        // SAFETY: the test object and its class table remain live and the
+        // handle is the only access path while C reads or writes its fields.
+        let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+        let mut dictionary = Dictionary::default();
+        av_dict_set(&mut dictionary, c"integer", Some(c"2"), 0).unwrap();
+        let mut dictionary = dictionary.into_owner();
+        av_opt_set_dict2(&mut handle, &mut dictionary, 0).unwrap();
+        assert!(dictionary.is_none());
+        assert_eq!(object.integer, 2);
+        let rational = AVRational::new(3, 5);
+        av_opt_set_q(&mut handle, c"rational", rational.as_ref(), 0).unwrap();
+        av_opt_set_video_rate(&mut handle, c"rate", rational.as_ref(), 0).unwrap();
+        av_opt_set_pixel_fmt(&mut handle, c"pixel_fmt", AVPixelFormat::RGB24, 0).unwrap();
+        av_opt_set_sample_fmt(&mut handle, c"sample_fmt", AVSampleFormat::S16, 0).unwrap();
+        av_opt_set_array(
+            &mut handle,
+            c"numbers",
+            0,
+            0,
+            OptArrayValues::Int(&[4, 7]),
+        )
+        .unwrap();
+
+        assert_eq!(
+            av_opt_get_pixel_fmt(handle.as_ref(), c"pixel_fmt", 0),
+            Ok(AVPixelFormat::RGB24)
+        );
+        assert_eq!(
+            av_opt_get_sample_fmt(handle.as_ref(), c"sample_fmt", 0),
+            Ok(AVSampleFormat::S16)
+        );
+        let value = av_opt_get_q(handle.as_ref(), c"rational", 0).unwrap();
+        assert_eq!((value.as_ref().num(), value.as_ref().den()), (3, 5));
+        // The scheduled wrapper faithfully reports libavutil's current
+        // behaviour: av_opt_get_video_rate delegates to av_opt_get_q, whose
+        // read_number switch omits AV_OPT_TYPE_VIDEO_RATE.
+        assert!(matches!(
+            av_opt_get_video_rate(handle.as_ref(), c"rate", 0),
+            Err(-22)
+        ));
+        let mut values = [0_i64; 2];
+        av_opt_get_array(handle.as_ref(), c"numbers", 0, 0, &mut values).unwrap();
+        assert_eq!(values, [4, 7]);
+        object.release_owned_options();
+    }
 }
 
 #[cfg(test)]
@@ -3132,4 +3182,173 @@ mod option_ranges_tests {
         // pointer table, and the aggregate. ASan catches an ownership mismatch.
         drop(owned);
     }
+}
+
+/// Wraps: av_opt_get_array
+///
+/// Retrieves array elements through C's signed-64-bit conversion contract.
+pub fn av_opt_get_array(
+    object: OptionObjectRef<'_>,
+    name: &CStr,
+    search_flags: i32,
+    start_element: u32,
+    output: &mut [i64],
+) -> Result<(), i32> {
+    let count = u32::try_from(output.len()).map_err(|_| -22)?;
+    output.fill(0);
+    // SAFETY: the object and name are live, `output` contains `count` zeroed
+    // i64 slots matching `AV_OPT_TYPE_INT64`, and C retains none of them.
+    let status = unsafe {
+        ffi::av_opt_get_array(
+            object.as_ptr(),
+            name.as_ptr(),
+            search_flags,
+            start_element,
+            count,
+            AVOptionType::INT64.as_raw(),
+            output.as_mut_ptr().cast(),
+        )
+    };
+    if status < 0 { Err(status) } else { Ok(()) }
+}
+
+/// Wraps: av_opt_get_dict_val
+pub fn av_opt_get_dict_val(
+    object: OptionObjectRef<'_>,
+    name: &CStr,
+    search_flags: i32,
+) -> Result<Option<CBox<AVDictionary>>, i32> {
+    let mut output = core::ptr::null_mut();
+    // SAFETY: the input borrows are live and output is a writable owner slot;
+    // success transfers a deep-copied dictionary or null.
+    let status = unsafe {
+        ffi::av_opt_get_dict_val(
+            object.as_ptr(),
+            name.as_ptr(),
+            search_flags,
+            &raw mut output,
+        )
+    };
+    // SAFETY: whether copying completed or stopped after a partial allocation,
+    // any non-null output is the unique dictionary owner returned to caller.
+    let output = unsafe { CBox::from_raw(output) };
+    if status < 0 {
+        drop(output);
+        Err(status)
+    } else {
+        Ok(output)
+    }
+}
+
+/// Wraps: av_opt_get_pixel_fmt
+pub fn av_opt_get_pixel_fmt(
+    object: OptionObjectRef<'_>,
+    name: &CStr,
+    search_flags: i32,
+) -> Result<AVPixelFormat, i32> {
+    let mut output = AVPixelFormat::NONE.as_raw();
+    // SAFETY: inputs are live and output is one writable ABI enum value.
+    let status = unsafe {
+        ffi::av_opt_get_pixel_fmt(
+            object.as_ptr(),
+            name.as_ptr(),
+            search_flags,
+            &raw mut output,
+        )
+    };
+    if status < 0 { Err(status) } else { Ok(AVPixelFormat::from_raw(output)) }
+}
+
+fn get_rational(
+    object: OptionObjectRef<'_>,
+    name: &CStr,
+    search_flags: i32,
+    getter: unsafe extern "C" fn(*mut c_void, *const c_char, i32, *mut ffi::AVRational) -> i32,
+) -> Result<CVal<crate::rational::AVRational>, i32> {
+    let mut output = ffi::AVRational { num: 0, den: 1 };
+    // SAFETY: the selected getter has the common option-get signature; inputs
+    // are live and output is one writable rational pair.
+    let status = unsafe {
+        getter(
+            object.as_ptr(),
+            name.as_ptr(),
+            search_flags,
+            &raw mut output,
+        )
+    };
+    if status < 0 { Err(status) } else { Ok(crate::rational::AVRational::from_ffi(output)) }
+}
+
+/// Wraps: av_opt_get_q
+pub fn av_opt_get_q(
+    object: OptionObjectRef<'_>,
+    name: &CStr,
+    search_flags: i32,
+) -> Result<CVal<crate::rational::AVRational>, i32> {
+    get_rational(object, name, search_flags, ffi::av_opt_get_q)
+}
+
+/// Wraps: av_opt_get_sample_fmt
+pub fn av_opt_get_sample_fmt(
+    object: OptionObjectRef<'_>,
+    name: &CStr,
+    search_flags: i32,
+) -> Result<AVSampleFormat, i32> {
+    let mut output = AVSampleFormat::NONE.as_raw();
+    // SAFETY: inputs are live and output is one writable ABI enum value.
+    let status = unsafe {
+        ffi::av_opt_get_sample_fmt(
+            object.as_ptr(),
+            name.as_ptr(),
+            search_flags,
+            &raw mut output,
+        )
+    };
+    if status < 0 { Err(status) } else { Ok(AVSampleFormat::from_raw(output)) }
+}
+
+/// Wraps: av_opt_get_video_rate
+pub fn av_opt_get_video_rate(
+    object: OptionObjectRef<'_>,
+    name: &CStr,
+    search_flags: i32,
+) -> Result<CVal<crate::rational::AVRational>, i32> {
+    get_rational(object, name, search_flags, ffi::av_opt_get_video_rate)
+}
+
+/// Wraps: av_opt_set_dict2
+pub fn av_opt_set_dict2(
+    object: &mut OptionObjectMut<'_>,
+    options: &mut Option<CBox<AVDictionary>>,
+    search_flags: i32,
+) -> Result<(), OptSetError> {
+    reject_fake_object(search_flags)?;
+    let mut raw = options.take().map_or(core::ptr::null_mut(), CBox::into_raw);
+    // SAFETY: the dictionary owner is surrendered through a writable slot; C
+    // consumes/replaces it and leaves null or one independently owned result.
+    let status = unsafe { ffi::av_opt_set_dict2(object.as_mut_ptr(), &raw mut raw, search_flags) };
+    // SAFETY: after the call any non-null slot value is the unique dictionary owner.
+    *options = unsafe { CBox::from_raw(raw) };
+    result(status)
+}
+
+/// Wraps: av_opt_set_dict_val
+pub fn av_opt_set_dict_val(
+    object: &mut OptionObjectMut<'_>,
+    name: &CStr,
+    value: Option<crate::dict::AVDictionaryRef<'_>>,
+    search_flags: i32,
+) -> Result<(), OptSetError> {
+    reject_fake_object(search_flags)?;
+    // SAFETY: all borrows remain live for the call. C deep-copies the optional
+    // dictionary and retains no pointer into the input owner.
+    let status = unsafe {
+        ffi::av_opt_set_dict_val(
+            object.as_mut_ptr(),
+            name.as_ptr(),
+            value.map_or(core::ptr::null(), |dictionary| dictionary.as_ptr()),
+            search_flags,
+        )
+    };
+    result(status)
 }

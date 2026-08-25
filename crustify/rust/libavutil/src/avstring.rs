@@ -280,3 +280,43 @@ mod scheduled_tests {
         assert!(av_match_list(c"a:b", c"x:b", b':'));
     }
 }
+
+/// Wraps: av_escape
+pub fn av_escape(
+    source: &CStr,
+    special_characters: Option<&CStr>,
+    mode: AVEscapeMode,
+    flags: i32,
+) -> Result<CrustifyStr<AvFree>, i32> {
+    let mut output = core::ptr::null_mut();
+    // SAFETY: both non-null strings are live and terminated for this call;
+    // `output` is a writable slot which receives a fresh av_malloc string on
+    // success and neither input is retained.
+    let status = unsafe {
+        ffi::av_escape(
+            &raw mut output,
+            source.as_ptr(),
+            special_characters.map_or(core::ptr::null(), CStr::as_ptr),
+            mode.as_raw(),
+            flags,
+        )
+    };
+    if status < 0 {
+        Err(status)
+    } else {
+        // SAFETY: success transfers one non-null av_malloc-family string.
+        Ok(unsafe { CrustifyStr::from_raw(output) }
+            .expect("av_escape succeeded without returning a string"))
+    }
+}
+
+#[cfg(test)]
+mod escape_tests {
+    use super::*;
+
+    #[test]
+    fn returns_an_owned_escaped_string() {
+        let escaped = av_escape(c"a:b", Some(c":"), AVEscapeMode::BACKSLASH, 0).unwrap();
+        assert_eq!(escaped.as_c_str(), c"a\\:b");
+    }
+}

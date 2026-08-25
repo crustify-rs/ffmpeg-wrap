@@ -1939,3 +1939,42 @@ mod color_metadata_tests {
             .set_signal_full_range_flag(4);
     }
 }
+/// Wraps: av_dovi_get_header
+///
+/// Borrows the header stored inside the same allocation as `metadata`.
+#[must_use]
+pub fn av_dovi_get_header<'a>(metadata: AVDOVIMetadataRef<'a>) -> AVDOVIRpuDataHeaderRef<'a> {
+    // SAFETY: the metadata handle identifies a live allocation whose offsets
+    // were initialized by libavutil. The inline helper returns the embedded
+    // header, and the resulting handle is tied to the allocation borrow.
+    unsafe {
+        AVDOVIRpuDataHeaderRef::from_ptr(ffi::crustify_av_dovi_get_header(metadata.as_ptr()))
+            .expect("a live metadata allocation has a non-null embedded header")
+    }
+}
+
+#[cfg(test)]
+mod header_tests {
+    use super::*;
+
+    #[repr(C)]
+    struct MetadataWithHeader {
+        metadata: ffi::AVDOVIMetadata,
+        header: ffi::AVDOVIRpuDataHeader,
+    }
+
+    #[test]
+    fn header_borrow_uses_the_metadata_offset() {
+        // SAFETY: both C records consist only of integer fields, so all-zero
+        // bytes are a valid initialized value before the offset is installed.
+        let mut storage: MetadataWithHeader = unsafe { core::mem::zeroed() };
+        storage.metadata.header_offset = core::mem::offset_of!(MetadataWithHeader, header);
+        // SAFETY: storage is live, initialized and exclusively retained here;
+        // the configured offset addresses its embedded header field.
+        let metadata = unsafe { AVDOVIMetadataRef::from_ptr(&mut storage.metadata) }.unwrap();
+        assert_eq!(
+            av_dovi_get_header(metadata).as_ptr(),
+            &raw const storage.header
+        );
+    }
+}

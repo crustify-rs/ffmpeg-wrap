@@ -44,3 +44,4 @@ int crustify_av_isdigit(int value);
 int crustify_av_isgraph(int value);
 int crustify_av_isspace(int value);
 int crustify_av_isxdigit(int value);
+AVDOVIRpuDataHeader *crustify_av_dovi_get_header(const AVDOVIMetadata *data);
