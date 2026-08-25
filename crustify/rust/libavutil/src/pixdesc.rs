@@ -1122,3 +1122,265 @@ mod format_utility_tests {
         );
     }
 }
+
+/// Wraps: av_get_padded_bits_per_pixel
+#[must_use]
+pub fn av_get_padded_bits_per_pixel(descriptor: AVPixFmtDescriptorEntry) -> i32 {
+    // SAFETY: the entry is a validated immutable member of C's static table.
+    unsafe { ffi::av_get_padded_bits_per_pixel(descriptor.0.as_ptr()) }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ImageLineError {
+    NegativeGeometry,
+    OutOfBounds,
+    LengthOverflow,
+    UnknownFormat,
+    PaletteRequestedForNonPaletteFormat,
+}
+
+type ImageLineInputs = (AVPixFmtDescriptorEntry, [*mut u8; 4], [i32; 4], i32);
+
+fn component_extent(size: i32, shift: u8) -> Option<i32> {
+    let rounding = 1_i32.checked_shl(u32::from(shift))?.checked_sub(1)?;
+    size.checked_add(rounding)?.checked_shr(u32::from(shift))
+}
+
+fn line_is_in_bounds(
+    descriptor: AVPixFmtDescriptorEntry,
+    image_width: i32,
+    image_height: i32,
+    x: i32,
+    y: i32,
+    component: i32,
+    width: i32,
+) -> bool {
+    let descriptor = descriptor.as_ref();
+    let chroma = component == 1 || component == 2;
+    let shift_w = if chroma {
+        descriptor.log2_chroma_w()
+    } else {
+        0
+    };
+    let shift_h = if chroma {
+        descriptor.log2_chroma_h()
+    } else {
+        0
+    };
+    let Some(plane_width) = component_extent(image_width, shift_w) else {
+        return false;
+    };
+    let Some(plane_height) = component_extent(image_height, shift_h) else {
+        return false;
+    };
+    y < plane_height && x.checked_add(width).is_some_and(|end| end <= plane_width)
+}
+
+fn line_inputs(
+    image: &crate::imgutils::ImagePlanes<'_>,
+    x: i32,
+    y: i32,
+    component: i32,
+    width: usize,
+) -> Result<ImageLineInputs, ImageLineError> {
+    let width_i32 = i32::try_from(width).map_err(|_| ImageLineError::LengthOverflow)?;
+    if x < 0 || y < 0 || component < 0 {
+        return Err(ImageLineError::NegativeGeometry);
+    }
+    let descriptor = av_pix_fmt_desc_get(image.format()).ok_or(ImageLineError::UnknownFormat)?;
+    if component >= i32::from(descriptor.as_ref().nb_components())
+        || !line_is_in_bounds(
+            descriptor,
+            image.width(),
+            image.height(),
+            x,
+            y,
+            component,
+            width_i32,
+        )
+    {
+        return Err(ImageLineError::OutOfBounds);
+    }
+    Ok((descriptor, image.raw_data(), image.linesizes(), width_i32))
+}
+
+fn line_outputs(
+    image: &crate::imgutils::ImagePlanesMut<'_>,
+    x: i32,
+    y: i32,
+    component: i32,
+    width: usize,
+) -> Result<ImageLineInputs, ImageLineError> {
+    let width = i32::try_from(width).map_err(|_| ImageLineError::LengthOverflow)?;
+    if x < 0 || y < 0 || component < 0 {
+        return Err(ImageLineError::NegativeGeometry);
+    }
+    let descriptor = av_pix_fmt_desc_get(image.format()).ok_or(ImageLineError::UnknownFormat)?;
+    if component >= i32::from(descriptor.as_ref().nb_components())
+        || !line_is_in_bounds(
+            descriptor,
+            image.width(),
+            image.height(),
+            x,
+            y,
+            component,
+            width,
+        )
+    {
+        return Err(ImageLineError::OutOfBounds);
+    }
+    Ok((descriptor, image.raw_data(), image.linesizes(), width))
+}
+
+/// Wraps: av_read_image_line
+pub fn av_read_image_line(
+    destination: &mut [u16],
+    image: &crate::imgutils::ImagePlanes<'_>,
+    x: i32,
+    y: i32,
+    component: i32,
+    read_palette_component: bool,
+) -> Result<(), ImageLineError> {
+    let (descriptor, data, linesizes, width) =
+        line_inputs(image, x, y, component, destination.len())?;
+    if read_palette_component && image.format() != crate::pixfmt::AVPixelFormat::PAL8 {
+        return Err(ImageLineError::PaletteRequestedForNonPaletteFormat);
+    }
+    let mut data = data.map(|pointer| pointer.cast_const());
+    // SAFETY: `line_inputs` bounds the requested line inside the complete
+    // image allocation and destination has exactly `width` writable elements.
+    unsafe {
+        ffi::av_read_image_line(
+            destination.as_mut_ptr(),
+            data.as_mut_ptr(),
+            linesizes.as_ptr(),
+            descriptor.0.as_ptr(),
+            x,
+            y,
+            component,
+            width,
+            i32::from(read_palette_component),
+        )
+    };
+    Ok(())
+}
+
+/// Wraps: av_read_image_line2
+pub fn av_read_image_line2(
+    destination: &mut [u32],
+    image: &crate::imgutils::ImagePlanes<'_>,
+    x: i32,
+    y: i32,
+    component: i32,
+    read_palette_component: bool,
+) -> Result<(), ImageLineError> {
+    let (descriptor, data, linesizes, width) =
+        line_inputs(image, x, y, component, destination.len())?;
+    if read_palette_component && image.format() != crate::pixfmt::AVPixelFormat::PAL8 {
+        return Err(ImageLineError::PaletteRequestedForNonPaletteFormat);
+    }
+    let mut data = data.map(|pointer| pointer.cast_const());
+    // SAFETY: as `av_read_image_line`; the element-size discriminator matches u32.
+    unsafe {
+        ffi::av_read_image_line2(
+            destination.as_mut_ptr().cast(),
+            data.as_mut_ptr(),
+            linesizes.as_ptr(),
+            descriptor.0.as_ptr(),
+            x,
+            y,
+            component,
+            width,
+            i32::from(read_palette_component),
+            4,
+        )
+    };
+    Ok(())
+}
+
+/// Wraps: av_write_image_line
+pub fn av_write_image_line(
+    source: &[u16],
+    image: &mut crate::imgutils::ImagePlanesMut<'_>,
+    x: i32,
+    y: i32,
+    component: i32,
+) -> Result<(), ImageLineError> {
+    let (descriptor, mut data, linesizes, width) =
+        line_outputs(image, x, y, component, source.len())?;
+    // SAFETY: `image` is exclusively borrowed, the source has `width` values,
+    // and `line_inputs` bounds the selected line within its complete planes.
+    unsafe {
+        ffi::av_write_image_line(
+            source.as_ptr(),
+            data.as_mut_ptr(),
+            linesizes.as_ptr(),
+            descriptor.0.as_ptr(),
+            x,
+            y,
+            component,
+            width,
+        )
+    };
+    Ok(())
+}
+
+/// Wraps: av_write_image_line2
+pub fn av_write_image_line2(
+    source: &[u32],
+    image: &mut crate::imgutils::ImagePlanesMut<'_>,
+    x: i32,
+    y: i32,
+    component: i32,
+) -> Result<(), ImageLineError> {
+    let (descriptor, mut data, linesizes, width) =
+        line_outputs(image, x, y, component, source.len())?;
+    // SAFETY: as `av_write_image_line`; discriminator 4 matches u32.
+    unsafe {
+        ffi::av_write_image_line2(
+            source.as_ptr().cast(),
+            data.as_mut_ptr(),
+            linesizes.as_ptr(),
+            descriptor.0.as_ptr(),
+            x,
+            y,
+            component,
+            width,
+            4,
+        )
+    };
+    Ok(())
+}
+
+#[cfg(test)]
+mod image_line_tests {
+    use super::*;
+    use crate::imgutils::{av_image_fill_arrays, av_image_fill_max_pixsteps, image_planes_mut};
+    use crate::pixfmt::AVPixelFormat;
+
+    #[test]
+    fn reads_and_writes_checked_gray_lines() {
+        let mut storage = [0_u8; 4];
+        {
+            let mut image = image_planes_mut(&mut storage, AVPixelFormat::GRAY8, 4, 1, 1).unwrap();
+            av_write_image_line(&[1, 2, 3, 4], &mut image, 0, 0, 0).unwrap();
+        }
+        let image = av_image_fill_arrays(&storage, AVPixelFormat::GRAY8, 4, 1, 1).unwrap();
+        let mut values = [0_u32; 4];
+        av_read_image_line2(&mut values, &image, 0, 0, 0, false).unwrap();
+        assert_eq!(values, [1, 2, 3, 4]);
+        assert_eq!(
+            av_read_image_line(&mut [0; 5], &image, 0, 0, 0, false),
+            Err(ImageLineError::OutOfBounds)
+        );
+    }
+
+    #[test]
+    fn descriptor_size_and_steps_use_table_entries() {
+        let descriptor = av_pix_fmt_desc_get(AVPixelFormat::RGB24).unwrap();
+        assert_eq!(av_get_padded_bits_per_pixel(descriptor), 24);
+        let (steps, components) = av_image_fill_max_pixsteps(descriptor);
+        assert_eq!(steps[0], 3);
+        assert_eq!(components[0], 0);
+    }
+}

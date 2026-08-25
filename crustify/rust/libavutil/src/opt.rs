@@ -4,7 +4,7 @@ use core::ffi::{CStr, c_char, c_uint, c_void};
 use core::marker::PhantomData;
 use core::ptr::{NonNull, addr_of, addr_of_mut};
 
-use ffibox::{CBox, CDropped, CrustifyStr, CVal};
+use ffibox::{CBox, CDropped, CVal, CrustifyStr};
 
 use crate::channel_layout::AVChannelLayoutRef;
 use crate::dict::AVDictionary;
@@ -793,7 +793,10 @@ mod tests {
         assert_eq!(offset_of!(ffi::AVOptionArrayDef, size_min), 8);
         assert_eq!(offset_of!(ffi::AVOptionArrayDef, size_max), 12);
         assert_eq!(offset_of!(ffi::AVOptionArrayDef, sep), 16);
-        assert_eq!(size_of::<AVOptionArrayDef>(), size_of::<ffi::AVOptionArrayDef>());
+        assert_eq!(
+            size_of::<AVOptionArrayDef>(),
+            size_of::<ffi::AVOptionArrayDef>()
+        );
 
         let mut raw = ffi::AVOptionArrayDef {
             def: core::ptr::null(),
@@ -824,9 +827,7 @@ mod tests {
         // struct, the local is live and initialized by `zeroed`, and this
         // test holds no other handle to it.
         let handle = unsafe {
-            AVOptionArrayDefMut::from_ptr(
-                addr_of_mut!(definition).cast::<ffi::AVOptionArrayDef>(),
-            )
+            AVOptionArrayDefMut::from_ptr(addr_of_mut!(definition).cast::<ffi::AVOptionArrayDef>())
         }
         .unwrap();
 
@@ -1595,6 +1596,43 @@ mod scheduled_find_tests {
             Err(OptFindError::FakeObjectSearch)
         ));
     }
+
+    #[test]
+    fn evaluation_iteration_defaults_and_ranges_are_typed() {
+        let options = options();
+        let class = class(&options);
+        let mut object = SearchObject {
+            class: core::ptr::from_ref(&class),
+            first: 0,
+            second: 0,
+            flavour: 0,
+        };
+        let address = NonNull::from(&mut object).cast::<c_void>();
+        // SAFETY: the object and its class table stay live and immutable while
+        // this shared handle is used, and every option offset names its field.
+        let shared = unsafe { OptionObjectRef::from_raw(address) };
+        let first = av_opt_find(shared, c"first", None, 0, 0)
+            .unwrap()
+            .expect("first option");
+        assert_eq!(av_opt_eval_int(shared, first, c"42"), Ok(42));
+        assert_eq!(av_opt_next(shared).count(), 4);
+
+        let ranges = av_opt_query_ranges_default(shared, c"first", 0).unwrap();
+        assert_eq!(ranges.as_ref().range(0, 0).unwrap().value_min(), 0.0);
+        av_opt_freep_ranges(Some(ranges));
+        let ranges = av_opt_query_ranges(shared, c"first", 0).unwrap();
+        assert_eq!(ranges.as_ref().range(0, 0).unwrap().value_max(), 255.0);
+        av_opt_freep_ranges(Some(ranges));
+
+        // The shared handle has had its last use. Create the sole exclusive
+        // handle so `av_opt_find2` can preserve the option/target pairing.
+        // SAFETY: `object` remains live and no other handle is used afterwards.
+        let mut exclusive = unsafe { OptionObjectMut::from_raw(address) };
+        let found = av_opt_find2(&mut exclusive, c"first", None, 0, 0)
+            .unwrap()
+            .expect("first option match");
+        assert_eq!(av_opt_is_set_to_default(&found), Ok(true));
+    }
 }
 
 /// Wraps: av_opt_set_chlayout
@@ -1857,7 +1895,8 @@ mod scheduled_set_tests {
             // SAFETY: `object` is a live, initialized struct whose first field
             // is a class pointer, and this handle is the only access to it for
             // the block below.
-            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            let mut handle =
+                unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
 
             av_opt_set_int(&mut handle, c"integer", 7, 0).expect("set integer");
             av_opt_set_double(&mut handle, c"number", 0.5, 0).expect("set number");
@@ -1876,9 +1915,10 @@ mod scheduled_set_tests {
         assert_eq!(object.binary_len, 3);
         // SAFETY: `av_opt_set_bin` wrote three initialized bytes at this
         // pointer, and nothing has freed or replaced them.
-        assert_eq!(unsafe { core::slice::from_raw_parts(object.binary, 3) }, [
-            1, 2, 3
-        ]);
+        assert_eq!(
+            unsafe { core::slice::from_raw_parts(object.binary, 3) },
+            [1, 2, 3]
+        );
         // SAFETY: the string option holds an `av_strdup` result that is still
         // live and NUL-terminated.
         assert_eq!(unsafe { CStr::from_ptr(object.text) }, c"crustify");
@@ -1898,7 +1938,8 @@ mod scheduled_set_tests {
         {
             // SAFETY: as above — a live object exclusively borrowed for the
             // duration of this block.
-            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            let mut handle =
+                unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
             av_opt_set(&mut handle, c"text", Some(c"crustify"), 0).expect("set text");
             assert!(!object_text_is_null(&handle));
             av_opt_set(&mut handle, c"text", None, 0).expect("clear text");
@@ -1920,7 +1961,8 @@ mod scheduled_set_tests {
 
         {
             // SAFETY: `object` is live and exclusively borrowed for the block.
-            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            let mut handle =
+                unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
 
             av_opt_set_image_size(&mut handle, c"size", 640, 480, 0).expect("set size");
             av_opt_set(&mut handle, c"size", None, 0).expect("clear size");
@@ -2034,7 +2076,8 @@ mod scheduled_set_tests {
 
         {
             // SAFETY: `object` is live and exclusively borrowed for the block.
-            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            let mut handle =
+                unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
             av_opt_set_bin(&mut handle, c"binary", &[], 0).expect("set empty binary");
         }
 
@@ -2050,7 +2093,8 @@ mod scheduled_set_tests {
 
         {
             // SAFETY: `object` is live and exclusively borrowed for the block.
-            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            let mut handle =
+                unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
 
             let quarter = AVRational::new(1, 4);
             av_opt_set_q(&mut handle, c"rational", quarter.as_ref(), 0).expect("set rational");
@@ -2128,7 +2172,8 @@ mod scheduled_set_tests {
 
         {
             // SAFETY: `object` is live and exclusively borrowed for the block.
-            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            let mut handle =
+                unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
 
             av_opt_set_array(
                 &mut handle,
@@ -2168,7 +2213,8 @@ mod scheduled_set_tests {
 
         {
             // SAFETY: `object` is live and exclusively borrowed for the block.
-            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            let mut handle =
+                unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
             av_opt_remove_array(&mut handle, c"numbers", 0, 1, 3).expect("remove three elements");
             // Removing more than the array holds is refused before any free.
             assert!(matches!(
@@ -2242,7 +2288,8 @@ mod scheduled_set_tests {
 
         {
             // SAFETY: `object` is live and exclusively borrowed for the block.
-            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            let mut handle =
+                unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
             av_opt_set_dict(&mut handle, &mut owner).expect("apply the dictionary");
         }
 
@@ -2283,7 +2330,8 @@ mod scheduled_set_tests {
 
         {
             // SAFETY: `object` is live and exclusively borrowed for the block.
-            let mut handle = unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
+            let mut handle =
+                unsafe { OptionObjectMut::from_raw(NonNull::from(&mut object).cast()) };
             assert!(matches!(
                 av_opt_set_dict(&mut handle, &mut owner),
                 Err(OptSetError::Library(_))
@@ -2316,14 +2364,7 @@ mod scheduled_set_tests {
         av_opt_set_video_rate(&mut handle, c"rate", rational.as_ref(), 0).unwrap();
         av_opt_set_pixel_fmt(&mut handle, c"pixel_fmt", AVPixelFormat::RGB24, 0).unwrap();
         av_opt_set_sample_fmt(&mut handle, c"sample_fmt", AVSampleFormat::S16, 0).unwrap();
-        av_opt_set_array(
-            &mut handle,
-            c"numbers",
-            0,
-            0,
-            OptArrayValues::Int(&[4, 7]),
-        )
-        .unwrap();
+        av_opt_set_array(&mut handle, c"numbers", 0, 0, OptArrayValues::Int(&[4, 7])).unwrap();
 
         assert_eq!(
             av_opt_get_pixel_fmt(handle.as_ref(), c"pixel_fmt", 0),
@@ -3256,7 +3297,11 @@ pub fn av_opt_get_pixel_fmt(
             &raw mut output,
         )
     };
-    if status < 0 { Err(status) } else { Ok(AVPixelFormat::from_raw(output)) }
+    if status < 0 {
+        Err(status)
+    } else {
+        Ok(AVPixelFormat::from_raw(output))
+    }
 }
 
 fn get_rational(
@@ -3276,7 +3321,11 @@ fn get_rational(
             &raw mut output,
         )
     };
-    if status < 0 { Err(status) } else { Ok(crate::rational::AVRational::from_ffi(output)) }
+    if status < 0 {
+        Err(status)
+    } else {
+        Ok(crate::rational::AVRational::from_ffi(output))
+    }
 }
 
 /// Wraps: av_opt_get_q
@@ -3304,7 +3353,11 @@ pub fn av_opt_get_sample_fmt(
             &raw mut output,
         )
     };
-    if status < 0 { Err(status) } else { Ok(AVSampleFormat::from_raw(output)) }
+    if status < 0 {
+        Err(status)
+    } else {
+        Ok(AVSampleFormat::from_raw(output))
+    }
 }
 
 /// Wraps: av_opt_get_video_rate
@@ -3351,4 +3404,194 @@ pub fn av_opt_set_dict_val(
         )
     };
     result(status)
+}
+
+macro_rules! option_eval {
+    ($(#[$meta:meta])* $name:ident, $ffi:ident, $ty:ty, $zero:expr) => {
+        $(#[$meta])*
+        pub fn $name(
+            object: OptionObjectRef<'_>,
+            option: AVOptionRef<'_>,
+            value: &CStr,
+        ) -> Result<$ty, i32> {
+            let mut output: $ty = $zero;
+            // SAFETY: the object and option handles keep their C records live,
+            // `value` is terminated, and output is one writable scalar.
+            let status = unsafe {
+                ffi::$ffi(
+                    object.as_ptr(),
+                    option.as_ptr(),
+                    value.as_ptr(),
+                    &raw mut output,
+                )
+            };
+            if status < 0 { Err(status) } else { Ok(output) }
+        }
+    };
+}
+
+option_eval!(
+    /// Wraps: av_opt_eval_double
+    av_opt_eval_double, av_opt_eval_double, f64, 0.0
+);
+option_eval!(
+    /// Wraps: av_opt_eval_flags
+    av_opt_eval_flags, av_opt_eval_flags, i32, 0
+);
+option_eval!(
+    /// Wraps: av_opt_eval_float
+    av_opt_eval_float, av_opt_eval_float, f32, 0.0
+);
+option_eval!(
+    /// Wraps: av_opt_eval_int
+    av_opt_eval_int, av_opt_eval_int, i32, 0
+);
+option_eval!(
+    /// Wraps: av_opt_eval_int64
+    av_opt_eval_int64, av_opt_eval_int64, i64, 0
+);
+option_eval!(
+    /// Wraps: av_opt_eval_uint
+    av_opt_eval_uint, av_opt_eval_uint, c_uint, 0
+);
+
+/// Wraps: av_opt_eval_q
+pub fn av_opt_eval_q(
+    object: OptionObjectRef<'_>,
+    option: AVOptionRef<'_>,
+    value: &CStr,
+) -> Result<CVal<crate::rational::AVRational>, i32> {
+    let mut output = ffi::AVRational { num: 0, den: 1 };
+    // SAFETY: input handles and string stay live and output is one writable pair.
+    let status = unsafe {
+        ffi::av_opt_eval_q(
+            object.as_ptr(),
+            option.as_ptr(),
+            value.as_ptr(),
+            &raw mut output,
+        )
+    };
+    if status < 0 {
+        Err(status)
+    } else {
+        Ok(crate::rational::AVRational::from_ffi(output))
+    }
+}
+
+/// Wraps: av_opt_find
+pub fn av_opt_find<'a>(
+    object: OptionObjectRef<'a>,
+    name: &CStr,
+    unit: Option<&CStr>,
+    option_flags: i32,
+    search_flags: i32,
+) -> Result<Option<AVOptionRef<'a>>, OptFindError> {
+    if search_flags & ffi::AV_OPT_SEARCH_FAKE_OBJ as i32 != 0 {
+        return Err(OptFindError::FakeObjectSearch);
+    }
+    // SAFETY: `object` is a normal AVClass-bearing object, strings remain live,
+    // and any returned immutable metadata is owned by its class hierarchy.
+    let option = unsafe {
+        ffi::av_opt_find(
+            object.as_ptr(),
+            name.as_ptr(),
+            unit.map_or(core::ptr::null(), CStr::as_ptr),
+            option_flags,
+            search_flags,
+        )
+    };
+    // SAFETY: null means no match; otherwise metadata remains live with `object`.
+    Ok(unsafe { AVOptionRef::from_ptr(option.cast_mut()) })
+}
+
+pub struct AVOptionIter<'a> {
+    object: OptionObjectRef<'a>,
+    previous: Option<AVOptionRef<'a>>,
+}
+
+impl<'a> Iterator for AVOptionIter<'a> {
+    type Item = AVOptionRef<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let previous = self
+            .previous
+            .map_or(core::ptr::null(), |option| option.as_ptr());
+        // SAFETY: `previous` is maintained only from the preceding result for
+        // this same object, exactly satisfying C's iterator cursor contract.
+        let next = unsafe { ffi::av_opt_next(self.object.as_ptr(), previous) };
+        // SAFETY: C returns null or immutable class metadata live with object.
+        self.previous = unsafe { AVOptionRef::from_ptr(next.cast_mut()) };
+        self.previous
+    }
+}
+
+/// Wraps: av_opt_next
+pub fn av_opt_next(object: OptionObjectRef<'_>) -> AVOptionIter<'_> {
+    AVOptionIter {
+        object,
+        previous: None,
+    }
+}
+
+/// Wraps: av_opt_is_set_to_default
+pub fn av_opt_is_set_to_default(found: &AVOptionMatch<'_>) -> Result<bool, i32> {
+    // SAFETY: `AVOptionMatch` was produced by one successful lookup and keeps
+    // the exact target object paired with its metadata, so `option.offset`
+    // addresses a field within that target rather than an arbitrary object.
+    let status = unsafe {
+        ffi::av_opt_is_set_to_default(found.target.as_ref().as_ptr(), found.option.as_ptr())
+    };
+    if status < 0 {
+        Err(status)
+    } else {
+        Ok(status != 0)
+    }
+}
+
+type QueryRanges =
+    unsafe extern "C" fn(*mut *mut ffi::AVOptionRanges, *mut c_void, *const c_char, i32) -> i32;
+
+fn query_ranges(
+    call: QueryRanges,
+    object: OptionObjectRef<'_>,
+    key: &CStr,
+    flags: i32,
+) -> Result<CBox<AVOptionRanges>, i32> {
+    if flags & ffi::AV_OPT_SEARCH_FAKE_OBJ as i32 != 0 {
+        return Err(-22);
+    }
+    let mut output = core::ptr::null_mut();
+    // SAFETY: object and key remain live; output is a writable ownership slot.
+    let status = unsafe { call(&raw mut output, object.as_ptr(), key.as_ptr(), flags) };
+    // SAFETY: any non-null output is a unique aggregate allocated by libavutil.
+    let owner = unsafe { CBox::<AVOptionRanges>::from_raw(output) };
+    if status < 0 {
+        drop(owner);
+        Err(status)
+    } else {
+        owner.ok_or(-12)
+    }
+}
+
+/// Wraps: av_opt_query_ranges
+pub fn av_opt_query_ranges(
+    object: OptionObjectRef<'_>,
+    key: &CStr,
+    flags: i32,
+) -> Result<CBox<AVOptionRanges>, i32> {
+    query_ranges(ffi::av_opt_query_ranges, object, key, flags)
+}
+
+/// Wraps: av_opt_query_ranges_default
+pub fn av_opt_query_ranges_default(
+    object: OptionObjectRef<'_>,
+    key: &CStr,
+    flags: i32,
+) -> Result<CBox<AVOptionRanges>, i32> {
+    query_ranges(ffi::av_opt_query_ranges_default, object, key, flags)
+}
+
+/// Wraps: av_opt_freep_ranges
+pub fn av_opt_freep_ranges(ranges: Option<CBox<AVOptionRanges>>) {
+    drop(ranges);
 }

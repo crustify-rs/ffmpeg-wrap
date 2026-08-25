@@ -1697,6 +1697,149 @@
    }
   },
   {
+   "name": "av_bprint_append_data",
+   "defined_in": "libavutil/bprint.c",
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "data",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:data"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Contiguous caller storage; the accompanying size or fixed API extent bounds access."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_bprint_chars",
+   "defined_in": "libavutil/bprint.c",
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_bprint_clear",
+   "defined_in": "libavutil/bprint.c",
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_bprint_escape",
+   "defined_in": "libavutil/bprint.c",
+   "ptr_args": [
+    {
+     "name": "dstbuf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dstbuf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "special_chars",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:special_chars"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
+     }
+    },
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_bprint_finalize",
    "defined_in": "libavutil/bprint.c",
    "lifetime": {
@@ -1741,6 +1884,228 @@
       "nullable": true,
       "mutable": true,
       "note": "Optional borrowed output slot. When supplied, the callee writes a transferred av_malloc-family NUL-terminated string pointer, or NULL on allocation failure; the caller owns that returned pointee and must release it with av_free."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_bprint_get_buffer",
+   "defined_in": "libavutil/bprint.c",
+   "ptr_args": [
+    {
+     "name": "actual_size",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:actual_size"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable output slot for one element count."
+     }
+    },
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "mem",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": null,
+        "borrowed": {
+         "lifetime": "arg:buf"
+        }
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable output slot receiving a buffer tail borrowed from buf."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_bprint_init",
+   "defined_in": "libavutil/bprint.c",
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_bprint_init_for_buffer",
+   "defined_in": "libavutil/bprint.c",
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "buffer",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buffer"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Contiguous caller storage; the accompanying size or fixed API extent bounds access."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_bprint_strftime",
+   "defined_in": "libavutil/bprint.c",
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "fmt",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:fmt"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
+     }
+    },
+    {
+     "name": "tm",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:tm"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_bprintf",
+   "defined_in": "libavutil/bprint.c",
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "fmt",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:fmt"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
      }
     }
    ]
@@ -3332,6 +3697,45 @@
   {
    "name": "av_div_q",
    "defined_in": "libavutil/rational.c"
+  },
+  {
+   "name": "av_dovi_get_color",
+   "defined_in": "libavutil/dovi_meta.h",
+   "ptr_args": [
+    {
+     "name": "data",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:data"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:data"
+     },
+     "nullable": false,
+     "mutable": false,
+     "note": "Returned metadata/subobject borrow remains live with its source object and is not owned."
+    }
+   }
   },
   {
    "name": "av_dovi_get_header",
@@ -5048,6 +5452,29 @@
    "defined_in": "libavutil/samplefmt.c"
   },
   {
+   "name": "av_get_padded_bits_per_pixel",
+   "defined_in": "libavutil/pixdesc.c",
+   "ptr_args": [
+    {
+     "name": "pixdesc",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:pixdesc"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_get_pix_fmt",
    "defined_in": "libavutil/pixdesc.c",
    "ptr_args": [
@@ -6264,6 +6691,29 @@
    "defined_in": "libavutil/imgutils.c"
   },
   {
+   "name": "av_image_fill_max_pixsteps",
+   "defined_in": "libavutil/imgutils.c",
+   "ptr_args": [
+    {
+     "name": "pixdesc",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:pixdesc"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_image_fill_plane_sizes",
    "defined_in": "libavutil/imgutils.c"
   },
@@ -6842,6 +7292,597 @@
      }
     }
    ]
+  },
+  {
+   "name": "av_opt_eval_double",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "double_out",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:double_out"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable output slot for one scalar result; never retained."
+     }
+    },
+    {
+     "name": "o",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:o"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "val",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:val"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_eval_flags",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "flags_out",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:flags_out"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable output slot for one scalar result; never retained."
+     }
+    },
+    {
+     "name": "o",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:o"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "val",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:val"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_eval_float",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "float_out",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:float_out"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable output slot for one scalar result; never retained."
+     }
+    },
+    {
+     "name": "o",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:o"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "val",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:val"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_eval_int",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "int_out",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:int_out"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable output slot for one scalar result; never retained."
+     }
+    },
+    {
+     "name": "o",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:o"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "val",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:val"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_eval_int64",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "int64_out",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:int64_out"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable output slot for one scalar result; never retained."
+     }
+    },
+    {
+     "name": "o",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:o"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "val",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:val"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_eval_q",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "o",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:o"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "q_out",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:q_out"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable output slot for one scalar result; never retained."
+     }
+    },
+    {
+     "name": "val",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:val"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_eval_uint",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "o",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:o"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "uint_out",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:uint_out"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable output slot for one scalar result; never retained."
+     }
+    },
+    {
+     "name": "val",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:val"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_find",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "unit",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:unit"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:obj"
+     },
+     "nullable": false,
+     "mutable": false,
+     "note": "Returned metadata/subobject borrow remains live with its source object and is not owned."
+    }
+   }
   },
   {
    "name": "av_opt_find2",
@@ -7801,6 +8842,46 @@
    ]
   },
   {
+   "name": "av_opt_is_set_to_default",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "o",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:o"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_opt_is_set_to_default_by_name",
    "defined_in": "libavutil/opt.c",
    "ptr_args": [
@@ -7836,6 +8917,182 @@
       "nullable": false,
       "mutable": false,
       "note": ""
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_next",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "last",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:last"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:obj"
+     },
+     "nullable": false,
+     "mutable": false,
+     "note": "Returned metadata/subobject borrow remains live with its source object and is not owned."
+    }
+   }
+  },
+  {
+   "name": "av_opt_query_ranges",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "key",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:key"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "ranges_arg",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ranges_arg"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable output slot receiving a unique AVOptionRanges owner on success."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_opt_query_ranges_default",
+   "defined_in": "libavutil/opt.c",
+   "ptr_args": [
+    {
+     "name": "key",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:key"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
+     }
+    },
+    {
+     "name": "obj",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:obj"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "ranges_arg",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ranges_arg"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Writable output slot receiving a unique AVOptionRanges owner on success."
      }
     }
    ]
@@ -8634,6 +9891,86 @@
    "defined_in": "libavutil/rational.c"
   },
   {
+   "name": "av_read_image_line",
+   "defined_in": "libavutil/pixdesc.c",
+   "ptr_args": [
+    {
+     "name": "desc",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:desc"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Contiguous caller storage; the accompanying size or fixed API extent bounds access."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_read_image_line2",
+   "defined_in": "libavutil/pixdesc.c",
+   "ptr_args": [
+    {
+     "name": "desc",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:desc"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "dst",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:dst"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Contiguous caller storage; the accompanying size or fixed API extent bounds access."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_realloc",
    "defined_in": "libavutil/mem.c",
    "ptr_args": [
@@ -9193,6 +10530,46 @@
    "defined_in": "libavutil/time.c"
   },
   {
+   "name": "av_vbprintf",
+   "defined_in": "libavutil/bprint.c",
+   "ptr_args": [
+    {
+     "name": "buf",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:buf"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "fmt",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:fmt"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "NUL-terminated input string read only for the duration of the call."
+     }
+    }
+   ]
+  },
+  {
    "name": "av_version_info",
    "defined_in": "libavutil/version.c",
    "ptr_ret": {
@@ -9211,6 +10588,86 @@
      "note": "Returns a non-NULL immutable build-time NUL-terminated string with static lifetime."
     }
    }
+  },
+  {
+   "name": "av_write_image_line",
+   "defined_in": "libavutil/pixdesc.c",
+   "ptr_args": [
+    {
+     "name": "desc",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:desc"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Contiguous caller storage; the accompanying size or fixed API extent bounds access."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_write_image_line2",
+   "defined_in": "libavutil/pixdesc.c",
+   "ptr_args": [
+    {
+     "name": "desc",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:desc"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Observed call-only borrow; C retains no input pointer."
+     }
+    },
+    {
+     "name": "src",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:src"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "Contiguous caller storage; the accompanying size or fixed API extent bounds access."
+     }
+    }
+   ]
   },
   {
    "name": "avutil_configuration",

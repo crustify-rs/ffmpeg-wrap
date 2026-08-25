@@ -90,6 +90,41 @@ pub struct ImagePlanes<'a> {
 }
 
 impl ImagePlanes<'_> {
+    pub(crate) fn raw_data(&self) -> [*mut u8; 4] {
+        self.data
+    }
+    #[must_use]
+    pub fn linesizes(&self) -> [i32; 4] {
+        self.linesizes
+    }
+    #[must_use]
+    pub fn format(&self) -> AVPixelFormat {
+        self.format
+    }
+    #[must_use]
+    pub fn width(&self) -> i32 {
+        self.width
+    }
+    #[must_use]
+    pub fn height(&self) -> i32 {
+        self.height
+    }
+}
+
+/// Plane pointers and strides with exclusive access to the backing image.
+pub struct ImagePlanesMut<'a> {
+    data: [*mut u8; 4],
+    linesizes: [i32; 4],
+    format: AVPixelFormat,
+    width: i32,
+    height: i32,
+    _buffer: PhantomData<&'a mut [u8]>,
+}
+
+impl ImagePlanesMut<'_> {
+    pub(crate) fn raw_data(&self) -> [*mut u8; 4] {
+        self.data
+    }
     #[must_use]
     pub fn linesizes(&self) -> [i32; 4] {
         self.linesizes
@@ -218,6 +253,54 @@ pub fn av_image_fill_arrays<'a>(
         )
     })?;
     Ok(ImagePlanes {
+        data,
+        linesizes,
+        format,
+        width,
+        height,
+        _buffer: PhantomData,
+    })
+}
+
+/// Builds an exclusively borrowed plane table for image-line writers.
+pub fn image_planes_mut<'a>(
+    storage: &'a mut [u8],
+    format: AVPixelFormat,
+    width: i32,
+    height: i32,
+    align: i32,
+) -> Result<ImagePlanesMut<'a>, ImageError> {
+    check_alignment(align)?;
+    let mut data = [core::ptr::null_mut(); 4];
+    let mut linesizes = [0; 4];
+    // SAFETY: null performs a four-slot extent preflight without deriving pointers.
+    let required = size_result(unsafe {
+        ffi::av_image_fill_arrays(
+            data.as_mut_ptr(),
+            linesizes.as_mut_ptr(),
+            core::ptr::null(),
+            format.as_raw(),
+            width,
+            height,
+            align,
+        )
+    })?;
+    if required > storage.len() {
+        return Err(ImageError::BufferTooSmall { required });
+    }
+    // SAFETY: the checked mutable slice exclusively supplies the complete extent.
+    size_result(unsafe {
+        ffi::av_image_fill_arrays(
+            data.as_mut_ptr(),
+            linesizes.as_mut_ptr(),
+            storage.as_ptr(),
+            format.as_raw(),
+            width,
+            height,
+            align,
+        )
+    })?;
+    Ok(ImagePlanesMut {
         data,
         linesizes,
         format,
@@ -1200,4 +1283,23 @@ mod scheduled_image_utility_tests {
         );
         assert!(av_image_check_size2(17, 17, 256, AVPixelFormat::RGB24, 0, None).is_err());
     }
+}
+
+/// Wraps: av_image_fill_max_pixsteps
+#[must_use]
+pub fn av_image_fill_max_pixsteps(
+    descriptor: crate::pixdesc::AVPixFmtDescriptorEntry,
+) -> ([i32; 4], [i32; 4]) {
+    let mut steps = [0; 4];
+    let mut components = [0; 4];
+    // SAFETY: the entry is a process-lifetime descriptor table member and
+    // both output arrays contain the four writable integers required by C.
+    unsafe {
+        ffi::av_image_fill_max_pixsteps(
+            steps.as_mut_ptr(),
+            components.as_mut_ptr(),
+            descriptor.as_ref().as_ptr(),
+        )
+    }
+    (steps, components)
 }

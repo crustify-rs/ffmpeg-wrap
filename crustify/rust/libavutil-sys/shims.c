@@ -1,6 +1,8 @@
 #include <libavutil/avstring.h>
 #include <libavutil/common.h>
 #include <libavutil/dovi_meta.h>
+#include <libavutil/bprint.h>
+#include <stdarg.h>
 
 int crustify_av_ceil_log2_c(int value) { return av_ceil_log2_c(value); }
 int64_t crustify_av_clip64_c(int64_t value, int64_t min, int64_t max) { return av_clip64_c(value, min, max); }
@@ -19,3 +21,12 @@ int crustify_av_isgraph(int value) { return av_isgraph(value); }
 int crustify_av_isspace(int value) { return av_isspace(value); }
 int crustify_av_isxdigit(int value) { return av_isxdigit(value); }
 AVDOVIRpuDataHeader *crustify_av_dovi_get_header(const AVDOVIMetadata *data) { return av_dovi_get_header(data); }
+AVDOVIColorMetadata *crustify_av_dovi_get_color(const AVDOVIMetadata *data) { return av_dovi_get_color(data); }
+void crustify_av_bprintf_string(AVBPrint *buf, const char *text) { av_bprintf(buf, "%s", text); }
+static void crustify_call_vbprintf(AVBPrint *buf, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    av_vbprintf(buf, fmt, ap);
+    va_end(ap);
+}
+void crustify_av_vbprintf_string(AVBPrint *buf, const char *text) { crustify_call_vbprintf(buf, "%s", text); }

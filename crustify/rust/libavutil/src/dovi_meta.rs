@@ -1963,6 +1963,12 @@ mod header_tests {
         header: ffi::AVDOVIRpuDataHeader,
     }
 
+    #[repr(C)]
+    struct MetadataWithColor {
+        metadata: ffi::AVDOVIMetadata,
+        color: ffi::AVDOVIColorMetadata,
+    }
+
     #[test]
     fn header_borrow_uses_the_metadata_offset() {
         // SAFETY: both C records consist only of integer fields, so all-zero
@@ -1976,6 +1982,33 @@ mod header_tests {
             av_dovi_get_header(metadata).as_ptr(),
             &raw const storage.header
         );
+    }
+
+    #[test]
+    fn color_borrow_uses_the_metadata_offset() {
+        // SAFETY: these C layouts contain integer/rational fields for which
+        // all-zero is a valid initialized representation.
+        let mut storage: MetadataWithColor = unsafe { core::mem::zeroed() };
+        storage.metadata.color_offset = core::mem::offset_of!(MetadataWithColor, color);
+        // SAFETY: the live allocation contains color at the configured offset.
+        let metadata = unsafe { AVDOVIMetadataRef::from_ptr(&mut storage.metadata) }.unwrap();
+        assert_eq!(
+            av_dovi_get_color(metadata).as_ptr(),
+            &raw const storage.color
+        );
+    }
+}
+
+/// Wraps: av_dovi_get_color
+///
+/// Borrows the color metadata embedded in the same allocation as `metadata`.
+#[must_use]
+pub fn av_dovi_get_color<'a>(metadata: AVDOVIMetadataRef<'a>) -> AVDOVIColorMetadataRef<'a> {
+    // SAFETY: the metadata handle keeps the complete offset-based allocation
+    // live. The inline helper returns its non-null embedded color record.
+    unsafe {
+        AVDOVIColorMetadataRef::from_ptr(ffi::crustify_av_dovi_get_color(metadata.as_ptr()))
+            .expect("a live metadata allocation has embedded color metadata")
     }
 }
 
