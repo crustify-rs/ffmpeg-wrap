@@ -4441,8 +4441,8 @@
       "lifetime": "arg:data"
      },
      "nullable": false,
-     "mutable": false,
-     "note": "The result is a non-null interior extension-block borrow within data's contiguous allocation; mutation requires exclusive access to data."
+     "mutable": true,
+     "note": "Non-null interior borrow of one extension block inside data's contiguous allocation, addressed with the header's runtime ext_block_offset/ext_block_size rather than sizeof(AVDOVIDmData). The result is writable and callers do write through it: libavcodec/dovi_rpudec.c memcpy()s a decoded block into it and libavutil/tests/dovi_meta.c assigns ext->level, so the const-stripping cast in the inline body is load-bearing even though data itself is const-qualified. Mutating through the result therefore requires exclusive access to the whole metadata allocation."
     }
    }
   },

@@ -3025,6 +3025,14 @@ mod dm_data_tests {
 ///
 /// Borrows extension block `index` from the metadata allocation. Returns
 /// `None` when `index` is outside the initialized extension-block range.
+///
+/// The block run is addressed through the header's own
+/// [`ext_block_offset`](AVDOVIMetadataRef::ext_block_offset) and
+/// [`ext_block_size`](AVDOVIMetadataRef::ext_block_size), not through
+/// `size_of::<AVDOVIDmData>()`, so a run whose stride was written by a
+/// libavutil that knows a larger block still indexes correctly. That runtime
+/// stride is why this delegates to C rather than exposing the blocks as an
+/// [`ffibox::CSlice`], which would step by the Rust element size.
 #[must_use]
 pub fn av_dovi_get_ext<'a>(
     metadata: AVDOVIMetadataRef<'a>,
@@ -3090,7 +3098,7 @@ mod get_ext_tests {
     }
 
     #[test]
-    fn shared_borrow_checks_bounds_and_uses_the_c_stride() {
+    fn shared_borrow_checks_bounds_against_num_ext_blocks() {
         let mut storage = storage();
         // SAFETY: the live aggregate has the initialized extension-block
         // layout described by its metadata header.
@@ -3116,5 +3124,71 @@ mod get_ext_tests {
         assert_eq!(storage.extensions[0].level, 0);
         assert_eq!(storage.extensions[1].level, 5);
         assert_eq!(storage.extensions[2].level, 0);
+    }
+
+    /// A block run whose stride is deliberately larger than the Rust element
+    /// size, as a forward-compatible libavutil would write it.
+    #[repr(C)]
+    struct PaddedBlock {
+        block: ffi::AVDOVIDmData,
+        padding: [u8; 16],
+    }
+
+    #[repr(C)]
+    struct MetadataWithPaddedExtensions {
+        metadata: ffi::AVDOVIMetadata,
+        extensions: [PaddedBlock; 3],
+    }
+
+    fn padded_storage() -> MetadataWithPaddedExtensions {
+        // SAFETY: the metadata header, the extension blocks and their padding
+        // are integer-backed and resource-free, so zero initializes them.
+        let mut storage: MetadataWithPaddedExtensions = unsafe { core::mem::zeroed() };
+        storage.metadata.ext_block_offset =
+            core::mem::offset_of!(MetadataWithPaddedExtensions, extensions);
+        storage.metadata.ext_block_size = core::mem::size_of::<PaddedBlock>();
+        storage.metadata.num_ext_blocks = 3;
+        storage
+    }
+
+    #[test]
+    fn indexing_steps_by_the_headers_stride_not_the_rust_element_size() {
+        let mut storage = padded_storage();
+        assert!(storage.metadata.ext_block_size > core::mem::size_of::<ffi::AVDOVIDmData>());
+
+        // SAFETY: the live aggregate holds three initialized blocks at exactly
+        // the offset and stride its metadata header advertises.
+        let metadata = unsafe { AVDOVIMetadataRef::from_ptr(&mut storage.metadata) }.unwrap();
+
+        for index in 0..3 {
+            let block = av_dovi_get_ext(metadata, index).expect("index is initialized");
+            assert_eq!(block.as_ptr(), &raw const storage.extensions[index].block);
+        }
+        assert!(av_dovi_get_ext(metadata, 3).is_none());
+    }
+
+    #[test]
+    fn exclusive_borrow_writes_inside_the_padded_block_it_selected() {
+        let mut storage = padded_storage();
+        // SAFETY: as above, plus this handle is the only access to the run.
+        let metadata = unsafe { AVDOVIMetadataMut::from_ptr(&mut storage.metadata) }.unwrap();
+        av_dovi_get_ext_mut(metadata, 2)
+            .expect("index 2 is initialized")
+            .select_l6()
+            .set_max_cll(4_000);
+
+        assert_eq!(storage.extensions[0].block.level, 0);
+        assert_eq!(storage.extensions[1].block.level, 0);
+        assert_eq!(storage.extensions[2].block.level, 6);
+        assert_eq!(storage.extensions[2].padding, [0; 16]);
+
+        // SAFETY: the exclusive handle above is gone, so a fresh shared handle
+        // over the same still-initialized run is the only access to it.
+        let metadata = unsafe { AVDOVIMetadataRef::from_ptr(&mut storage.metadata) }.unwrap();
+        let level6 = av_dovi_get_ext(metadata, 2)
+            .expect("index 2 is initialized")
+            .l6()
+            .expect("level 6 is active");
+        assert_eq!(level6.max_cll(), 4_000);
     }
 }
