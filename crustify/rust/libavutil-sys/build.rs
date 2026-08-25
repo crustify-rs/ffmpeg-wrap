@@ -20,6 +20,7 @@ fn main() {
         .allowlist_type("^(AVChannelOrder|AVChromaLocation)$")
         .allowlist_type("^AVRational$")
         .allowlist_type("^AVRounding$")
+        .allowlist_type("^(AVDOVINLQParams|AVDOVIRpuDataHeader)$")
         .allowlist_function(
             "^av_(audio_fifo_(alloc|free)|dict_free|free|malloc|md5_alloc|memdup|strdup|strndup)$",
         )

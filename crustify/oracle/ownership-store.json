@@ -236,6 +236,18 @@
    "fields": []
   },
   {
+   "name": "AVDOVINLQParams",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "Reviewed: this public POD struct has no pointer or refcount fields and no lifecycle operation.",
+   "fields": []
+  },
+  {
+   "name": "AVDOVIRpuDataHeader",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "Reviewed: this public POD struct has no pointer or refcount fields and no lifecycle operation.",
+   "fields": []
+  },
+  {
    "name": "AVDictionary",
    "defined_in": "libavutil/dict.c",
    "_comment_agent": "AVDictionary owns its elems array and the strings held by its inline entries; av_dict_free tears down that complete graph. Reviewed 2026-08-23: the header itself is not stable across a mutation. av_dict_set av_mallocz-es it on the first insertion and av_freep-s it, storing NULL back into the caller slot, once the last entry is removed, so every mutating entry point takes AVDictionary ** rather than AVDictionary *. A nullable owner slot, not a non-null handle, is the only faithful representation.",
