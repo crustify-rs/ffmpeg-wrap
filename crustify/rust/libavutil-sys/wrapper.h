@@ -6,7 +6,10 @@
 #include <libavutil/dict.h>
 #include <libavutil/dovi_meta.h>
 #include <libavutil/file.h>
+#include <libavutil/film_grain_params.h>
 #include <libavutil/frame.h>
+#include <libavutil/hash.h>
+#include <libavutil/hdr_dynamic_metadata.h>
 #include <libavutil/hwcontext.h>
 #include <libavutil/iamf.h>
 #include <libavutil/imgutils.h>

@@ -523,6 +523,45 @@
    "fields": []
   },
   {
+   "name": "AVHashContext",
+   "defined_in": "libavutil/hash.c",
+   "_comment_agent": "AVHashContext is public only as an opaque pointer. It exclusively owns the optional type-erased algorithm context selected by its discriminator and borrows the CRC table statically. av_hash_freep releases both the owned inner state and the header.",
+   "fields": [
+    {
+     "name": "crctab",
+     "ptr": {
+      "scalar": null,
+      "array": {
+       "by_val": true
+      },
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "static"
+      },
+      "nullable": true,
+      "mutable": false,
+      "note": "Only CRC32 contexts store the process-lifetime const table returned by av_crc_get_table; zero-initialization leaves this NULL for every other hash variant. AVHashContext neither mutates nor frees the table, and av_crc only reads it."
+     }
+    },
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": true,
+      "mutable": true,
+      "note": "For MD5, Murmur3, RIPEMD, SHA and SHA-512 variants this is the AVHashContext-owned algorithm state returned by an av_malloc-family allocator. av_hash_freep releases it through av_freep before releasing the enclosing context. It remains NULL for CRC32 and ADLER32, so it is nullable. The concrete pointee type is selected by the type discriminator and all algorithm entry points mutate it."
+     }
+    }
+   ]
+  },
+  {
    "name": "AVOption",
    "defined_in": "libavutil/opt.h",
    "_comment_agent": "AVOption is immutable persistent AVClass metadata and has no destructor, disposer, or cloner. Its string and array-definition pointers are nullable read-only borrows into static metadata; the default union discriminator is AVOption.type.",
@@ -3292,6 +3331,79 @@
   {
    "name": "av_gettime_relative_is_monotonic",
    "defined_in": "libavutil/time.c"
+  },
+  {
+   "name": "av_hash_alloc",
+   "defined_in": "libavutil/hash.c",
+   "ptr_args": [
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:ctx"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "ctx is a required borrowed output slot. The function first writes NULL and, on success, transfers a freshly allocated AVHashContext owner into it; on failure the slot remains NULL."
+     }
+    },
+    {
+     "name": "name",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": true,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:name"
+      },
+      "nullable": false,
+      "mutable": false,
+      "note": "name is a required borrowed NUL-terminated hash name read only during the call and never retained."
+     }
+    }
+   ]
+  },
+  {
+   "name": "av_hash_freep",
+   "defined_in": "libavutil/hash.c",
+   "lifetime": {
+    "for": "ctx",
+    "is_dropper": true,
+    "is_disposer": false,
+    "is_cloner": null
+   },
+   "ptr_args": [
+    {
+     "name": "ctx",
+     "ptr": {
+      "scalar": {
+       "by_ref": {
+        "owned": true,
+        "borrowed": null
+       }
+      },
+      "array": null,
+      "string": false,
+      "owned": true,
+      "borrowed": null,
+      "nullable": false,
+      "mutable": true,
+      "note": "ctx is a borrowed output-style slot holding an optional owned AVHashContext. av_hash_freep consumes and frees a non-null inner context, including its owned algorithm state, then writes NULL to the slot."
+     }
+    }
+   ]
   },
   {
    "name": "av_hwdevice_ctx_alloc",
