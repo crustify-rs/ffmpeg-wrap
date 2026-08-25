@@ -24,6 +24,9 @@ fn main() {
             "^av_(audio_fifo_(alloc|free)|dict_free|free|malloc|md5_alloc|memdup|strdup|strndup)$",
         )
         .allowlist_type("^AVHW(DeviceType|FrameTransferDirection)$")
+        .allowlist_type(
+            "^AVIAMF(AmbisonicsMode|AnimationType|AudioElementType|HeadphonesMode)$",
+        )
         .allowlist_type("^(AVPictureType|AVPixelFormat)$")
         .allowlist_type("^AVColor(Space|TransferCharacteristic)$")
         .allowlist_type("^AVSampleFormat$")
