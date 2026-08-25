@@ -7197,6 +7197,100 @@
    ]
   },
   {
+   "name": "av_stereo3d_alloc",
+   "defined_in": "libavutil/stereo3d.c",
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "A non-null result is a fresh, fully initialized AVStereo3D allocation from av_mallocz. Ownership transfers to the caller and the documented matching release is av_freep/av_free."
+    }
+   }
+  },
+  {
+   "name": "av_stereo3d_alloc_size",
+   "defined_in": "libavutil/stereo3d.c",
+   "ptr_args": [
+    {
+     "name": "size",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:size"
+      },
+      "nullable": true,
+      "mutable": true,
+      "note": "Optional borrowed out-parameter. When non-null, the function writes sizeof(AVStereo3D) on success and zero on allocation failure; it retains nothing."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": true,
+     "borrowed": null,
+     "nullable": true,
+     "mutable": true,
+     "note": "A non-null result is a fresh, fully initialized AVStereo3D allocation from av_mallocz. Ownership transfers to the caller and the documented matching release is av_freep/av_free."
+    }
+   }
+  },
+  {
+   "name": "av_stereo3d_create_side_data",
+   "defined_in": "libavutil/stereo3d.c",
+   "ptr_args": [
+    {
+     "name": "frame",
+     "ptr": {
+      "scalar": {
+       "by_val": true
+      },
+      "array": null,
+      "string": false,
+      "owned": false,
+      "borrowed": {
+       "lifetime": "arg:frame"
+      },
+      "nullable": false,
+      "mutable": true,
+      "note": "Borrowed live frame mutated by av_frame_new_side_data to append an entry; the function retains no additional ownership beyond the entry stored in that frame."
+     }
+    }
+   ],
+   "ptr_ret": {
+    "ptr": {
+     "scalar": {
+      "by_val": true
+     },
+     "array": null,
+     "string": false,
+     "owned": false,
+     "borrowed": {
+      "lifetime": "arg:frame"
+     },
+     "nullable": true,
+     "mutable": true,
+     "note": "On success points into the newly appended AVFrameSideData buffer and is owned by the frame. It remains valid only while that entry remains attached and is returned for the caller to fill."
+    }
+   }
+  },
+  {
    "name": "av_strdup",
    "defined_in": "libavutil/mem.c",
    "lifetime": {

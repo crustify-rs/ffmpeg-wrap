@@ -46,7 +46,7 @@ fn main() {
             "^(AVDOVIDmLevel8|AVDOVIMappingMethod|AVDOVIMetadata|AVDOVINLQMethod)$",
         )
         .allowlist_type("^AV(AlphaMode|AudioFifo)$")
-        .allowlist_type("^AVStereo3D(Type|View)$")
+        .allowlist_type("^AVStereo3D(Type|View)?$")
         .allowlist_type("^AVOption(ArrayDef|Type)?$")
         .allowlist_type("^AVOptionRange$")
         .allowlist_type("^AVIAMF(ParamDefinition|SubmixLayout)Type$")
