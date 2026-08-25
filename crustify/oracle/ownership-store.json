@@ -236,6 +236,30 @@
    "fields": []
   },
   {
+   "name": "AVDOVIDmLevel3",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "All fields are by-value uint16_t scalars; the type owns no resources and has no lifecycle operation.",
+   "fields": []
+  },
+  {
+   "name": "AVDOVIDmLevel4",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "All fields are by-value uint16_t scalars; the type owns no resources and has no lifecycle operation.",
+   "fields": []
+  },
+  {
+   "name": "AVDOVIDmLevel5",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "All fields are by-value uint16_t scalars; the type owns no resources and has no lifecycle operation.",
+   "fields": []
+  },
+  {
+   "name": "AVDOVIDmLevel6",
+   "defined_in": "libavutil/dovi_meta.h",
+   "_comment_agent": "All fields are by-value uint16_t scalars; the type owns no resources and has no lifecycle operation.",
+   "fields": []
+  },
+  {
    "name": "AVDOVINLQParams",
    "defined_in": "libavutil/dovi_meta.h",
    "_comment_agent": "Reviewed: this public POD struct has no pointer or refcount fields and no lifecycle operation.",

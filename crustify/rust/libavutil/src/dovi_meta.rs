@@ -138,6 +138,112 @@ scalar_accessors! {
 }
 
 define_ctype!(
+    /// Wraps: AVDOVIDmLevel3
+    ///
+    /// ABI-compatible by-value Dolby Vision level 3 dynamic metadata.
+    AVDOVIDmLevel3,
+    AVDOVIDmLevel3Ref,
+    AVDOVIDmLevel3Mut,
+    ffi::AVDOVIDmLevel3
+);
+
+define_ctype!(
+    /// Wraps: AVDOVIDmLevel4
+    ///
+    /// ABI-compatible by-value Dolby Vision level 4 dynamic metadata.
+    AVDOVIDmLevel4,
+    AVDOVIDmLevel4Ref,
+    AVDOVIDmLevel4Mut,
+    ffi::AVDOVIDmLevel4
+);
+
+define_ctype!(
+    /// Wraps: AVDOVIDmLevel5
+    ///
+    /// ABI-compatible by-value Dolby Vision level 5 active-area metadata.
+    AVDOVIDmLevel5,
+    AVDOVIDmLevel5Ref,
+    AVDOVIDmLevel5Mut,
+    ffi::AVDOVIDmLevel5
+);
+
+define_ctype!(
+    /// Wraps: AVDOVIDmLevel6
+    ///
+    /// ABI-compatible by-value Dolby Vision level 6 static HDR10 metadata.
+    AVDOVIDmLevel6,
+    AVDOVIDmLevel6Ref,
+    AVDOVIDmLevel6Mut,
+    ffi::AVDOVIDmLevel6
+);
+
+// SAFETY: level 3 metadata contains only `u16` values and owns no resources,
+// so disposing a live inline value is always a no-op.
+unsafe impl CValued for AVDOVIDmLevel3 {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+// SAFETY: level 4 metadata contains only `u16` values and owns no resources,
+// so disposing a live inline value is always a no-op.
+unsafe impl CValued for AVDOVIDmLevel4 {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+// SAFETY: level 5 metadata contains only `u16` values and owns no resources,
+// so disposing a live inline value is always a no-op.
+unsafe impl CValued for AVDOVIDmLevel5 {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+// SAFETY: level 6 metadata contains only `u16` values and owns no resources,
+// so disposing a live inline value is always a no-op.
+unsafe impl CValued for AVDOVIDmLevel6 {
+    unsafe fn c_dispose(_this: NonNull<Self>) {}
+}
+
+scalar_accessors! {
+    AVDOVIDmLevel3Ref, AVDOVIDmLevel3Mut, u16;
+    /// Field: AVDOVIDmLevel3.avg_pq_offset
+    avg_pq_offset, set_avg_pq_offset, avg_pq_offset;
+    /// Field: AVDOVIDmLevel3.max_pq_offset
+    max_pq_offset, set_max_pq_offset, max_pq_offset;
+    /// Field: AVDOVIDmLevel3.min_pq_offset
+    min_pq_offset, set_min_pq_offset, min_pq_offset;
+}
+
+scalar_accessors! {
+    AVDOVIDmLevel4Ref, AVDOVIDmLevel4Mut, u16;
+    /// Field: AVDOVIDmLevel4.anchor_power
+    anchor_power, set_anchor_power, anchor_power;
+    /// Field: AVDOVIDmLevel4.anchor_pq
+    anchor_pq, set_anchor_pq, anchor_pq;
+}
+
+scalar_accessors! {
+    AVDOVIDmLevel5Ref, AVDOVIDmLevel5Mut, u16;
+    /// Field: AVDOVIDmLevel5.bottom_offset
+    bottom_offset, set_bottom_offset, bottom_offset;
+    /// Field: AVDOVIDmLevel5.top_offset
+    top_offset, set_top_offset, top_offset;
+    /// Field: AVDOVIDmLevel5.right_offset
+    right_offset, set_right_offset, right_offset;
+    /// Field: AVDOVIDmLevel5.left_offset
+    left_offset, set_left_offset, left_offset;
+}
+
+scalar_accessors! {
+    AVDOVIDmLevel6Ref, AVDOVIDmLevel6Mut, u16;
+    /// Field: AVDOVIDmLevel6.max_luminance
+    max_luminance, set_max_luminance, max_luminance;
+    /// Field: AVDOVIDmLevel6.min_luminance
+    min_luminance, set_min_luminance, min_luminance;
+    /// Field: AVDOVIDmLevel6.max_fall
+    max_fall, set_max_fall, max_fall;
+    /// Field: AVDOVIDmLevel6.max_cll
+    max_cll, set_max_cll, max_cll;
+}
+
+define_ctype!(
     /// Wraps: AVDOVINLQParams
     ///
     /// ABI-compatible non-linear inverse-quantization parameters. The C type
@@ -426,5 +532,78 @@ mod tests {
         assert_eq!(shared.disable_residual_flag(), 15);
         assert_eq!(shared.ext_mapping_idc_0_4(), 16);
         assert_eq!(shared.ext_mapping_idc_5_7(), 17);
+    }
+
+    #[test]
+    fn levels_three_through_six_match_bindgen() {
+        assert_eq!(
+            size_of::<AVDOVIDmLevel3>(),
+            size_of::<ffi::AVDOVIDmLevel3>()
+        );
+        assert_eq!(
+            align_of::<AVDOVIDmLevel3>(),
+            align_of::<ffi::AVDOVIDmLevel3>()
+        );
+        assert_eq!(
+            size_of::<AVDOVIDmLevel4>(),
+            size_of::<ffi::AVDOVIDmLevel4>()
+        );
+        assert_eq!(
+            align_of::<AVDOVIDmLevel4>(),
+            align_of::<ffi::AVDOVIDmLevel4>()
+        );
+        assert_eq!(
+            size_of::<AVDOVIDmLevel5>(),
+            size_of::<ffi::AVDOVIDmLevel5>()
+        );
+        assert_eq!(
+            align_of::<AVDOVIDmLevel5>(),
+            align_of::<ffi::AVDOVIDmLevel5>()
+        );
+        assert_eq!(
+            size_of::<AVDOVIDmLevel6>(),
+            size_of::<ffi::AVDOVIDmLevel6>()
+        );
+        assert_eq!(
+            align_of::<AVDOVIDmLevel6>(),
+            align_of::<ffi::AVDOVIDmLevel6>()
+        );
+    }
+
+    #[test]
+    fn levels_three_through_six_round_trip_all_fields() {
+        let mut level3 = CVal::new(AVDOVIDmLevel3::zeroed());
+        level3.as_mut().set_min_pq_offset(11);
+        level3.as_mut().set_max_pq_offset(12);
+        level3.as_mut().set_avg_pq_offset(13);
+        assert_eq!(level3.as_ref().min_pq_offset(), 11);
+        assert_eq!(level3.as_ref().max_pq_offset(), 12);
+        assert_eq!(level3.as_ref().avg_pq_offset(), 13);
+
+        let mut level4 = CVal::new(AVDOVIDmLevel4::zeroed());
+        level4.as_mut().set_anchor_pq(21);
+        level4.as_mut().set_anchor_power(22);
+        assert_eq!(level4.as_ref().anchor_pq(), 21);
+        assert_eq!(level4.as_ref().anchor_power(), 22);
+
+        let mut level5 = CVal::new(AVDOVIDmLevel5::zeroed());
+        level5.as_mut().set_left_offset(31);
+        level5.as_mut().set_right_offset(32);
+        level5.as_mut().set_top_offset(33);
+        level5.as_mut().set_bottom_offset(34);
+        assert_eq!(level5.as_ref().left_offset(), 31);
+        assert_eq!(level5.as_ref().right_offset(), 32);
+        assert_eq!(level5.as_ref().top_offset(), 33);
+        assert_eq!(level5.as_ref().bottom_offset(), 34);
+
+        let mut level6 = CVal::new(AVDOVIDmLevel6::zeroed());
+        level6.as_mut().set_max_luminance(41);
+        level6.as_mut().set_min_luminance(42);
+        level6.as_mut().set_max_cll(43);
+        level6.as_mut().set_max_fall(44);
+        assert_eq!(level6.as_ref().max_luminance(), 41);
+        assert_eq!(level6.as_ref().min_luminance(), 42);
+        assert_eq!(level6.as_ref().max_cll(), 43);
+        assert_eq!(level6.as_ref().max_fall(), 44);
     }
 }
