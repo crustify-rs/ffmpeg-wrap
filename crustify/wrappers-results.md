@@ -85,15 +85,15 @@ in Notes.
 
 ## Overview
 
-- **Rust LoC, non-test** — `12,252`
-- **Rust LoC, tests** — `8,201`
+- **Rust LoC, non-test** — `12,929`
+- **Rust LoC, tests** — `9,851`
 - **C LoC** — `6,072`
 - **ported types** — `0`
 - **ported symbols** — `0`
 - **wrapped types** — `101` (`56%` of API)
-- **wrapped symbols** — `334` (`50%` of API)
+- **wrapped symbols** — `335` (`50%` of API)
 - **remaining types** — `80`
-- **remaining symbols** — `337`
+- **remaining symbols** — `336`
 
 Implementation `openai/gpt-5.6-sol` via `codex`; review
 `anthropic/claude-opus-5` via `claude`. Each row names the model that produced
@@ -793,7 +793,7 @@ One trap worth recording: `query dag --loc` appends a `TOTAL` row to its own
 output. Summing every row it prints double-counts, and the first figure this
 report carried was exactly `2×` the truth until the row was noticed.
 
-**`Rust LoC` — `12,252` non-test and `8,201` tests.** Counted from source over
+**`Rust LoC` — `12,929` non-test and `9,851` tests.** Counted from source over
 the `53` authored `.rs` files under `crustify/rust`, excluding anything
 generated into `target/`, and split by `#[cfg(test)]` module. Nearly half the
 Rust written is test code, which is the shape a wrap campaign should have: the
@@ -807,8 +807,8 @@ code, which is why it yields no test figure at all. Its number is the right
 denominator for the unsafe ratios in that section and the wrong one for how
 much Rust was written.
 
-**The Rust-to-C ratio is not like-for-like in any measure.** `20,453` Rust
-against `6,072` C is not a `3.4×` expansion of the same work: the Rust carries
+**The Rust-to-C ratio is not like-for-like in any measure.** `22,780` Rust
+against `6,072` C is not a `3.8×` expansion of the same work: the Rust carries
 tests, `// SAFETY:` justifications, `ffi_export` gateways and scaffolding with
 no C counterpart, while the C figure is seeds only. Quote it as a size, never
 as an expansion factor.
